@@ -63,7 +63,11 @@ class MainScene extends Phaser.Scene {
       .setDisplaySize(TILE_W * 0.78, TILE_H * 0.78);
     const container = this.add.container(px, py, [side, front, face]);
     container.setSize(TILE_W, TILE_H);
-    container.setDepth(tile.z);
+    // Боковинка стирчить униз-вліво, тож ближчі до глядача тайли
+    // (нижчі ряди, лівіші колонки, вищі шари) малюємо поверх
+    container.setDepth(
+      tile.z * 10000 + tile.y * 100 + (WIDTH - 1 - tile.x),
+    );
     container.setInteractive();
     container.on('pointerdown', () => this.handleTileClick(tile));
     container.tintTargets = [side, front, face];
