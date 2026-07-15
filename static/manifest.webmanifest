@@ -1,0 +1,9 @@
+{
+  "name": "Маджонг",
+  "short_name": "Маджонг",
+  "start_url": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay"],
+  "background_color": "#1d2b1f",
+  "theme_color": "#1d2b1f"
+}
