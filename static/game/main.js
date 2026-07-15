@@ -1,5 +1,8 @@
 import { WIDTH, HEIGHT, LAYERS, Board } from './board.js';
 import { generateLayout, KINDS } from './generator.js';
+import {
+  load as loadStats, save as saveStats, applyWin, applyLoss, winRate, fmtTime,
+} from './stats.js';
 
 const TILE_W = 70; // крок сітки
 const TILE_H = 90;
@@ -18,6 +21,22 @@ const SIDE_EDGE_COLOR = 0x9c7f52;
 
 const tileUrl = (name) => `/static/game/tiles/${name}.png`;
 const statusEl = document.getElementById('status');
+const summaryEl = document.getElementById('stats-summary');
+const hintBtn = document.getElementById('btn-hint');
+const undoBtn = document.getElementById('btn-undo');
+const statsModal = document.getElementById('stats-modal');
+const statsTitleEl = document.getElementById('stats-title');
+const statEls = {
+  played: document.getElementById('stat-played'),
+  won: document.getElementById('stat-won'),
+  winrate: document.getElementById('stat-winrate'),
+  streak: document.getElementById('stat-streak'),
+  bestStreak: document.getElementById('stat-best-streak'),
+  bestTime: document.getElementById('stat-best-time'),
+  hintsTotal: document.getElementById('stat-hints-total'),
+  undosTotal: document.getElementById('stat-undos-total'),
+  pairsTotal: document.getElementById('stat-pairs-total'),
+};
 
 class MainScene extends Phaser.Scene {
   constructor() {
@@ -41,6 +60,23 @@ class MainScene extends Phaser.Scene {
 
     this.sprites = new Map(); // tile -> Phaser container
     this.selected = null;
+
+    const stats = loadStats();
+    for (const [key, value] of Object.entries(stats)) this.registry.set(key, value);
+    this.registry.events.on('changedata', () => this.renderStats());
+
+    this.time.addEvent({
+      delay: 1000,
+      loop: true,
+      callback: () => {
+        if (this.registry.get('gameFinished')) return;
+        this.registry.set('gameElapsedMs', Date.now() - this.registry.get('gameStartMs'));
+      },
+    });
+
+    document.getElementById('btn-stats').addEventListener('click', () => this.toggleStatsModal());
+    document.getElementById('btn-stats-close').addEventListener('click', () => this.closeStatsModal());
+
     this.newGame();
   }
 
@@ -50,7 +86,79 @@ class MainScene extends Phaser.Scene {
     this.selected = null;
     this.board = new Board(generateLayout());
     for (const tile of this.board.tiles()) this.addTileSprite(tile);
+
+    this.registry.set('gameHints', 0);
+    this.registry.set('gameUndos', 0);
+    this.registry.set('gamePairs', 0);
+    this.registry.set('gameStartMs', Date.now());
+    this.registry.set('gameElapsedMs', 0);
+    this.registry.set('gameFinished', false);
+    this.closeStatsModal();
+
     this.updateStatus();
+  }
+
+  // Довічні показники, зібрані з registry — те, що зберігається в localStorage.
+  lifetimeStats() {
+    return {
+      gamesPlayed: this.registry.get('gamesPlayed'),
+      gamesWon: this.registry.get('gamesWon'),
+      hintsTotal: this.registry.get('hintsTotal'),
+      undosTotal: this.registry.get('undosTotal'),
+      pairsTotal: this.registry.get('pairsTotal'),
+      bestTimeMs: this.registry.get('bestTimeMs'),
+      currentStreak: this.registry.get('currentStreak'),
+      bestStreak: this.registry.get('bestStreak'),
+    };
+  }
+
+  openStatsModal(title) {
+    statsTitleEl.textContent = title || 'Статистика';
+    statsModal.classList.add('open');
+  }
+
+  closeStatsModal() {
+    statsModal.classList.remove('open');
+  }
+
+  toggleStatsModal() {
+    if (statsModal.classList.contains('open')) this.closeStatsModal();
+    else this.openStatsModal('Статистика');
+  }
+
+  renderStats() {
+    const hints = this.registry.get('gameHints') || 0;
+    const undos = this.registry.get('gameUndos') || 0;
+    hintBtn.textContent = hints > 0 ? `Підказка (${hints})` : 'Підказка';
+    undoBtn.textContent = undos > 0 ? `Скасувати (${undos})` : 'Скасувати';
+
+    const stats = this.lifetimeStats();
+    const elapsed = this.registry.get('gameElapsedMs') || 0;
+    summaryEl.textContent = `Побед: ${stats.gamesWon}/${stats.gamesPlayed} · Серія: ${stats.currentStreak} · ${fmtTime(elapsed)}`;
+
+    statEls.played.textContent = stats.gamesPlayed;
+    statEls.won.textContent = stats.gamesWon;
+    statEls.winrate.textContent = `${winRate(stats)}%`;
+    statEls.streak.textContent = stats.currentStreak;
+    statEls.bestStreak.textContent = stats.bestStreak;
+    statEls.bestTime.textContent = stats.bestTimeMs == null ? '—' : fmtTime(stats.bestTimeMs);
+    statEls.hintsTotal.textContent = stats.hintsTotal;
+    statEls.undosTotal.textContent = stats.undosTotal;
+    statEls.pairsTotal.textContent = stats.pairsTotal;
+  }
+
+  // Зараховує завершену партію (перемога чи глухий кут) рівно один раз.
+  finishGame(won) {
+    if (this.registry.get('gameFinished')) return;
+    this.registry.set('gameFinished', true);
+    const elapsed = Date.now() - this.registry.get('gameStartMs');
+    this.registry.set('gameElapsedMs', elapsed);
+    const updated = won
+      ? applyWin(this.lifetimeStats(), elapsed)
+      : applyLoss(this.lifetimeStats());
+    for (const [key, value] of Object.entries(updated)) this.registry.set(key, value);
+    saveStats(updated);
+    if (won) this.openStatsModal('Перемога! 🎉');
   }
 
   addTileSprite(tile) {
@@ -108,6 +216,9 @@ class MainScene extends Phaser.Scene {
       this.sprites.delete(tile);
     }
     this.selected = null;
+    this.registry.set('gamePairs', this.registry.get('gamePairs') + 1);
+    this.registry.set('pairsTotal', this.registry.get('pairsTotal') + 1);
+    saveStats(this.lifetimeStats());
     this.updateStatus();
   }
 
@@ -119,6 +230,9 @@ class MainScene extends Phaser.Scene {
       this.selected = null;
     }
     for (const tile of pair) this.addTileSprite(tile);
+    this.registry.set('gameUndos', this.registry.get('gameUndos') + 1);
+    this.registry.set('undosTotal', this.registry.get('undosTotal') + 1);
+    saveStats(this.lifetimeStats());
     this.updateStatus();
   }
 
@@ -134,13 +248,18 @@ class MainScene extends Phaser.Scene {
         repeat: 3,
       });
     }
+    this.registry.set('gameHints', this.registry.get('gameHints') + 1);
+    this.registry.set('hintsTotal', this.registry.get('hintsTotal') + 1);
+    saveStats(this.lifetimeStats());
   }
 
   updateStatus() {
     if (this.board.isWon()) {
       statusEl.textContent = 'Перемога! 🎉';
+      this.finishGame(true);
     } else if (this.board.isDeadlocked()) {
       statusEl.textContent = 'Немає ходів — почніть нову гру';
+      this.finishGame(false);
     } else {
       statusEl.textContent = `Тайлів: ${this.board.remaining}`;
     }
