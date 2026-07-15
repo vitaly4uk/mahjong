@@ -18,5 +18,4 @@ RUN uv run manage.py collectstatic --noinput
 
 ENV PATH="/app/.venv/bin:$PATH"
 
-EXPOSE 5000
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:5000"]
+CMD gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000}
