@@ -29,13 +29,23 @@
     height: 36px; box-sizing: content-box; flex: none;
   }
   #toolbar button {
-    padding: 8px 14px; font-size: 15px; border: 0; border-radius: 6px;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; font-size: 15px; font-weight: 500;
+    border: 0; border-radius: 6px;
     background: #3a5a40; color: #fff; cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: background .15s ease;
     -webkit-app-region: no-drag;
   }
   #toolbar button:hover { background: #4c7454; }
-  #status { margin-left: 12px; font-size: 15px; }
-  #stats-summary { margin-left: 12px; font-size: 14px; color: #cde; }
+  #status {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-left: 12px; font-size: 15px;
+  }
+  #stats-summary {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-left: 12px; font-size: 14px; color: #cde;
+  }
   /* Фіксована висота (вьюпорт мінус тулбар і зона заголовка), щоб розмір
      контейнера не залежав від канваса — інакше Scale.FIT масштабує ривками */
   #game-container {
@@ -46,52 +56,79 @@
   #stats-modal {
     display: none; position: fixed; inset: 0; z-index: 10;
     background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
     align-items: center; justify-content: center;
     -webkit-app-region: no-drag;
+    animation: stats-overlay-in .18s ease;
   }
   #stats-modal.open { display: flex; }
   #stats-modal .panel {
-    background: #24352a; border-radius: 10px; padding: 20px 24px;
+    background: #24352a; border-radius: 10px; padding: 24px 28px;
     min-width: 260px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    animation: stats-panel-in .2s ease;
   }
-  #stats-modal h2 { margin: 0 0 12px; font-size: 18px; }
+  #stats-modal h2 {
+    margin: 0 0 20px; font-size: 20px; text-align: center;
+  }
   #stats-modal dl {
-    display: grid; grid-template-columns: auto auto; gap: 4px 16px;
-    margin: 0 0 16px; font-size: 14px;
+    display: grid; grid-template-columns: auto auto; gap: 9px 20px;
+    margin: 0 0 24px; font-size: 14px;
   }
   #stats-modal dt { color: #9bb; }
   #stats-modal dd { margin: 0; text-align: right; font-weight: 600; }
+  #stats-modal .actions {
+    margin-top: -4px; padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    text-align: center;
+  }
   #stats-modal button {
-    padding: 6px 14px; font-size: 14px; border: 0; border-radius: 6px;
+    padding: 6px 20px; font-size: 14px; font-weight: 500;
+    border: 0; border-radius: 6px; min-width: 120px;
     background: #3a5a40; color: #fff; cursor: pointer;
+    transition: background .15s ease;
+  }
+  #stats-modal button:hover { background: #4c7454; }
+  @keyframes stats-overlay-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes stats-panel-in {
+    from { opacity: 0; transform: translateY(6px) scale(.97); }
+    to { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #stats-modal, #stats-modal .panel { animation: none; }
   }
 </style>
 </head>
 <body>
 <div id="toolbar">
-  <button id="btn-new">Нова гра</button>
-  <button id="btn-hint">Підказка</button>
-  <button id="btn-undo">Скасувати</button>
-  <button id="btn-stats">Статистика</button>
+  <button id="btn-new">🆕 Нова гра</button>
+  <button id="btn-hint">💡 Підказка</button>
+  <button id="btn-undo">↩️ Скасувати</button>
+  <button id="btn-stats">📊 Статистика</button>
   <span id="status"></span>
   <span id="stats-summary"></span>
 </div>
 <div id="game-container"></div>
 <div id="stats-modal">
   <div class="panel">
-    <h2 id="stats-title">Статистика</h2>
+    <h2 id="stats-title">📊 Статистика</h2>
     <dl>
-      <dt>Зіграно партій</dt><dd id="stat-played">0</dd>
-      <dt>Перемог</dt><dd id="stat-won">0</dd>
-      <dt>% перемог</dt><dd id="stat-winrate">0%</dd>
-      <dt>Поточна серія</dt><dd id="stat-streak">0</dd>
-      <dt>Рекордна серія</dt><dd id="stat-best-streak">0</dd>
-      <dt>Найкращий час</dt><dd id="stat-best-time">—</dd>
-      <dt>Підказок усього</dt><dd id="stat-hints-total">0</dd>
-      <dt>Скасувань усього</dt><dd id="stat-undos-total">0</dd>
-      <dt>Знято пар усього</dt><dd id="stat-pairs-total">0</dd>
+      <dt>📋 Зіграно партій</dt><dd id="stat-played">0</dd>
+      <dt>🏆 Перемог</dt><dd id="stat-won">0</dd>
+      <dt>📈 % перемог</dt><dd id="stat-winrate">0%</dd>
+      <dt>🔥 Поточна серія</dt><dd id="stat-streak">0</dd>
+      <dt>⭐ Рекордна серія</dt><dd id="stat-best-streak">0</dd>
+      <dt>⏱️ Найкращий час</dt><dd id="stat-best-time">—</dd>
+      <dt>💡 Підказок усього</dt><dd id="stat-hints-total">0</dd>
+      <dt>↩️ Скасувань усього</dt><dd id="stat-undos-total">0</dd>
+      <dt>🀄 Знято пар усього</dt><dd id="stat-pairs-total">0</dd>
     </dl>
-    <button id="btn-stats-close">Закрити</button>
+    <div class="actions">
+      <button id="btn-stats-close">✖ Закрити</button>
+    </div>
   </div>
 </div>
 <script src="{% static 'vendor/phaser.min.js' %}"></script>

@@ -113,7 +113,7 @@ class MainScene extends Phaser.Scene {
   }
 
   openStatsModal(title) {
-    statsTitleEl.textContent = title || 'Статистика';
+    statsTitleEl.textContent = title || '📊 Статистика';
     statsModal.classList.add('open');
   }
 
@@ -123,18 +123,18 @@ class MainScene extends Phaser.Scene {
 
   toggleStatsModal() {
     if (statsModal.classList.contains('open')) this.closeStatsModal();
-    else this.openStatsModal('Статистика');
+    else this.openStatsModal('📊 Статистика');
   }
 
   renderStats() {
     const hints = this.registry.get('gameHints') || 0;
     const undos = this.registry.get('gameUndos') || 0;
-    hintBtn.textContent = hints > 0 ? `Підказка (${hints})` : 'Підказка';
-    undoBtn.textContent = undos > 0 ? `Скасувати (${undos})` : 'Скасувати';
+    hintBtn.textContent = hints > 0 ? `💡 Підказка (${hints})` : '💡 Підказка';
+    undoBtn.textContent = undos > 0 ? `↩️ Скасувати (${undos})` : '↩️ Скасувати';
 
     const stats = this.lifetimeStats();
     const elapsed = this.registry.get('gameElapsedMs') || 0;
-    summaryEl.textContent = `Побед: ${stats.gamesWon}/${stats.gamesPlayed} · Серія: ${stats.currentStreak} · ${fmtTime(elapsed)}`;
+    summaryEl.textContent = `🏆 ${stats.gamesWon}/${stats.gamesPlayed} · 🔥 ${stats.currentStreak} · ⏱️ ${fmtTime(elapsed)}`;
 
     statEls.played.textContent = stats.gamesPlayed;
     statEls.won.textContent = stats.gamesWon;
@@ -158,7 +158,7 @@ class MainScene extends Phaser.Scene {
       : applyLoss(this.lifetimeStats());
     for (const [key, value] of Object.entries(updated)) this.registry.set(key, value);
     saveStats(updated);
-    if (won) this.openStatsModal('Перемога! 🎉');
+    if (won) this.openStatsModal('🎉 Перемога!');
   }
 
   addTileSprite(tile) {
@@ -255,13 +255,13 @@ class MainScene extends Phaser.Scene {
 
   updateStatus() {
     if (this.board.isWon()) {
-      statusEl.textContent = 'Перемога! 🎉';
+      statusEl.textContent = '🎉 Перемога!';
       this.finishGame(true);
     } else if (this.board.isDeadlocked()) {
-      statusEl.textContent = 'Немає ходів — почніть нову гру';
+      statusEl.textContent = '🚫 Немає ходів — почніть нову гру';
       this.finishGame(false);
     } else {
-      statusEl.textContent = `Тайлів: ${this.board.remaining}`;
+      statusEl.textContent = `🀄 Залишилось: ${this.board.remaining}`;
     }
   }
 }
