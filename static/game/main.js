@@ -1,8 +1,10 @@
 import { WIDTH, HEIGHT, LAYERS, Board } from './board.js';
 import { generateLayout, KINDS } from './generator.js';
 
-const TILE_W = 70;
+const TILE_W = 70; // крок сітки
 const TILE_H = 90;
+const FACE_W = TILE_W - 6; // кришка менша за крок — між кістками видно зазор
+const FACE_H = TILE_H - 6;
 const LAYER_DX = 8; // зсув шару вгору-вправо для псевдо-3D
 const LAYER_DY = 10;
 const MARGIN = 30;
@@ -31,10 +33,10 @@ class MainScene extends Phaser.Scene {
     // Текстура боковинки: кремовий заокруглений прямокутник з темнішим краєм
     const g = this.make.graphics({}, false);
     g.fillStyle(SIDE_COLOR);
-    g.fillRoundedRect(0, 0, TILE_W, TILE_H, 8);
+    g.fillRoundedRect(0, 0, FACE_W, FACE_H, 8);
     g.lineStyle(2, SIDE_EDGE_COLOR);
-    g.strokeRoundedRect(1, 1, TILE_W - 2, TILE_H - 2, 8);
-    g.generateTexture('tileSide', TILE_W, TILE_H);
+    g.strokeRoundedRect(1, 1, FACE_W - 2, FACE_H - 2, 8);
+    g.generateTexture('tileSide', FACE_W, FACE_H);
     g.destroy();
 
     this.sprites = new Map(); // tile -> Phaser container
@@ -57,10 +59,10 @@ class MainScene extends Phaser.Scene {
       + tile.y * TILE_H + TILE_H / 2 - tile.z * LAYER_DY;
     // Боковинка зсунута вниз-вліво — протилежно до зсуву шарів угору-вправо
     const side = this.add.image(-LAYER_DX, LAYER_DY, 'tileSide')
-      .setDisplaySize(TILE_W, TILE_H);
-    const front = this.add.image(0, 0, 'Front').setDisplaySize(TILE_W, TILE_H);
+      .setDisplaySize(FACE_W, FACE_H);
+    const front = this.add.image(0, 0, 'Front').setDisplaySize(FACE_W, FACE_H);
     const face = this.add.image(0, -3, tile.kind)
-      .setDisplaySize(TILE_W * 0.78, TILE_H * 0.78);
+      .setDisplaySize(FACE_W * 0.78, FACE_H * 0.78);
     const container = this.add.container(px, py, [side, front, face]);
     container.setSize(TILE_W, TILE_H);
     // Боковинка стирчить униз-вліво, тож ближчі до глядача тайли
