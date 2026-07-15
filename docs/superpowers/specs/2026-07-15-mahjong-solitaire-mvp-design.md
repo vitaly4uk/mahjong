@@ -67,7 +67,7 @@ MVP браузерної гри «маджонг-пасьянс» на Phaser 3,
 
 ## Тестування
 
-Логіка (board.js, generator.js) — чисті ES-модулі, тести через вбудований `node:test` (без package.json): `node --test tests/`.
+Логіка (board.js, generator.js) — чисті ES-модулі, тести через вбудований `node:test` (без package.json): `node --test 'tests/*.test.js'`.
 
 Ключові тести:
 - Правило вільності (зверху зайнято / обидва боки зайняті / крайові випадки).

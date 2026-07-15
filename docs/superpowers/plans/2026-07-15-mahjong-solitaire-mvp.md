@@ -19,7 +19,7 @@
 - 34 види тайлів: Man1–9, Pin1–9, Sou1–9, Ton, Nan, Shaa, Pei, Haku, Hatsu, Chun. Імена = імена PNG-файлів.
 - 121 пара = 19 випадкових видів × 4 пари + 15 видів × 3 пари.
 - Dockerfile, Procfile, pyproject.toml — не змінювати.
-- Тести: `node --test tests/` з кореня репо.
+- Тести: `node --test 'tests/*.test.js'` з кореня репо.
 
 ---
 
@@ -47,7 +47,7 @@
     - `isWon()` → boolean
     - `isDeadlocked()` → boolean (`remaining > 0` і немає пар)
 
-- [ ] **Step 1: Написати падаючі тести**
+- [x] **Step 1: Написати падаючі тести**
 
 Створити `tests/board.test.js`:
 
@@ -164,12 +164,12 @@ test('tiles() returns remaining tiles', () => {
 });
 ```
 
-- [ ] **Step 2: Переконатися, що тести падають**
+- [x] **Step 2: Переконатися, що тести падають**
 
-Run: `node --test tests/`
+Run: `node --test 'tests/*.test.js'`
 Expected: FAIL — `Cannot find module .../static/game/board.js`
 
-- [ ] **Step 3: Реалізувати board.js**
+- [x] **Step 3: Реалізувати board.js**
 
 Створити `static/game/board.js`:
 
@@ -260,12 +260,12 @@ export class Board {
 }
 ```
 
-- [ ] **Step 4: Переконатися, що тести проходять**
+- [x] **Step 4: Переконатися, що тести проходять**
 
-Run: `node --test tests/`
+Run: `node --test 'tests/*.test.js'`
 Expected: PASS, 10 тестів.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add static/game/board.js tests/board.test.js
@@ -288,7 +288,7 @@ git commit -m "feat: mahjong board model with free-tile rule, match/undo, deadlo
 
 **Алгоритм (симуляція зворотної гри):** заповнюємо всю цільову форму анонімними позиціями; далі граємо «в майбутнє»: на кожному кроці знаходимо всі вільні позиції (за правилом зняття), беремо дві випадкові, призначаємо їм черговий вид пари і знімаємо. Записаний порядок зняття = готовий розв'язок. Якщо вільних < 2 (рідкісний глухий кут, наприклад дві позиції одна над одною наприкінці) — повний рестарт спроби.
 
-- [ ] **Step 1: Написати падаючі тести**
+- [x] **Step 1: Написати падаючі тести**
 
 Створити `tests/generator.test.js`:
 
@@ -358,12 +358,12 @@ test('layout is solvable by removing pairs in generation order (30 seeds)', () =
 });
 ```
 
-- [ ] **Step 2: Переконатися, що нові тести падають**
+- [x] **Step 2: Переконатися, що нові тести падають**
 
-Run: `node --test tests/`
+Run: `node --test 'tests/*.test.js'`
 Expected: board-тести PASS, generator-тести FAIL (`Cannot find module .../generator.js`).
 
-- [ ] **Step 3: Реалізувати generator.js**
+- [x] **Step 3: Реалізувати generator.js**
 
 Створити `static/game/generator.js`:
 
@@ -429,12 +429,12 @@ export function generateLayout(rng = Math.random) {
 }
 ```
 
-- [ ] **Step 4: Переконатися, що всі тести проходять**
+- [x] **Step 4: Переконатися, що всі тести проходять**
 
-Run: `node --test tests/`
+Run: `node --test 'tests/*.test.js'`
 Expected: PASS, 15 тестів (10 board + 5 generator). Тест на 30 сідів має пройти за секунди.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add static/game/generator.js tests/generator.test.js
@@ -459,7 +459,7 @@ git commit -m "feat: guaranteed-solvable layout generator via reverse-game simul
   - Сторінка `/` з DOM: `#toolbar` (кнопки `#btn-new`, `#btn-hint`, `#btn-undo`, статус `#status`), контейнер `#game-container`, підключені `vendor/phaser.min.js` (звичайний script) і `game/main.js` (module).
   - Тайли доступні за URL `/static/game/tiles/<Kind>.png`.
 
-- [ ] **Step 1: Завантажити Phaser і тайли**
+- [x] **Step 1: Завантажити Phaser і тайли**
 
 ```bash
 cd /Users/vitaly4uk/Documents/GitHub/mahjong
@@ -479,7 +479,7 @@ ls static/game/tiles | wc -l   # очікується 35
 
 Перевірити розмір одного PNG (`file static/game/tiles/Man1.png`) — має бути валідний PNG.
 
-- [ ] **Step 2: Додати STATICFILES_DIRS у settings.py**
+- [x] **Step 2: Додати STATICFILES_DIRS у settings.py**
 
 У `config/settings.py` після рядка `STATIC_ROOT = BASE_DIR / 'staticfiles'` додати:
 
@@ -489,7 +489,7 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 
 Переконатися, що `.gitignore` містить рядок `staticfiles/` (додати, якщо немає).
 
-- [ ] **Step 3: Створити templates/game.html**
+- [x] **Step 3: Створити templates/game.html**
 
 ```html
 {% load static %}
@@ -529,7 +529,7 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 </html>
 ```
 
-- [ ] **Step 4: Переключити корінь на гру**
+- [x] **Step 4: Переключити корінь на гру**
 
 У `config/urls.py` замінити рядок з `coming_soon.html`:
 
@@ -539,7 +539,7 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 
 (Шаблон `templates/coming_soon.html` можна лишити — не заважає.)
 
-- [ ] **Step 5: Перевірка**
+- [x] **Step 5: Перевірка**
 
 `static/game/main.js` ще не існує — створити тимчасову заглушку, щоб перевірити сторінку:
 
@@ -554,7 +554,7 @@ kill %1
 uv run manage.py collectstatic --noinput --dry-run | tail -1   # без помилок
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add static/vendor static/game templates/game.html config/settings.py config/urls.py .gitignore
@@ -576,7 +576,7 @@ git commit -m "feat: game page, Phaser vendor bundle, CC0 riichi tile assets (Fl
   - Глобальний `Phaser` (vendor-скрипт)
 - Produces: повнофункціональна гра на `/`.
 
-- [ ] **Step 1: Реалізувати main.js**
+- [x] **Step 1: Реалізувати main.js**
 
 ```js
 import { WIDTH, HEIGHT, LAYERS, Board } from './board.js';
@@ -725,12 +725,12 @@ document.getElementById('btn-hint').addEventListener('click', () => scene().hint
 document.getElementById('btn-undo').addEventListener('click', () => scene().undo());
 ```
 
-- [ ] **Step 2: Запустити всі логічні тести (регресія)**
+- [x] **Step 2: Запустити всі логічні тести (регресія)**
 
-Run: `node --test tests/`
+Run: `node --test 'tests/*.test.js'`
 Expected: PASS, 15 тестів.
 
-- [ ] **Step 3: Смоук-тест у браузері**
+- [x] **Step 3: Смоук-тест у браузері**
 
 ```bash
 uv run manage.py runserver 8000
@@ -743,14 +743,14 @@ uv run manage.py runserver 8000
 - Клік по заблокованому тайлу (центр нижнього шару) — нічого не відбувається.
 - «Підказка» — пара блимає; «Скасувати» — пара повертається; «Нова гра» — новий розклад із 242 тайлів.
 
-- [ ] **Step 4: Перевірити prod-збірку статики**
+- [x] **Step 4: Перевірити prod-збірку статики**
 
 ```bash
 uv run manage.py collectstatic --noinput
 ```
 Expected: зібрано без помилок (whitenoise manifest). Каталог `staticfiles/` не потрапляє в git.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add static/game/main.js
@@ -761,9 +761,9 @@ git commit -m "feat: Phaser scene — rendering, matching, hint, undo, deadlock/
 
 ## Верифікація по спеці (чекліст фіналу)
 
-- [ ] 242 тайли (9×9×3 мінус центр верхнього шару) — тест `targetPositions`.
-- [ ] Правило вільності — тести board.
-- [ ] Гарантована розв'язність — тест на 30 сідів.
-- [ ] 34 види, 19×4 + 15×3 пари — тест розподілу.
-- [ ] Нова гра / підказка / undo / детекція глухого кута — браузерний смоук.
-- [ ] Dockerfile/Procfile незмінні, collectstatic працює.
+- [x] 242 тайли (9×9×3 мінус центр верхнього шару) — тест `targetPositions`.
+- [x] Правило вільності — тести board.
+- [x] Гарантована розв'язність — тест на 30 сідів.
+- [x] 34 види, 19×4 + 15×3 пари — тест розподілу.
+- [x] Нова гра / підказка / undo / детекція глухого кута — браузерний смоук.
+- [x] Dockerfile/Procfile незмінні, collectstatic працює.
