@@ -116,31 +116,16 @@ function pickSurfacePair(free, rng) {
 // uniform/layered: перша половинка — рівномірно випадкова вільна позиція,
 // друга — рівномірно випадкова з тих, що не суміжні з першою (KMahjongg,
 // selectPosition). У layered додатково вимагається інший шар, коли такі
-// кандидати є. Якщо фільтр не лишає нікого — bail-out на інші шари, потім на
-// будь-яку: генерація ніколи не застрягає.
+// кандидати є. Якщо фільтр не лишає нікого — bail-out до "будь-яка вільна,
+// крім першої": за гарантії free.length >= 2 цей набір ніколи не порожній.
 function pickSpreadPair(free, rng, requireLayerSplit) {
   const a = free[Math.floor(rng() * free.length)];
   let candidates = free.filter((p) => p !== a && !isAdjacent(p, a));
-
   if (requireLayerSplit) {
     const crossLayer = candidates.filter((p) => p.z !== a.z);
-    if (crossLayer.length > 0) {
-      candidates = crossLayer;
-    } else if (candidates.length === 0) {
-      // No non-adjacent; try cross-layer without adjacency constraint
-      candidates = free.filter((p) => p !== a && p.z !== a.z);
-      if (candidates.length === 0) {
-        candidates = free.filter((p) => p !== a);
-      }
-    }
-  } else if (candidates.length === 0) {
-    // uniform: no non-adjacent found; try cross-layer, then any
-    candidates = free.filter((p) => p !== a && p.z !== a.z);
-    if (candidates.length === 0) {
-      candidates = free.filter((p) => p !== a);
-    }
+    if (crossLayer.length > 0) candidates = crossLayer;
   }
-
+  if (candidates.length === 0) candidates = free.filter((p) => p !== a);
   const b = candidates[Math.floor(rng() * candidates.length)];
   return [a, b];
 }
@@ -159,22 +144,12 @@ function tryGenerate(rng, { placement = 'uniform', pairScheduling = 'random' } =
     const free = [...occupied.values()].filter(
       (p) => isFreePosition(occupied, p.x, p.y, p.z),
     );
-    const maxZ = Math.max(...free.map((p) => p.z));
-    const topFree = free.filter((p) => p.z === maxZ);
-
-    let a;
-    let b;
-    if (topFree.length === 1) {
-      // Непарний хвіст верхнього шару: єдина вільна кість на верхньому шарі
-      // спарюється з довільною вільною кісткою нижче.
-      a = topFree[0];
-      const rest = free.filter((p) => p !== a);
-      b = rest[Math.floor(rng() * rest.length)];
-    } else if (placement === 'surface') {
-      [a, b] = pickSurfacePair(free, rng);
-    } else {
-      [a, b] = pickSpreadPair(free, rng, placement === 'layered');
-    }
+    // Глухий кут: лишилися кості, але вільних менше двох (останні дві —
+    // одна над одною). Валідної пари не існує — сигналізуємо перегенерацію.
+    if (free.length < 2) return null;
+    const [a, b] = placement === 'surface'
+      ? pickSurfacePair(free, rng)
+      : pickSpreadPair(free, rng, placement === 'layered');
 
     const kind = pairKinds.pop();
     tiles.push({ x: a.x, y: a.y, z: a.z, kind }, { x: b.x, y: b.y, z: b.z, kind });
@@ -184,8 +159,14 @@ function tryGenerate(rng, { placement = 'uniform', pairScheduling = 'random' } =
   return tiles;
 }
 
+// Глухий кут трапляється у ~13% спроб для uniform (див. спеку) — очікувано
+// ~1.2 спроби; межа 100 — захист від майбутніх регресій, не робочий шлях.
 export function generateLayout(rng = Math.random, options = {}) {
-  return tryGenerate(rng, options);
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const tiles = tryGenerate(rng, options);
+    if (tiles !== null) return tiles;
+  }
+  throw new Error('generateLayout: не вдалося уникнути глухого кута за 100 спроб');
 }
 
 // Найближча відстань значення до інтервалу [lo, hi]; 0, якщо значення в межах.

@@ -47,13 +47,18 @@ test('measureWinRate: deterministic on a fixed seed', () => {
   assert.equal(rate1, rate2);
 });
 
-test('measureWinRate: surface layouts win far more often than uniform', () => {
-  const tilesSurface = generateLayout(mulberry32(11), { placement: 'surface' });
-  const tilesUniform = generateLayout(mulberry32(11), { placement: 'uniform' });
-  const rateSurface = measureWinRate(tilesSurface, mulberry32(1), 30);
-  const rateUniform = measureWinRate(tilesUniform, mulberry32(1), 30);
+test('measureWinRate: surface layouts win more often than uniform (averaged over 10 seeds)', () => {
+  // Порівняння на одному сіді зашумлене — усереднюємо по кількох розкладах.
+  let sumSurface = 0;
+  let sumUniform = 0;
+  for (let seed = 1; seed <= 10; seed++) {
+    const tilesSurface = generateLayout(mulberry32(seed), { placement: 'surface' });
+    const tilesUniform = generateLayout(mulberry32(seed), { placement: 'uniform' });
+    sumSurface += measureWinRate(tilesSurface, mulberry32(seed + 1000), 16);
+    sumUniform += measureWinRate(tilesUniform, mulberry32(seed + 1000), 16);
+  }
   assert.ok(
-    rateSurface > rateUniform,
-    `expected surface to win more often: surface=${rateSurface}, uniform=${rateUniform}`,
+    sumSurface > sumUniform,
+    `expected surface to win more often on average: surface=${sumSurface / 10}, uniform=${sumUniform / 10}`,
   );
 });
