@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { generateLayout, KINDS, isAdjacent } from '../static/game/generator.js';
+import {
+  generateLayout, generateForDifficulty, DIFFICULTIES, KINDS, isAdjacent,
+} from '../static/game/generator.js';
 import { Board, targetPositions, posKey } from '../static/game/board.js';
+import { carelessPlay, measureWinRate } from '../static/game/simulate.js';
 
 // Детермінований PRNG для відтворюваних тестів.
 function mulberry32(seed) {
@@ -79,57 +82,102 @@ test('adjacencyBias=1: most generated pairs are adjacent tiles (averaged over se
   );
 });
 
-// Модель "неуважного" гравця: на кожному кроці бере випадкову пару серед тих,
-// що зачіпають найвищий ще не розібраний шар (гравець природно тягнеться до
-// відкритих кісток зверху), без прорахунку наперед. Якщо на верхньому шарі
-// пар немає — бере довільну доступну.
-function randomPlayTopFirst(board, rng) {
-  for (;;) {
-    const byKind = new Map();
-    let maxZ = -1;
-    for (const tile of board.tiles()) {
-      if (!board.isFree(tile)) continue;
-      if (tile.z > maxZ) maxZ = tile.z;
-      const list = byKind.get(tile.kind) ?? [];
-      list.push(tile);
-      byKind.set(tile.kind, list);
-    }
-    let pairs = [];
-    for (const list of byKind.values()) {
-      for (let i = 0; i < list.length; i++) {
-        for (let j = i + 1; j < list.length; j++) {
-          if (list[i].z === maxZ || list[j].z === maxZ) pairs.push([list[i], list[j]]);
-        }
-      }
-    }
-    if (pairs.length === 0) {
-      for (const list of byKind.values()) {
-        for (let i = 0; i < list.length; i++) {
-          for (let j = i + 1; j < list.length; j++) pairs.push([list[i], list[j]]);
-        }
-      }
-    }
-    if (pairs.length === 0) break;
-    const [a, b] = pairs[Math.floor(rng() * pairs.length)];
-    board.removePair(a, b);
-  }
-  return board.isWon();
-}
-
 test('adjacencyBias=1 layouts survive careless play far more often than adjacencyBias=0', () => {
   const trials = 100;
   let winsHigh = 0;
   let winsLow = 0;
   for (let seed = 1; seed <= trials; seed++) {
     const boardHigh = new Board(generateLayout(mulberry32(seed), { adjacencyBias: 1 }));
-    if (randomPlayTopFirst(boardHigh, mulberry32(seed + 100000))) winsHigh += 1;
+    if (carelessPlay(boardHigh, mulberry32(seed + 100000))) winsHigh += 1;
 
     const boardLow = new Board(generateLayout(mulberry32(seed), { adjacencyBias: 0 }));
-    if (randomPlayTopFirst(boardLow, mulberry32(seed + 100000))) winsLow += 1;
+    if (carelessPlay(boardLow, mulberry32(seed + 100000))) winsLow += 1;
   }
   assert.ok(
     winsHigh > winsLow,
     `expected adjacencyBias=1 to win more often: high=${winsHigh}, low=${winsLow}`,
   );
   assert.ok(winsHigh / trials >= 0.6, `expected win rate >=60%, got ${winsHigh}/${trials}`);
+});
+
+test('pairScheduling=grouped: pairs of a kind are contiguous in the queue', () => {
+  // Спостерігаємо непрямо: у розкладі, згенерованому з grouped, кожен вид
+  // з'являється підряд у порядку зняття (tiles-масив = порядок generation,
+  // тобто зворотний до порядку зняття, але суміжність видів зберігається).
+  const tiles = generateLayout(mulberry32(4), { pairScheduling: 'grouped' });
+  const kindsInOrder = [];
+  for (let i = 0; i < tiles.length; i += 2) kindsInOrder.push(tiles[i].kind);
+  // Кожен вид має утворювати один суцільний блок у послідовності генерації.
+  const seenBlocks = new Set();
+  let prevKind = null;
+  for (const kind of kindsInOrder) {
+    if (kind !== prevKind) {
+      assert.ok(!seenBlocks.has(kind), `kind ${kind} appeared in more than one block`);
+      seenBlocks.add(kind);
+      prevKind = kind;
+    }
+  }
+});
+
+test('pairScheduling=split: a kind\'s pairs land in opposite halves of the generation order', () => {
+  const tiles = generateLayout(mulberry32(5), { pairScheduling: 'split' });
+  const kindsInOrder = [];
+  for (let i = 0; i < tiles.length; i += 2) kindsInOrder.push(tiles[i].kind);
+  const half = Math.floor(kindsInOrder.length / 2);
+  const firstHalfKinds = new Set(kindsInOrder.slice(0, half));
+  const secondHalfKinds = new Set(kindsInOrder.slice(half));
+  const kindsInBoth = [...firstHalfKinds].filter((k) => secondHalfKinds.has(k));
+  assert.ok(
+    kindsInBoth.length > 0,
+    'expected at least some kinds split across both halves of the generation order',
+  );
+});
+
+test('crossLayerChance=1: layout is still solvable in generation order (30 seeds)', () => {
+  for (let seed = 1; seed <= 30; seed++) {
+    const tiles = generateLayout(mulberry32(seed), { crossLayerChance: 1 });
+    const board = new Board(tiles);
+    for (let i = 0; i < tiles.length; i += 2) {
+      assert.equal(
+        board.removePair(tiles[i], tiles[i + 1]), true,
+        `seed ${seed}: pair ${i / 2} not removable`,
+      );
+    }
+    assert.ok(board.isWon(), `seed ${seed}: board not empty`);
+  }
+});
+
+// generateForDifficulty приймає перший розклад, що влучив у смугу, або (за
+// 30 спроб) найближчий кандидат — тож окремий сід іноді може лишитись поза
+// смугою (шум вимірювання win-rate одним розкладом). Калібрування оцінюється
+// агрегатно: середнє по сідах близьке до смуги, і переважна більшість сідів
+// влучає в межах допуску — а не "кожен окремий сід влучає точно".
+test('generateForDifficulty: each level lands its win rate in the target band on average (~20 seeds)', () => {
+  const SEEDS = 20;
+  const TOLERANCE = 0.15; // допуск на шум вимірювання одним розкладом
+  for (const level of Object.keys(DIFFICULTIES)) {
+    const { winRateBand } = DIFFICULTIES[level];
+    let sum = 0;
+    let withinTolerance = 0;
+    for (let seed = 1; seed <= SEEDS; seed++) {
+      const rng = mulberry32(seed * 1000 + level.length);
+      const tiles = generateForDifficulty(level, rng);
+      // Незалежний rng для оцінки — не той самий потік, що використовувався
+      // всередині generateForDifficulty для генерації/відбору.
+      const rate = measureWinRate(tiles, mulberry32(seed + 777), 40);
+      sum += rate;
+      if (rate >= winRateBand[0] - TOLERANCE && rate <= winRateBand[1] + TOLERANCE) {
+        withinTolerance += 1;
+      }
+    }
+    const avg = sum / SEEDS;
+    assert.ok(
+      avg >= winRateBand[0] - TOLERANCE / 2 && avg <= winRateBand[1] + TOLERANCE / 2,
+      `${level}: average win rate ${avg} not close to band [${winRateBand}]`,
+    );
+    assert.ok(
+      withinTolerance >= SEEDS * 0.8,
+      `${level}: only ${withinTolerance}/${SEEDS} seeds within tolerance of band [${winRateBand}]`,
+    );
+  }
 });

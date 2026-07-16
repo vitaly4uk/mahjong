@@ -53,7 +53,7 @@
     height: calc(100vh - 56px - var(--safe-top)); flex: none;
     -webkit-app-region: no-drag;
   }
-  #stats-modal {
+  #stats-modal, #newgame-modal {
     display: none; position: fixed; inset: 0; z-index: 10;
     background: rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
@@ -61,34 +61,58 @@
     -webkit-app-region: no-drag;
     animation: stats-overlay-in .18s ease;
   }
-  #stats-modal.open { display: flex; }
-  #stats-modal .panel {
+  #stats-modal.open, #newgame-modal.open { display: flex; }
+  #stats-modal .panel, #newgame-modal .panel {
     background: #24352a; border-radius: 10px; padding: 24px 28px;
     min-width: 260px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.06);
     animation: stats-panel-in .2s ease;
+    max-height: calc(100vh - 40px); overflow-y: auto;
   }
-  #stats-modal h2 {
+  #stats-modal h2, #newgame-modal h2 {
     margin: 0 0 20px; font-size: 20px; text-align: center;
   }
   #stats-modal dl {
     display: grid; grid-template-columns: auto auto; gap: 9px 20px;
-    margin: 0 0 24px; font-size: 14px;
+    margin: 0 0 12px; font-size: 14px;
   }
   #stats-modal dt { color: #9bb; }
   #stats-modal dd { margin: 0; text-align: right; font-weight: 600; }
-  #stats-modal .actions {
+  #stats-modal .actions, #newgame-modal .actions {
     margin-top: -4px; padding-top: 16px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     text-align: center;
   }
-  #stats-modal button {
+  #stats-modal button, #newgame-modal button {
     padding: 6px 20px; font-size: 14px; font-weight: 500;
     border: 0; border-radius: 6px; min-width: 120px;
     background: #3a5a40; color: #fff; cursor: pointer;
     transition: background .15s ease;
   }
-  #stats-modal button:hover { background: #4c7454; }
+  #stats-modal button:hover, #newgame-modal button:hover { background: #4c7454; }
+  #newgame-modal .levels {
+    display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px;
+  }
+  #newgame-modal .levels button {
+    padding: 10px 20px; font-size: 15px; font-weight: 500;
+    border: 0; border-radius: 6px; min-width: 180px;
+    background: #3a5a40; color: #fff; cursor: pointer;
+    transition: background .15s ease;
+  }
+  #newgame-modal .levels button:hover { background: #4c7454; }
+  #newgame-modal .levels button.selected {
+    background: #6ea56f; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3) inset;
+  }
+  #stats-modal .level-block { margin-bottom: 22px; }
+  #stats-modal .level-block h3 {
+    margin: 0 0 10px; font-size: 15px; color: #cde;
+  }
+  #stats-modal .level-block.current h3 { color: #fff; }
+  #stats-modal .level-block.current h3::after { content: ' ← поточний'; font-size: 12px; color: #9bb; }
+  #difficulty-label {
+    display: inline-flex; align-items: center; margin-left: 4px;
+    font-size: 14px; color: #cde;
+  }
   @keyframes stats-overlay-in {
     from { opacity: 0; }
     to { opacity: 1; }
@@ -98,7 +122,7 @@
     to { opacity: 1; transform: none; }
   }
   @media (prefers-reduced-motion: reduce) {
-    #stats-modal, #stats-modal .panel { animation: none; }
+    #stats-modal, #stats-modal .panel, #newgame-modal, #newgame-modal .panel { animation: none; }
   }
 </style>
 </head>
@@ -109,23 +133,27 @@
   <button id="btn-undo">↩️ Скасувати</button>
   <button id="btn-stats">📊 Статистика</button>
   <span id="status"></span>
+  <span id="difficulty-label"></span>
   <span id="stats-summary"></span>
 </div>
 <div id="game-container"></div>
+<div id="newgame-modal">
+  <div class="panel">
+    <h2>🆕 Нова гра</h2>
+    <div class="levels">
+      <button data-level="easy">😌 Легко</button>
+      <button data-level="normal">🙂 Нормально</button>
+      <button data-level="hard">😈 Складно</button>
+    </div>
+    <div class="actions">
+      <button id="btn-newgame-close">✖ Закрити</button>
+    </div>
+  </div>
+</div>
 <div id="stats-modal">
   <div class="panel">
     <h2 id="stats-title">📊 Статистика</h2>
-    <dl>
-      <dt>📋 Зіграно партій</dt><dd id="stat-played">0</dd>
-      <dt>🏆 Перемог</dt><dd id="stat-won">0</dd>
-      <dt>📈 % перемог</dt><dd id="stat-winrate">0%</dd>
-      <dt>🔥 Поточна серія</dt><dd id="stat-streak">0</dd>
-      <dt>⭐ Рекордна серія</dt><dd id="stat-best-streak">0</dd>
-      <dt>⏱️ Найкращий час</dt><dd id="stat-best-time">—</dd>
-      <dt>💡 Підказок усього</dt><dd id="stat-hints-total">0</dd>
-      <dt>↩️ Скасувань усього</dt><dd id="stat-undos-total">0</dd>
-      <dt>🀄 Знято пар усього</dt><dd id="stat-pairs-total">0</dd>
-    </dl>
+    <div id="stats-levels"></div>
     <div class="actions">
       <button id="btn-stats-new">🆕 Нова гра</button>
       <button id="btn-stats-close">✖ Закрити</button>

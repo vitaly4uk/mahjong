@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  emptyStats, applyWin, applyLoss, winRate, fmtTime, load, save, STORAGE_KEY,
+  emptyStats, emptyAllStats, applyWin, applyLoss, winRate, fmtTime, load, save,
+  STORAGE_KEY, STORAGE_KEY_V1, LEVELS,
 } from '../static/game/stats.js';
 
 test('emptyStats: zeros and null best time', () => {
@@ -68,40 +69,65 @@ function fakeStorage(initial = {}) {
   return {
     getItem: (key) => (data.has(key) ? data.get(key) : null),
     setItem: (key, value) => data.set(key, value),
+    removeItem: (key) => data.delete(key),
+    has: (key) => data.has(key),
   };
 }
 
-test('load/save: round-trips through storage', () => {
+test('emptyAllStats: one empty level per difficulty', () => {
+  const all = emptyAllStats();
+  assert.deepEqual(Object.keys(all).sort(), [...LEVELS].sort());
+  for (const level of LEVELS) assert.deepEqual(all[level], emptyStats());
+});
+
+test('load/save: round-trips a per-level stats object through storage', () => {
   const storage = fakeStorage();
-  let stats = emptyStats();
-  stats = applyWin(stats, 1234);
-  save(stats, storage);
+  const all = emptyAllStats();
+  all.hard = applyWin(all.hard, 1234);
+  save(all, storage);
   const loaded = load(storage);
-  assert.deepEqual(loaded, stats);
+  assert.deepEqual(loaded, all);
 });
 
-test('load: merges partial stored data with defaults', () => {
-  const storage = fakeStorage({ [STORAGE_KEY]: JSON.stringify({ gamesPlayed: 7 }) });
+test('load: merges partial stored data with defaults, per level', () => {
+  const storage = fakeStorage({
+    [STORAGE_KEY]: JSON.stringify({ normal: { gamesPlayed: 7 } }),
+  });
   const loaded = load(storage);
-  assert.equal(loaded.gamesPlayed, 7);
-  assert.equal(loaded.gamesWon, 0);
-  assert.equal(loaded.bestTimeMs, null);
+  assert.equal(loaded.normal.gamesPlayed, 7);
+  assert.equal(loaded.normal.gamesWon, 0);
+  assert.equal(loaded.normal.bestTimeMs, null);
+  assert.deepEqual(loaded.easy, emptyStats());
+  assert.deepEqual(loaded.hard, emptyStats());
 });
 
-test('load: returns defaults when storage is empty', () => {
-  assert.deepEqual(load(fakeStorage()), emptyStats());
+test('load: returns empty per-level defaults when storage is empty', () => {
+  assert.deepEqual(load(fakeStorage()), emptyAllStats());
+});
+
+test('load: migrates v1 (single-level) stats into the hard level, drops v1 key', () => {
+  const oldStats = applyWin(applyWin(emptyStats(), 5000), 6000);
+  const storage = fakeStorage({ [STORAGE_KEY_V1]: JSON.stringify(oldStats) });
+  const loaded = load(storage);
+  assert.deepEqual(loaded.hard, oldStats);
+  assert.deepEqual(loaded.easy, emptyStats());
+  assert.deepEqual(loaded.normal, emptyStats());
+  assert.equal(storage.has(STORAGE_KEY_V1), false);
+  assert.equal(storage.has(STORAGE_KEY), true);
+  // Наступний load читає вже змігрований v2, без v1.
+  assert.deepEqual(load(storage), loaded);
 });
 
 test('load: does not throw when storage throws', () => {
   const badStorage = {
     getItem: () => { throw new Error('nope'); },
   };
-  assert.deepEqual(load(badStorage), emptyStats());
+  assert.deepEqual(load(badStorage), emptyAllStats());
 });
 
 test('save: does not throw when storage throws', () => {
   const badStorage = {
     setItem: () => { throw new Error('nope'); },
   };
-  assert.doesNotThrow(() => save(emptyStats(), badStorage));
+  assert.doesNotThrow(() => save(emptyAllStats(), badStorage));
 });

@@ -1,7 +1,7 @@
 import { WIDTH, HEIGHT, LAYERS, Board } from './board.js';
-import { generateLayout, KINDS } from './generator.js';
+import { generateForDifficulty, KINDS } from './generator.js';
 import {
-  load as loadStats, save as saveStats, applyWin, applyLoss, winRate, fmtTime,
+  load as loadStats, save as saveStats, applyWin, applyLoss, winRate, fmtTime, LEVELS,
 } from './stats.js';
 
 const TILE_W = 70; // крок сітки
@@ -19,24 +19,42 @@ const LAYER_TINTS = [0xb0b0b0, 0xd8d8d8, 0xffffff];
 const SIDE_COLOR = 0xe6c88f; // кремова боковинка
 const SIDE_EDGE_COLOR = 0x9c7f52;
 
+const DIFFICULTY_KEY = 'mahjong.difficulty';
+const DEFAULT_DIFFICULTY = 'normal';
+const LEVEL_LABELS = { easy: '😌 Легко', normal: '🙂 Нормально', hard: '😈 Складно' };
+
+// Без явно збереженого вибору — якщо є щойно мігровані дані з v1 (вони завжди
+// лягають у hard, див. stats.js), відкриваємо гру саме на hard, інакше
+// новачок побачить порожню статистику на normal і подумає, що вона згубилась.
+function loadDifficultyPref(allStats) {
+  try {
+    const stored = globalThis.localStorage?.getItem(DIFFICULTY_KEY);
+    if (LEVELS.includes(stored)) return stored;
+    return allStats.hard.gamesPlayed > 0 ? 'hard' : DEFAULT_DIFFICULTY;
+  } catch {
+    return DEFAULT_DIFFICULTY;
+  }
+}
+
+function saveDifficultyPref(level) {
+  try {
+    globalThis.localStorage?.setItem(DIFFICULTY_KEY, level);
+  } catch {
+    // ignore (приватний режим, квота, тощо)
+  }
+}
+
 const tileUrl = (name) => `/static/game/tiles/${name}.png`;
 const statusEl = document.getElementById('status');
 const summaryEl = document.getElementById('stats-summary');
+const difficultyLabelEl = document.getElementById('difficulty-label');
 const hintBtn = document.getElementById('btn-hint');
 const undoBtn = document.getElementById('btn-undo');
 const statsModal = document.getElementById('stats-modal');
 const statsTitleEl = document.getElementById('stats-title');
-const statEls = {
-  played: document.getElementById('stat-played'),
-  won: document.getElementById('stat-won'),
-  winrate: document.getElementById('stat-winrate'),
-  streak: document.getElementById('stat-streak'),
-  bestStreak: document.getElementById('stat-best-streak'),
-  bestTime: document.getElementById('stat-best-time'),
-  hintsTotal: document.getElementById('stat-hints-total'),
-  undosTotal: document.getElementById('stat-undos-total'),
-  pairsTotal: document.getElementById('stat-pairs-total'),
-};
+const statsLevelsEl = document.getElementById('stats-levels');
+const newgameModal = document.getElementById('newgame-modal');
+const newgameLevelButtons = [...newgameModal.querySelectorAll('[data-level]')];
 
 class MainScene extends Phaser.Scene {
   constructor() {
@@ -61,9 +79,12 @@ class MainScene extends Phaser.Scene {
     this.sprites = new Map(); // tile -> Phaser container
     this.selected = null;
 
-    const stats = loadStats();
-    for (const [key, value] of Object.entries(stats)) this.registry.set(key, value);
+    const allStats = loadStats();
+    this.registry.set('allStats', allStats);
     this.registry.events.on('changedata', () => this.renderStats());
+
+    this.currentLevel = loadDifficultyPref(allStats);
+    saveDifficultyPref(this.currentLevel);
 
     this.time.addEvent({
       delay: 1000,
@@ -74,18 +95,31 @@ class MainScene extends Phaser.Scene {
       },
     });
 
+    document.getElementById('btn-new').addEventListener('click', () => this.openNewGameModal());
     document.getElementById('btn-stats').addEventListener('click', () => this.toggleStatsModal());
-    document.getElementById('btn-stats-close').addEventListener('click', () => this.closeStatsModal());
-    document.getElementById('btn-stats-new').addEventListener('click', () => this.newGame());
+    document.getElementById('btn-stats-close').addEventListener('click', () => this.closeAllModals());
+    document.getElementById('btn-stats-new').addEventListener('click', () => this.openNewGameModal());
+    document.getElementById('btn-newgame-close').addEventListener('click', () => this.closeAllModals());
+    for (const btn of newgameLevelButtons) {
+      btn.addEventListener('click', () => {
+        const level = btn.dataset.level;
+        saveDifficultyPref(level);
+        this.closeAllModals();
+        this.startGame(level);
+      });
+    }
 
-    this.newGame();
+    // Перший запуск сторінки: стартуємо одразу зі збереженим рівнем, без модалки.
+    this.startGame(this.currentLevel);
   }
 
-  newGame() {
+  startGame(level) {
+    this.currentLevel = level;
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
     this.selected = null;
-    this.board = new Board(generateLayout());
+    statusEl.textContent = '⏳ Генерую розклад…';
+    this.board = new Board(generateForDifficulty(level, Math.random));
     for (const tile of this.board.tiles()) this.addTileSprite(tile);
 
     this.registry.set('gameHints', 0);
@@ -95,25 +129,34 @@ class MainScene extends Phaser.Scene {
     this.registry.set('gameElapsedMs', 0);
     this.registry.set('gameFinished', false);
     this.closeStatsModal();
+    this.renderStats();
 
     this.updateStatus();
   }
 
-  // Довічні показники, зібрані з registry — те, що зберігається в localStorage.
+  // Довічні показники поточного рівня — зріз з registry-allStats.
   lifetimeStats() {
-    return {
-      gamesPlayed: this.registry.get('gamesPlayed'),
-      gamesWon: this.registry.get('gamesWon'),
-      hintsTotal: this.registry.get('hintsTotal'),
-      undosTotal: this.registry.get('undosTotal'),
-      pairsTotal: this.registry.get('pairsTotal'),
-      bestTimeMs: this.registry.get('bestTimeMs'),
-      currentStreak: this.registry.get('currentStreak'),
-      bestStreak: this.registry.get('bestStreak'),
-    };
+    return this.registry.get('allStats')[this.currentLevel];
+  }
+
+  // Оновлює зріз статистики поточного рівня в registry-allStats (новий
+  // об'єкт, щоб Phaser registry розпізнав зміну й розіслав 'changedata').
+  updateLifetimeStats(updated) {
+    const allStats = { ...this.registry.get('allStats'), [this.currentLevel]: updated };
+    this.registry.set('allStats', allStats);
+    saveStats(allStats);
+  }
+
+  // Модалки взаємовиключні — перш ніж відкрити одну, завжди закриваємо решту,
+  // щоб ніколи не було двох відкритих одночасно (однаковий z-index, інакше
+  // одна ховає іншу непомітно для гравця).
+  closeAllModals() {
+    statsModal.classList.remove('open');
+    newgameModal.classList.remove('open');
   }
 
   openStatsModal(title) {
+    this.closeAllModals();
     statsTitleEl.textContent = title || '📊 Статистика';
     statsModal.classList.add('open');
   }
@@ -123,8 +166,16 @@ class MainScene extends Phaser.Scene {
   }
 
   toggleStatsModal() {
-    if (statsModal.classList.contains('open')) this.closeStatsModal();
+    if (statsModal.classList.contains('open')) this.closeAllModals();
     else this.openStatsModal('📊 Статистика');
+  }
+
+  openNewGameModal() {
+    this.closeAllModals();
+    for (const btn of newgameLevelButtons) {
+      btn.classList.toggle('selected', btn.dataset.level === this.currentLevel);
+    }
+    newgameModal.classList.add('open');
   }
 
   renderStats() {
@@ -132,20 +183,33 @@ class MainScene extends Phaser.Scene {
     const undos = this.registry.get('gameUndos') || 0;
     hintBtn.textContent = hints > 0 ? `💡 Підказка (${hints})` : '💡 Підказка';
     undoBtn.textContent = undos > 0 ? `↩️ Скасувати (${undos})` : '↩️ Скасувати';
+    difficultyLabelEl.textContent = LEVEL_LABELS[this.currentLevel];
 
     const stats = this.lifetimeStats();
     const elapsed = this.registry.get('gameElapsedMs') || 0;
     summaryEl.textContent = `🏆 ${stats.gamesWon}/${stats.gamesPlayed} · 🔥 ${stats.currentStreak} · ⏱️ ${fmtTime(elapsed)}`;
 
-    statEls.played.textContent = stats.gamesPlayed;
-    statEls.won.textContent = stats.gamesWon;
-    statEls.winrate.textContent = `${winRate(stats)}%`;
-    statEls.streak.textContent = stats.currentStreak;
-    statEls.bestStreak.textContent = stats.bestStreak;
-    statEls.bestTime.textContent = stats.bestTimeMs == null ? '—' : fmtTime(stats.bestTimeMs);
-    statEls.hintsTotal.textContent = stats.hintsTotal;
-    statEls.undosTotal.textContent = stats.undosTotal;
-    statEls.pairsTotal.textContent = stats.pairsTotal;
+    const allStats = this.registry.get('allStats');
+    statsLevelsEl.innerHTML = LEVELS.map((level) => {
+      const s = allStats[level];
+      const current = level === this.currentLevel ? ' current' : '';
+      return `
+        <div class="level-block${current}">
+          <h3>${LEVEL_LABELS[level]}</h3>
+          <dl>
+            <dt>📋 Зіграно партій</dt><dd>${s.gamesPlayed}</dd>
+            <dt>🏆 Перемог</dt><dd>${s.gamesWon}</dd>
+            <dt>📈 % перемог</dt><dd>${winRate(s)}%</dd>
+            <dt>🔥 Поточна серія</dt><dd>${s.currentStreak}</dd>
+            <dt>⭐ Рекордна серія</dt><dd>${s.bestStreak}</dd>
+            <dt>⏱️ Найкращий час</dt><dd>${s.bestTimeMs == null ? '—' : fmtTime(s.bestTimeMs)}</dd>
+            <dt>💡 Підказок усього</dt><dd>${s.hintsTotal}</dd>
+            <dt>↩️ Скасувань усього</dt><dd>${s.undosTotal}</dd>
+            <dt>🀄 Знято пар усього</dt><dd>${s.pairsTotal}</dd>
+          </dl>
+        </div>
+      `;
+    }).join('');
   }
 
   // Зараховує завершену партію (перемога чи глухий кут) рівно один раз.
@@ -157,8 +221,7 @@ class MainScene extends Phaser.Scene {
     const updated = won
       ? applyWin(this.lifetimeStats(), elapsed)
       : applyLoss(this.lifetimeStats());
-    for (const [key, value] of Object.entries(updated)) this.registry.set(key, value);
-    saveStats(updated);
+    this.updateLifetimeStats(updated);
     this.openStatsModal(won ? '🎉 Перемога!' : '🚫 Глухий кут — немає ходів');
   }
 
@@ -218,8 +281,8 @@ class MainScene extends Phaser.Scene {
     }
     this.selected = null;
     this.registry.set('gamePairs', this.registry.get('gamePairs') + 1);
-    this.registry.set('pairsTotal', this.registry.get('pairsTotal') + 1);
-    saveStats(this.lifetimeStats());
+    const stats = this.lifetimeStats();
+    this.updateLifetimeStats({ ...stats, pairsTotal: stats.pairsTotal + 1 });
     this.updateStatus();
   }
 
@@ -232,8 +295,8 @@ class MainScene extends Phaser.Scene {
     }
     for (const tile of pair) this.addTileSprite(tile);
     this.registry.set('gameUndos', this.registry.get('gameUndos') + 1);
-    this.registry.set('undosTotal', this.registry.get('undosTotal') + 1);
-    saveStats(this.lifetimeStats());
+    const stats = this.lifetimeStats();
+    this.updateLifetimeStats({ ...stats, undosTotal: stats.undosTotal + 1 });
     this.updateStatus();
   }
 
@@ -250,8 +313,8 @@ class MainScene extends Phaser.Scene {
       });
     }
     this.registry.set('gameHints', this.registry.get('gameHints') + 1);
-    this.registry.set('hintsTotal', this.registry.get('hintsTotal') + 1);
-    saveStats(this.lifetimeStats());
+    const stats = this.lifetimeStats();
+    this.updateLifetimeStats({ ...stats, hintsTotal: stats.hintsTotal + 1 });
   }
 
   updateStatus() {
@@ -283,6 +346,5 @@ const game = new Phaser.Game({
 window.mahjongGame = game;
 
 const scene = () => game.scene.keys.main;
-document.getElementById('btn-new').addEventListener('click', () => scene().newGame());
 document.getElementById('btn-hint').addEventListener('click', () => scene().hint());
 document.getElementById('btn-undo').addEventListener('click', () => scene().undo());
