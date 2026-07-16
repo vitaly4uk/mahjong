@@ -55,6 +55,7 @@ const statsTitleEl = document.getElementById('stats-title');
 const statsLevelsEl = document.getElementById('stats-levels');
 const newgameModal = document.getElementById('newgame-modal');
 const newgameLevelButtons = [...newgameModal.querySelectorAll('[data-level]')];
+const newgameCloseBtn = document.getElementById('btn-newgame-close');
 
 class MainScene extends Phaser.Scene {
   constructor() {
@@ -85,6 +86,9 @@ class MainScene extends Phaser.Scene {
 
     this.currentLevel = loadDifficultyPref(allStats);
     saveDifficultyPref(this.currentLevel);
+    // Гри ще немає — таймерна петля нижче не повинна тікати, поки гравець
+    // не обере рівень і не почне партію (startGame() зніме прапорець).
+    this.registry.set('gameFinished', true);
 
     this.time.addEvent({
       delay: 1000,
@@ -109,8 +113,9 @@ class MainScene extends Phaser.Scene {
       });
     }
 
-    // Перший запуск сторінки: стартуємо одразу зі збереженим рівнем, без модалки.
-    this.startGame(this.currentLevel);
+    // Перший запуск сторінки: показуємо стартову модалку — гравець сам
+    // обирає рівень і час; без кнопки закриття, бо грати ще нема в що.
+    this.openNewGameModal(false);
   }
 
   startGame(level) {
@@ -170,11 +175,14 @@ class MainScene extends Phaser.Scene {
     else this.openStatsModal('📊 Статистика');
   }
 
-  openNewGameModal() {
+  // canClose=false — для стартової модалки при першому завантаженні: гри ще
+  // немає, тож ховаємо «✖ Закрити», щоб гравець не лишився без поля.
+  openNewGameModal(canClose = true) {
     this.closeAllModals();
     for (const btn of newgameLevelButtons) {
       btn.classList.toggle('selected', btn.dataset.level === this.currentLevel);
     }
+    newgameCloseBtn.style.display = canClose ? '' : 'none';
     newgameModal.classList.add('open');
   }
 
