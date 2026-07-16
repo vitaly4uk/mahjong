@@ -97,19 +97,19 @@ test('surface: most pairs are adjacent tiles on one layer (averaged over 20 seed
   );
 });
 
-test('uniform and layered: pair halves are almost never adjacent (>=99% per seed)', () => {
+test('uniform and layered: adjacent pair halves occur only in the generation tail (bail-out)', () => {
   for (const placement of ['uniform', 'layered']) {
     for (let seed = 1; seed <= 20; seed++) {
       const tiles = generateLayout(mulberry32(seed), { placement });
-      let nonAdjacent = 0;
       const totalPairs = tiles.length / 2;
       for (let i = 0; i < tiles.length; i += 2) {
-        if (!isAdjacent(tiles[i], tiles[i + 1])) nonAdjacent += 1;
+        if (isAdjacent(tiles[i], tiles[i + 1])) {
+          assert.ok(
+            i / 2 >= totalPairs - 2,
+            `${placement} seed ${seed}: adjacent pair at index ${i / 2} of ${totalPairs} (outside bail-out tail)`,
+          );
+        }
       }
-      assert.ok(
-        nonAdjacent / totalPairs >= 0.99,
-        `${placement} seed ${seed}: only ${nonAdjacent}/${totalPairs} non-adjacent pairs`,
-      );
     }
   }
 });
