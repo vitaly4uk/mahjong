@@ -7,6 +7,10 @@ export const KINDS = [
   'Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun',
 ];
 
+// Дефолтна сила "тримати парні кості поруч" — розклад лишається легким для
+// гри без прорахунку наперед (див. docs/superpowers/specs).
+const DEFAULT_ADJACENCY_BIAS = 0.85;
+
 function shuffle(arr, rng) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
@@ -26,10 +30,34 @@ function buildPairKinds(rng) {
   return shuffle(pairKinds, rng);
 }
 
-// Симуляція зворотної гри: знімаємо випадкові вільні пари з повної форми,
-// призначаючи видам порядок зняття. Результат розв'язний за побудовою —
-// записаний порядок зняття і є розв'язком.
-function tryGenerate(rng) {
+// Дві позиції суміжні, якщо лежать в одному шарі впритул одна до одної.
+export function isAdjacent(a, b) {
+  return a.z === b.z && Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1;
+}
+
+function pickPair(candidates, rng, adjacencyBias) {
+  if (rng() < adjacencyBias) {
+    const adjacentPairs = [];
+    for (let i = 0; i < candidates.length; i++) {
+      for (let j = i + 1; j < candidates.length; j++) {
+        if (isAdjacent(candidates[i], candidates[j])) {
+          adjacentPairs.push([candidates[i], candidates[j]]);
+        }
+      }
+    }
+    if (adjacentPairs.length > 0) {
+      return adjacentPairs[Math.floor(rng() * adjacentPairs.length)];
+    }
+  }
+  const shuffled = shuffle([...candidates], rng);
+  return [shuffled[0], shuffled[1]];
+}
+
+// Симуляція зворотної гри: знімаємо шар за шаром згори вниз (найвищий
+// незавершений шар завжди має ≥2 вільні кості — він пласкій і не має нічого
+// зверху, тож ніколи не "запирається"), надаючи парам видів по ходу.
+// Записаний порядок зняття і є розв'язком.
+function tryGenerate(rng, { adjacencyBias = DEFAULT_ADJACENCY_BIAS } = {}) {
   const occupied = new Map(
     targetPositions().map((p) => [posKey(p.x, p.y, p.z), p]),
   );
@@ -39,9 +67,21 @@ function tryGenerate(rng) {
     const free = [...occupied.values()].filter(
       (p) => isFreePosition(occupied, p.x, p.y, p.z),
     );
-    if (free.length < 2) return null;
-    shuffle(free, rng);
-    const [a, b] = free;
+    const maxZ = Math.max(...free.map((p) => p.z));
+    const topFree = free.filter((p) => p.z === maxZ);
+
+    let a;
+    let b;
+    if (topFree.length === 1) {
+      // Непарний хвіст шару: єдина вільна кість на верхньому шарі спарюється
+      // з довільною вільною кісткою нижче.
+      a = topFree[0];
+      const rest = free.filter((p) => p !== a);
+      b = rest[Math.floor(rng() * rest.length)];
+    } else {
+      [a, b] = pickPair(topFree, rng, adjacencyBias);
+    }
+
     const kind = pairKinds.pop();
     tiles.push({ x: a.x, y: a.y, z: a.z, kind }, { x: b.x, y: b.y, z: b.z, kind });
     occupied.delete(posKey(a.x, a.y, a.z));
@@ -50,10 +90,6 @@ function tryGenerate(rng) {
   return tiles;
 }
 
-export function generateLayout(rng = Math.random) {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const tiles = tryGenerate(rng);
-    if (tiles) return tiles;
-  }
-  throw new Error('Failed to generate a solvable layout after 100 attempts');
+export function generateLayout(rng = Math.random, options = {}) {
+  return tryGenerate(rng, options);
 }
