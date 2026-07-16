@@ -65,39 +65,74 @@ test('layout is solvable by removing pairs in generation order (30 seeds)', () =
   }
 });
 
-test('adjacencyBias=1: most generated pairs are adjacent tiles (averaged over seeds)', () => {
+test('every placement mode yields a layout solvable in generation order (30 seeds each)', () => {
+  for (const placement of ['surface', 'uniform', 'layered']) {
+    for (let seed = 1; seed <= 30; seed++) {
+      const tiles = generateLayout(mulberry32(seed), { placement });
+      const board = new Board(tiles);
+      for (let i = 0; i < tiles.length; i += 2) {
+        assert.equal(
+          board.removePair(tiles[i], tiles[i + 1]), true,
+          `${placement} seed ${seed}: pair ${i / 2} not removable`,
+        );
+      }
+      assert.ok(board.isWon(), `${placement} seed ${seed}: board not empty`);
+    }
+  }
+});
+
+test('surface: most pairs are adjacent tiles on one layer (averaged over 20 seeds)', () => {
   let adjacentCount = 0;
   let totalPairs = 0;
   for (let seed = 1; seed <= 20; seed++) {
-    const tiles = generateLayout(mulberry32(seed), { adjacencyBias: 1 });
+    const tiles = generateLayout(mulberry32(seed), { placement: 'surface' });
     for (let i = 0; i < tiles.length; i += 2) {
       totalPairs += 1;
       if (isAdjacent(tiles[i], tiles[i + 1])) adjacentCount += 1;
     }
   }
-  // Невелика частка неспівпадінь очікувана на стиках шарів (непарний хвіст шару).
   assert.ok(
     adjacentCount / totalPairs >= 0.75,
     `expected >=75% adjacent pairs, got ${adjacentCount}/${totalPairs}`,
   );
 });
 
-test('adjacencyBias=1 layouts survive careless play far more often than adjacencyBias=0', () => {
-  const trials = 100;
-  let winsHigh = 0;
-  let winsLow = 0;
-  for (let seed = 1; seed <= trials; seed++) {
-    const boardHigh = new Board(generateLayout(mulberry32(seed), { adjacencyBias: 1 }));
-    if (carelessPlay(boardHigh, mulberry32(seed + 100000))) winsHigh += 1;
-
-    const boardLow = new Board(generateLayout(mulberry32(seed), { adjacencyBias: 0 }));
-    if (carelessPlay(boardLow, mulberry32(seed + 100000))) winsLow += 1;
+test('uniform and layered: pair halves are almost never adjacent (>=99% per seed)', () => {
+  for (const placement of ['uniform', 'layered']) {
+    for (let seed = 1; seed <= 20; seed++) {
+      const tiles = generateLayout(mulberry32(seed), { placement });
+      let nonAdjacent = 0;
+      const totalPairs = tiles.length / 2;
+      for (let i = 0; i < tiles.length; i += 2) {
+        if (!isAdjacent(tiles[i], tiles[i + 1])) nonAdjacent += 1;
+      }
+      assert.ok(
+        nonAdjacent / totalPairs >= 0.99,
+        `${placement} seed ${seed}: only ${nonAdjacent}/${totalPairs} non-adjacent pairs`,
+      );
+    }
   }
+});
+
+test('layered puts pair halves on different layers far more often than uniform', () => {
+  const crossLayerShare = (placement) => {
+    let cross = 0;
+    let total = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const tiles = generateLayout(mulberry32(seed), { placement });
+      for (let i = 0; i < tiles.length; i += 2) {
+        total += 1;
+        if (tiles[i].z !== tiles[i + 1].z) cross += 1;
+      }
+    }
+    return cross / total;
+  };
+  const layered = crossLayerShare('layered');
+  const uniform = crossLayerShare('uniform');
   assert.ok(
-    winsHigh > winsLow,
-    `expected adjacencyBias=1 to win more often: high=${winsHigh}, low=${winsLow}`,
+    layered >= uniform + 0.2,
+    `expected layered (${layered}) to exceed uniform (${uniform}) by >=0.2`,
   );
-  assert.ok(winsHigh / trials >= 0.6, `expected win rate >=60%, got ${winsHigh}/${trials}`);
 });
 
 test('pairScheduling=grouped: pairs of a kind are contiguous in the queue', () => {
@@ -133,19 +168,6 @@ test('pairScheduling=split: a kind\'s pairs land in opposite halves of the gener
   );
 });
 
-test('crossLayerChance=1: layout is still solvable in generation order (30 seeds)', () => {
-  for (let seed = 1; seed <= 30; seed++) {
-    const tiles = generateLayout(mulberry32(seed), { crossLayerChance: 1 });
-    const board = new Board(tiles);
-    for (let i = 0; i < tiles.length; i += 2) {
-      assert.equal(
-        board.removePair(tiles[i], tiles[i + 1]), true,
-        `seed ${seed}: pair ${i / 2} not removable`,
-      );
-    }
-    assert.ok(board.isWon(), `seed ${seed}: board not empty`);
-  }
-});
 
 // generateForDifficulty приймає перший розклад, що влучив у смугу, або (за
 // 30 спроб) найближчий кандидат — тож окремий сід іноді може лишитись поза

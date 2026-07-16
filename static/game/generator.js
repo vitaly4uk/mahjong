@@ -8,30 +8,20 @@ export const KINDS = [
   'Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun',
 ];
 
-// Дефолтна сила "тримати парні кості поруч" — розклад лишається легким для
-// гри без прорахунку наперед (див. docs/superpowers/specs).
-const DEFAULT_ADJACENCY_BIAS = 0.85;
-
-// Пресети рівнів складності (див. docs/superpowers/specs/2026-07-16-*).
-// winRateBand — цільова смуга частки перемог "неуважного гравця" (simulate.js).
-//
-// Значення підібрані емпірично (калібрувальний тест генератора вимірює
-// фактичний win-rate на ~20 сідах): "неуважний бот" завжди тягнеться до
-// верхнього шару, тож adjacencyBias і crossLayerChance впливають на нього
-// слабше, ніж очікувалось з першого наближення, а pairScheduling='grouped'
-// (усі копії виду концентруються у вузькому вікні генерації) виявився
-// найсильнішим важелем ускладнення, а не спрощення, як припускалось спершу —
-// саме тому тут пресет hard, а не easy, використовує 'grouped'.
+// Пресети рівнів складності (див. docs/superpowers/specs/2026-07-16-kmahjongg-generator-design.md).
+// placement — режим вибору позицій для половинок пари:
+// - surface — обидві з верхнього фронту знімання, з перевагою суміжних
+//   (механізм полегшення за Kristanix Mahjong Epic);
+// - uniform — чиста схема KMahjongg: рівномірний random усіх вільних,
+//   друга половинка не може бути суміжною з першою;
+// - layered — uniform + половинки принудово на різних шарах, коли можливо
+//   (вертикальне запирання виду, arXiv:1203.6559).
+// winRateBand — цільова смуга частки перемог "неуважного гравця" (simulate.js);
+// стартові значення, калібруються тестом generateForDifficulty.
 export const DIFFICULTIES = {
-  easy: {
-    adjacencyBias: 1, pairScheduling: 'random', crossLayerChance: 0, winRateBand: [0.65, 1],
-  },
-  normal: {
-    adjacencyBias: 0, pairScheduling: 'split', crossLayerChance: 0, winRateBand: [0.45, 0.65],
-  },
-  hard: {
-    adjacencyBias: 1, pairScheduling: 'grouped', crossLayerChance: 1, winRateBand: [0, 0.30],
-  },
+  easy: { placement: 'surface', pairScheduling: 'random', winRateBand: [0.65, 1] },
+  normal: { placement: 'uniform', pairScheduling: 'random', winRateBand: [0.35, 0.65] },
+  hard: { placement: 'layered', pairScheduling: 'grouped', winRateBand: [0, 0.30] },
 };
 
 const CALIBRATION_TRIALS = 16;
@@ -90,13 +80,28 @@ export function isAdjacent(a, b) {
   return a.z === b.z && Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1;
 }
 
-function pickPair(candidates, rng, adjacencyBias) {
-  if (rng() < adjacencyBias) {
+// Ймовірність у режимі surface обрати суміжну пару, якщо така є на
+// верхньому фронті — розклад лишається легким для гри без прорахунку.
+const SURFACE_ADJACENCY_BIAS = 0.9;
+
+// surface: обидві половинки з найвищого незавершеного шару (він пласкій і
+// не має нічого зверху, тож завжди має ≥1 вільну кість), з перевагою
+// суміжних пар. Непарний хвіст шару (єдина вільна кість) спарюється з
+// довільною вільною кісткою нижче.
+function pickSurfacePair(free, rng) {
+  const maxZ = Math.max(...free.map((p) => p.z));
+  const topFree = free.filter((p) => p.z === maxZ);
+  if (topFree.length === 1) {
+    const a = topFree[0];
+    const rest = free.filter((p) => p !== a);
+    return [a, rest[Math.floor(rng() * rest.length)]];
+  }
+  if (rng() < SURFACE_ADJACENCY_BIAS) {
     const adjacentPairs = [];
-    for (let i = 0; i < candidates.length; i++) {
-      for (let j = i + 1; j < candidates.length; j++) {
-        if (isAdjacent(candidates[i], candidates[j])) {
-          adjacentPairs.push([candidates[i], candidates[j]]);
+    for (let i = 0; i < topFree.length; i++) {
+      for (let j = i + 1; j < topFree.length; j++) {
+        if (isAdjacent(topFree[i], topFree[j])) {
+          adjacentPairs.push([topFree[i], topFree[j]]);
         }
       }
     }
@@ -104,24 +109,47 @@ function pickPair(candidates, rng, adjacencyBias) {
       return adjacentPairs[Math.floor(rng() * adjacentPairs.length)];
     }
   }
-  const shuffled = shuffle([...candidates], rng);
+  const shuffled = shuffle([...topFree], rng);
   return [shuffled[0], shuffled[1]];
 }
 
-// Симуляція зворотної гри: знімаємо шар за шаром згори вниз (найвищий
-// незавершений шар завжди має ≥2 вільні кості — він пласкій і не має нічого
-// зверху, тож ніколи не "запирається"), надаючи парам видів по ходу.
-// Записаний порядок зняття і є розв'язком.
-//
-// crossLayerChance: з цією ймовірністю кандидатами для пари стають усі вільні
-// позиції (а не лише найвищий шар) — розв'язок починає стрибати між шарами.
-// Розв'язність не страждає: будь-яка пара вільних позицій у зворотній
-// симуляції валідна за побудовою.
-function tryGenerate(rng, {
-  adjacencyBias = DEFAULT_ADJACENCY_BIAS,
-  pairScheduling = 'random',
-  crossLayerChance = 0,
-} = {}) {
+// uniform/layered: перша половинка — рівномірно випадкова вільна позиція,
+// друга — рівномірно випадкова з тих, що не суміжні з першою (KMahjongg,
+// selectPosition). У layered додатково вимагається інший шар, коли такі
+// кандидати є. Якщо фільтр не лишає нікого — bail-out на інші шари, потім на
+// будь-яку: генерація ніколи не застрягає.
+function pickSpreadPair(free, rng, requireLayerSplit) {
+  const a = free[Math.floor(rng() * free.length)];
+  let candidates = free.filter((p) => p !== a && !isAdjacent(p, a));
+
+  if (requireLayerSplit) {
+    const crossLayer = candidates.filter((p) => p.z !== a.z);
+    if (crossLayer.length > 0) {
+      candidates = crossLayer;
+    } else if (candidates.length === 0) {
+      // No non-adjacent; try cross-layer without adjacency constraint
+      candidates = free.filter((p) => p !== a && p.z !== a.z);
+      if (candidates.length === 0) {
+        candidates = free.filter((p) => p !== a);
+      }
+    }
+  } else if (candidates.length === 0) {
+    // uniform: no non-adjacent found; try cross-layer, then any
+    candidates = free.filter((p) => p !== a && p.z !== a.z);
+    if (candidates.length === 0) {
+      candidates = free.filter((p) => p !== a);
+    }
+  }
+
+  const b = candidates[Math.floor(rng() * candidates.length)];
+  return [a, b];
+}
+
+// Симуляція зворотної гри: з повної форми знімаються пари вільних позицій,
+// записаний порядок зняття і є розв'язком. Будь-яка пара вільних позицій
+// валідна за побудовою, тож кандидати — всі вільні позиції дошки; режим
+// placement визначає, як саме обираються половинки пари (див. DIFFICULTIES).
+function tryGenerate(rng, { placement = 'uniform', pairScheduling = 'random' } = {}) {
   const occupied = new Map(
     targetPositions().map((p) => [posKey(p.x, p.y, p.z), p]),
   );
@@ -137,18 +165,15 @@ function tryGenerate(rng, {
     let a;
     let b;
     if (topFree.length === 1) {
-      // Непарний хвіст шару: єдина вільна кість на верхньому шарі спарюється
-      // з довільною вільною кісткою нижче. Не крос-шаровий вибір — topFree
-      // гарантовано непорожній (крайня колонка шару), тож free тут завжди
-      // містить ≥2 елементи.
+      // Непарний хвіст верхнього шару: єдина вільна кість на верхньому шарі
+      // спарюється з довільною вільною кісткою нижче.
       a = topFree[0];
       const rest = free.filter((p) => p !== a);
       b = rest[Math.floor(rng() * rest.length)];
+    } else if (placement === 'surface') {
+      [a, b] = pickSurfacePair(free, rng);
     } else {
-      // topFree.length >= 2, отже і candidates тут завжди має ≥2 елементи.
-      const crossLayer = rng() < crossLayerChance;
-      const candidates = crossLayer ? free : topFree;
-      [a, b] = pickPair(candidates, rng, adjacencyBias);
+      [a, b] = pickSpreadPair(free, rng, placement === 'layered');
     }
 
     const kind = pairKinds.pop();

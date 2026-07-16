@@ -47,13 +47,13 @@ test('measureWinRate: deterministic on a fixed seed', () => {
   assert.equal(rate1, rate2);
 });
 
-test('measureWinRate: adjacencyBias=1 layouts win far more often than adjacencyBias=0', () => {
-  const tilesHigh = generateLayout(mulberry32(11), { adjacencyBias: 1 });
-  const tilesLow = generateLayout(mulberry32(11), { adjacencyBias: 0 });
-  const rateHigh = measureWinRate(tilesHigh, mulberry32(1), 30);
-  const rateLow = measureWinRate(tilesLow, mulberry32(1), 30);
+test('measureWinRate: surface layouts win far more often than uniform', () => {
+  const tilesSurface = generateLayout(mulberry32(11), { placement: 'surface' });
+  const tilesUniform = generateLayout(mulberry32(11), { placement: 'uniform' });
+  const rateSurface = measureWinRate(tilesSurface, mulberry32(1), 30);
+  const rateUniform = measureWinRate(tilesUniform, mulberry32(1), 30);
   assert.ok(
-    rateHigh > rateLow,
-    `expected adjacencyBias=1 to win more often: high=${rateHigh}, low=${rateLow}`,
+    rateSurface > rateUniform,
+    `expected surface to win more often: surface=${rateSurface}, uniform=${rateUniform}`,
   );
 });
