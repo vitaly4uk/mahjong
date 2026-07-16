@@ -76,6 +76,7 @@ class MainScene extends Phaser.Scene {
 
     document.getElementById('btn-stats').addEventListener('click', () => this.toggleStatsModal());
     document.getElementById('btn-stats-close').addEventListener('click', () => this.closeStatsModal());
+    document.getElementById('btn-stats-new').addEventListener('click', () => this.newGame());
 
     this.newGame();
   }
@@ -158,7 +159,7 @@ class MainScene extends Phaser.Scene {
       : applyLoss(this.lifetimeStats());
     for (const [key, value] of Object.entries(updated)) this.registry.set(key, value);
     saveStats(updated);
-    if (won) this.openStatsModal('🎉 Перемога!');
+    this.openStatsModal(won ? '🎉 Перемога!' : '🚫 Глухий кут — немає ходів');
   }
 
   addTileSprite(tile) {
