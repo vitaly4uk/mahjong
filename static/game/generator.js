@@ -35,7 +35,7 @@ function shuffle(arr, rng) {
   return arr;
 }
 
-// 121 вид пари: 19 випадкових видів по 4 пари + 15 видів по 3 пари.
+// 68 пар: усі 34 види по 2 пари (4 копії) — рівно автентична riichi-колода.
 // pairScheduling визначає порядок пар у черзі; знімаються вони з кінця
 // (pop()) і кладуться в розклад шар-за-шаром згори вниз — тобто початок
 // черги (index 0) відповідає найглибшим позиціям розкладу ("дно").
@@ -47,7 +47,7 @@ function shuffle(arr, rng) {
 //   одна пара лягає на дно, друга — на поверхню.
 function buildPairKinds(rng, pairScheduling = 'random') {
   const kinds = shuffle([...KINDS], rng);
-  const kindPairs = kinds.map((kind, i) => ({ kind, pairs: i < 19 ? 4 : 3 }));
+  const kindPairs = kinds.map((kind) => ({ kind, pairs: 2 }));
 
   if (pairScheduling === 'grouped') {
     const pairKinds = [];
@@ -82,7 +82,7 @@ export function isAdjacent(a, b) {
 
 // Ймовірність у режимі surface обрати суміжну пару, якщо така є на
 // верхньому фронті — розклад лишається легким для гри без прорахунку.
-const SURFACE_ADJACENCY_BIAS = 0.9;
+const SURFACE_ADJACENCY_BIAS = 1;
 
 // surface: обидві половинки з найвищого незавершеного шару (він пласкій і
 // не має нічого зверху, тож завжди має ≥1 вільну кість), з перевагою

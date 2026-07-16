@@ -27,13 +27,13 @@ test('KINDS: 34 unique kinds', () => {
 
 test('layout fills the target shape exactly', () => {
   const tiles = generateLayout(mulberry32(1));
-  assert.equal(tiles.length, 242);
+  assert.equal(tiles.length, 136);
   const keys = new Set(tiles.map((t) => posKey(t.x, t.y, t.z)));
   const target = new Set(targetPositions().map((p) => posKey(p.x, p.y, p.z)));
   assert.deepEqual(keys, target);
 });
 
-test('kind distribution: valid kinds, even counts, 19×8 + 15×6', () => {
+test('kind distribution: valid kinds, all 34 kinds × 4 copies (autentic deck)', () => {
   const tiles = generateLayout(mulberry32(2));
   const counts = new Map();
   for (const tile of tiles) {
@@ -41,7 +41,7 @@ test('kind distribution: valid kinds, even counts, 19×8 + 15×6', () => {
     counts.set(tile.kind, (counts.get(tile.kind) ?? 0) + 1);
   }
   const values = [...counts.values()].sort((a, b) => a - b);
-  assert.deepEqual(values, [...Array(15).fill(6), ...Array(19).fill(8)]);
+  assert.deepEqual(values, Array(34).fill(4));
 });
 
 test('consecutive pairs share a kind', () => {
@@ -91,9 +91,12 @@ test('surface: most pairs are adjacent tiles on one layer (averaged over 20 seed
       if (isAdjacent(tiles[i], tiles[i + 1])) adjacentCount += 1;
     }
   }
+  // Верхній шар нової форми (Turtle, 136 кісток) — усього 16 клітинок, тож
+  // навіть при SURFACE_ADJACENCY_BIAS=1 частина пар не має суміжного
+  // кандидата на фронті (виміряно ~76%) — поріг нижче з запасом.
   assert.ok(
-    adjacentCount / totalPairs >= 0.75,
-    `expected >=75% adjacent pairs, got ${adjacentCount}/${totalPairs}`,
+    adjacentCount / totalPairs >= 0.70,
+    `expected >=70% adjacent pairs, got ${adjacentCount}/${totalPairs}`,
   );
 });
 
@@ -129,9 +132,11 @@ test('layered puts pair halves on different layers far more often than uniform',
   };
   const layered = crossLayerShare('layered');
   const uniform = crossLayerShare('uniform');
+  // Менша форма (136 кісток, лише 16 на верхньому шарі) звужує розрив між
+  // режимами порівняно зі старою формою — виміряно ~0.18, поріг з запасом.
   assert.ok(
-    layered >= uniform + 0.2,
-    `expected layered (${layered}) to exceed uniform (${uniform}) by >=0.2`,
+    layered >= uniform + 0.15,
+    `expected layered (${layered}) to exceed uniform (${uniform}) by >=0.15`,
   );
 });
 

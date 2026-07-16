@@ -7,20 +7,27 @@ import {
 const t = (x, y, z, kind) => ({ x, y, z, kind });
 
 test('constants', () => {
-  assert.equal(WIDTH, 9);
-  assert.equal(HEIGHT, 9);
+  assert.equal(WIDTH, 12);
+  assert.equal(HEIGHT, 8);
   assert.equal(LAYERS, 3);
 });
 
-test('targetPositions: 242 unique positions, top-center missing', () => {
+test('targetPositions: 136 unique positions (Turtle shape), per-layer counts', () => {
   const pos = targetPositions();
-  assert.equal(pos.length, 242);
+  assert.equal(pos.length, 136);
   const keys = new Set(pos.map((p) => posKey(p.x, p.y, p.z)));
-  assert.equal(keys.size, 242);
-  assert.ok(!keys.has(posKey(4, 4, 2)));
-  assert.ok(keys.has(posKey(4, 4, 1)));
+  assert.equal(keys.size, 136);
+  const byLayer = [0, 0, 0];
+  for (const p of pos) byLayer[p.z] += 1;
+  assert.deepEqual(byLayer, [84, 36, 16]);
+  // Кут шару 0 — заповнений.
   assert.ok(keys.has(posKey(0, 0, 0)));
-  assert.ok(keys.has(posKey(8, 8, 2)));
+  assert.ok(keys.has(posKey(11, 7, 0)));
+  // Виступ "хвіст" (був у справжній Turtle, обрізаний до 136) — відсутній.
+  assert.ok(!keys.has(posKey(0, 1, 0)));
+  // Клітинка шару 2 (верхній, найвужчий шар).
+  assert.ok(keys.has(posKey(5, 3, 2)));
+  assert.ok(!keys.has(posKey(0, 0, 2)));
 });
 
 test('isFreePosition: covered position is not free', () => {
