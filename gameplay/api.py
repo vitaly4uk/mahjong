@@ -1,37 +1,24 @@
-"""JSON API для server-authoritative партії. Публічний — працює й для
-анонімних гравців, авторизація поза скоупом цього етапу. CSRF увімкнено
-незалежно від автентифікації: django-ninja >=1.6 прибрав параметр
-`NinjaAPI(csrf=True)` — CSRF-перевірка тепер прив'язана до auth-класів на
-кшталт `APIKeyCookie` (див. ninja.security.apikey). Тому нижче — свій
-"порожній" auth-клас `CsrfOnly`: він нікого не автентифікує (завжди пускає),
-але примусово виконує ту саму CSRF-перевірку, що й `APIKeyCookie(csrf=True)`.
-Django-сесія/CSRF-кука видається кожному відвідувачу автоматично через
-SessionMiddleware/CsrfViewMiddleware.
+"""JSON API для server-authoritative партії — Router, що монтується в
+`config.api.api` під `/game` (кінцеві URL лишаються `/api/game/start`,
+`/api/game/finish`). Публічний — працює й для анонімних гравців, авторизація
+поза скоупом цього етапу. Auth (і CSRF-захист) успадковується від батьківського
+`NinjaAPI(auth=CsrfOnly())` (`config/api.py`) — Router без власного `auth=`
+нічого не перевизначає.
 """
 import uuid
 from datetime import timedelta
 
 from django.core.cache import cache
 from django.utils import timezone
-from ninja import NinjaAPI, Schema
+from ninja import Router
 from ninja.errors import HttpError
-from ninja.security import APIKeyCookie
 
 from .board import Board, Tile
 from .generator import DIFFICULTIES, generate_for_difficulty
 from .models import GameSession
+from .schemas import FinishRequest, FinishResponse, StartRequest, StartResponse
 
-
-class CsrfOnly(APIKeyCookie):
-    """Auth-заглушка: не перевіряє жодного ключа/сесії (пускає анонімів), але
-    успадкований `_get_key` з `APIKeyCookie(csrf=True)` примусово ганяє
-    Django CSRF-перевірку перед кожним запитом."""
-
-    def authenticate(self, request, key):
-        return True
-
-
-api = NinjaAPI(auth=CsrfOnly())
+router = Router()
 
 SESSION_TTL = timedelta(hours=2)
 RATE_LIMIT_WINDOW_SECONDS = 300
@@ -64,36 +51,7 @@ def _rate_limited(request, action, limit):
     return False
 
 
-class StartRequest(Schema):
-    level: str
-
-
-class TileOut(Schema):
-    x: int
-    y: int
-    z: int
-    kind: str
-
-
-class StartResponse(Schema):
-    token: uuid.UUID
-    layout: list[TileOut]
-
-
-class FinishRequest(Schema):
-    token: uuid.UUID
-    moves: list[tuple[int, int]]
-    outcome: str
-
-
-class FinishResponse(Schema):
-    valid: bool
-    reason: str | None = None
-    won: bool = False
-    elapsed_ms: int | None = None
-
-
-@api.post('/game/start', response=StartResponse)
+@router.post('/start', response=StartResponse)
 def start_game(request, payload: StartRequest):
     if payload.level not in DIFFICULTIES:
         raise HttpError(400, 'unknown level')
@@ -108,7 +66,7 @@ def start_game(request, payload: StartRequest):
     return {'token': session.token, 'layout': layout}
 
 
-@api.post('/game/finish', response=FinishResponse)
+@router.post('/finish', response=FinishResponse)
 def finish_game(request, payload: FinishRequest):
     if _rate_limited(request, 'finish', RATE_LIMIT_MAX_FINISHES):
         raise HttpError(429, 'too many requests, slow down')

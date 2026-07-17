@@ -9,16 +9,22 @@
 ## Стек
 
 - **Django 6.0** + **uv** як пакетний менеджер.
-- Проєкт Django: `config/` (settings/urls/wsgi), `manage.py` в корені.
+- **django-ninja** — увесь JSON/HTTP API проєкту (жодного plain Django view/`JsonResponse` — лише `admin/` (стандартна Django-адмінка) і `''` (рендер HTML-сторінки гри) лишаються поза ninja, бо це не API).
+- Проєкт Django: `config/` (settings/urls/api/wsgi), `manage.py` в корені.
 - Продакшен-сервер: `gunicorn` (`config.wsgi:application`).
 - Фронтенд гри: **Phaser 3.90** vanilla JS ES-модулями, **без npm/білда**. Phaser — локальний файл `static/vendor/phaser.min.js`.
 
 ## Структура гри
 
-- `gameplay/` — Django-застосунок серверної генерації поля й антирід-валідації партії: `board.py` — Python-порт `static/game/board.js` (правило вільності, матчинг пар, зняття); `generator.py` — Python-порт `static/game/generator.js` (генерація розв'язного поля за складністю); `models.py: GameSession` — модель токен-сесії без прив'язки до користувача; `api.py` — django-ninja API (`POST /api/game/start`, `POST /api/game/finish`): старт з генерацією розкладки, фініш із реплеєм логу ходів і валідацією результату, CSRF через `CsrfOnly(APIKeyCookie)` auth-клас (публічні анонімні ендпоїнти, але з обов'язковою CSRF-перевіркою). Див. `docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md`.
-- `static/game/board.js` — модель поля для клієнтського інтерактиву: рендер кісток, кліки, undo-стек, детекція глухого кута; авторитетна перевірка (правило вільності, матчинг) — на сервері (`gameplay/board.py`). Чистий модуль, без Phaser/DOM.
-- `static/game/stats.js` — довічна статистика **по рівнях складності** (easy/normal/hard, кожен зі своєю повною структурою: зіграно/перемоги/серії/рекорд часу/тотали підказок-скасувань-пар): чисті трансформери `applyWin`/`applyLoss` + `load`/`save` у `localStorage` (ключ `mahjong.stats.v2`; старий єдиний `mahjong.stats.v1` мігрується в рівень `hard` при першому `load()`). Чистий модуль, без Phaser/DOM.
-- `static/game/main.js` — Phaser-сцена: рендер кісток-паралелепіпедів, кліки, кнопки (нова гра / підказка / undo / статистика), модалка вибору складності при старті/новій грі, статуси. Старт і фініш партії йдуть через `static/game/sync.js` (HTTP POST до `gameplay/api.py`); без мережи гра не починається. Довічні (по рівню) й поточні (за партію) числа статистики живуть у `this.registry`, DOM (мітки кнопок, зведення в тулбарі, модалки) перемальовується на подію `registry.events.on('changedata', ...)`. `window.mahjongGame` — доступ до гри для дебагу/тестів.
+### Backend API (django-ninja)
+
+- `config/api.py` — **єдиний проєктний `NinjaAPI`** (змонтований у `config/urls.py` як `path('api/', api.urls)`): хостить `GET /api/background/` (фонове фото з Pexels через кешований пул, `{"url": null}` якщо `PEXELS_API_KEY` не заданий) і підключає `gameplay.api.router` під `/game` (`api.add_router('/game', gameplay_router)` → `POST /api/game/start`, `POST /api/game/finish`). Тут же живе `CsrfOnly(APIKeyCookie)` — auth-заглушка, яка нікого не автентифікує (пускає й анонімів), але примусово ганяє звичайну Django CSRF-перевірку на кожен unsafe-запит (GET CSRF не чіпає); задана як `NinjaAPI(auth=CsrfOnly())`, тож успадковується всіма підключеними роутерами, якщо ті не перевизначають `auth=` самі.
+- `config/schemas.py` — ninja `Schema` для `config/api.py` (`BackgroundResponse`).
+- `gameplay/` — Django-застосунок серверної генерації поля й антирід-валідації партії: `board.py` — Python-порт `static/game/board.js` (правило вільності, матчинг пар, зняття); `generator.py` — Python-порт `static/game/generator.js` (генерація розв'язного поля за складністю, без вимоги бітового паритету PRNG з JS — сервер єдине джерело поля); `models.py: GameSession` — модель токен-сесії без прив'язки до користувача (працює й для анонімів); `schemas.py` — ninja `Schema` (`StartRequest`/`StartResponse`/`FinishRequest`/`FinishResponse`); `api.py` — django-ninja `Router` (не самостійний `NinjaAPI` — монтується в `config/api.py`): старт з генерацією розкладки, фініш із реплеєм логу ходів і валідацією результату (нелегальний хід/фейкова перемога/повторний claim — усе відхиляється), час партії рахує сервер (`now − created_at`), одноразовий claim — атомарний `UPDATE ... WHERE status='active'`. Rate-limit на IP через `CF-Connecting-IP` (продакшен за Cloudflare Tunnel — `REMOTE_ADDR` бачив би саму адресу проксі). Див. `docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md`.
+- `static/game/board.js` — модель поля для клієнтського інтерактиву: рендер кісток, кліки, undo-стек, детекція глухого кута; авторитетна перевірка (правило вільності, матчинг) — на сервері (`gameplay/board.py`). Також тут — `KINDS` (34 автентичні riichi-види, потрібні для прелоуду текстур). Чистий модуль, без Phaser/DOM.
+- `static/game/stats.js` — довічна статистика **по рівнях складності** (easy/normal/hard, кожен зі своєю повною структурою: зіграно/перемоги/серії/рекорд часу/тотали підказок-скасувань-пар): чисті трансформери `applyWin`/`applyLoss` + `load`/`save` у `localStorage` (ключ `mahjong.stats.v2`; старий єдиний `mahjong.stats.v1` мігрується в рівень `hard` при першому `load()`). Чистий модуль, без Phaser/DOM. Оновлюється лише результатом, підтвердженим сервером (`gameplay/api.py`), ніколи оптимістично.
+- `static/game/sync.js` — тонкий HTTP-клієнт до `config/api.py`/`gameplay/api.py`: `startGame(level)`, `finishGame(token, moves, outcome)`. CSRF-токен — з `window.MAHJONG_CSRF` (інжектиться в `templates/game.html` через `{{ csrf_token }}`), заголовок `X-CSRFToken`.
+- `static/game/main.js` — Phaser-сцена: рендер кісток-паралелепіпедів, кліки, кнопки (нова гра / підказка / undo / статистика), модалка вибору складності при старті/новій грі, статуси. Поле для нової партії тягнеться з сервера через `sync.js` (без мережі гра не починається — жодної локальної генерації); клієнт веде лог знятих пар (`movesLog`, індекси кісток з серверного `layout`) і шле його на `finish`. Фон (`loadBackground()`) вантажиться **лише** зі `startGame()` (не з `create()`) — щоб не дублювати запит при першому запуску сторінки. Довічні (по рівню) й поточні (за партію) числа статистики живуть у `this.registry`, DOM (мітки кнопок, зведення в тулбарі, модалки) перемальовується на подію `registry.events.on('changedata', ...)`. `window.mahjongGame` — доступ до гри для дебагу/тестів.
 - `templates/game.html` — сторінка гри (корінь `/`), DOM-тулбар над канвасом, модалка вибору складності `#newgame-modal` (без кнопки закриття при першому запуску) і модалка статистики `#stats-modal` (розбивка по рівнях).
 - `static/game/tiles/*.png` — 35 CC0-тайлів з [FluffyStuff/riichi-mahjong-tiles](https://github.com/FluffyStuff/riichi-mahjong-tiles) (Export/Regular). Імена видів у коді = імена PNG.
 - `static/icons/*` — favicon + PWA/Apple-іконки (метод «крупного плану»: кремовий `Front.png` + червоний `Chun.png` по центру на діагональному градієнті зелений→смарагдовий), підключені в `templates/game.html` (`<link rel="icon"/apple-touch-icon>`) і `static/manifest.webmanifest` (`icons`). Генеруються скриптом `scripts/gen_icons.py` з тайлів у `static/game/tiles/` — Pillow тягнеться ефемерно, у проєктні залежності не додається: `uv run --with pillow python scripts/gen_icons.py`.
@@ -55,11 +61,13 @@ node --test 'tests/*.test.js'
 
 (Форма `node --test tests/` не працює — node трактує каталог як модуль.) Покрито: правило вільності, матчинг/undo, глухий кут, розв'язність генерації на 30 сідів, трансформери й localStorage-обгортку статистики (`stats.js`). `main.js` (Phaser) юніт-тестами не покривається — перевіряти в браузері.
 
-Серверна логіка (`gameplay/`: генерація поля, правило вільності, валідація партії через django-ninja API):
+Серверна логіка (`gameplay/`: генерація поля, правило вільності, валідація партії через API; `config/`: background-ендпоінт):
 
 ```
-uv run manage.py test gameplay
+uv run manage.py test
 ```
+
+(без аргументу — Django-discovery знаходить `gameplay/tests.py` і `config/tests.py` автоматично; `uv run manage.py test gameplay` звузить до одного застосунку.)
 
 ## Конфігурація через env
 
@@ -69,6 +77,17 @@ uv run manage.py test gameplay
 - `DJANGO_ALLOWED_HOSTS` (через кому, наприклад `mahjong.vitaly4uk.in.ua`)
 
 Локально можна не задавати — є дефолти для розробки (DEBUG=True, insecure SECRET_KEY).
+
+### CSRF за реверс-проксі (не ламати)
+
+Продакшен ходить Cloudflare Tunnel → dokku nginx (термінує TLS тут) → gunicorn звичайним HTTP. `config/settings.py` виставляє:
+
+```python
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+CSRF_TRUSTED_ORIGINS = [f'https://{h}' for h in ALLOWED_HOSTS]
+```
+
+Без цього Django вважає кожен запит незахищеним (`request.is_secure() == False`), а CSRF-перевірка Origin-заголовка (браузер шле `https://...`) не збігається з обчисленою схемою (`http://...`) → **403 на кожному POST**, незалежно від коректності самого CSRF-токена (django-ninja API це теж стосується — `CsrfOnly` у `config/api.py` покладається саме на цю перевірку). dokku nginx завжди проставляє `X-Forwarded-Proto`, тож довіряти йому безпечно.
 
 ## Деплой на dokku
 

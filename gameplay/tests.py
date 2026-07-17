@@ -2,7 +2,7 @@ import uuid
 
 from django.test import Client, TestCase
 
-from .api import api as gameplay_api  # noqa: F401 (реєструє роутер при імпорті тестового модуля)
+from .api import router as gameplay_router  # noqa: F401 (реєструє роутер при імпорті тестового модуля)
 from .board import Board, Tile, is_free_position, target_positions
 from .generator import DIFFICULTIES, generate_for_difficulty
 from .models import GameSession

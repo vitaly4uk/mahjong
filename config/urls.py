@@ -18,12 +18,10 @@ from django.contrib import admin
 from django.urls import path
 from django.views.generic import TemplateView
 
-from config import views
-from gameplay.api import api as gameplay_api
+from config.api import api
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/background/', views.background, name='background'),
-    path('api/', gameplay_api.urls),
+    path('api/', api.urls),
     path('', TemplateView.as_view(template_name='game.html'), name='home'),
 ]
