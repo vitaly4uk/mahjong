@@ -21,6 +21,7 @@
 - `static/game/main.js` — Phaser-сцена: рендер кісток-паралелепіпедів, кліки, кнопки (нова гра / підказка / undo / статистика), модалка вибору складності при старті/новій грі, статуси. Довічні (по рівню) й поточні (за партію) числа статистики живуть у `this.registry`, DOM (мітки кнопок, зведення в тулбарі, модалки) перемальовується на подію `registry.events.on('changedata', ...)`. `window.mahjongGame` — доступ до гри для дебагу/тестів.
 - `templates/game.html` — сторінка гри (корінь `/`), DOM-тулбар над канвасом, модалка вибору складності `#newgame-modal` (без кнопки закриття при першому запуску) і модалка статистики `#stats-modal` (розбивка по рівнях).
 - `static/game/tiles/*.png` — 35 CC0-тайлів з [FluffyStuff/riichi-mahjong-tiles](https://github.com/FluffyStuff/riichi-mahjong-tiles) (Export/Regular). Імена видів у коді = імена PNG.
+- `static/icons/*` — favicon + PWA/Apple-іконки (метод «крупного плану»: кремовий `Front.png` + червоний `Chun.png` по центру на діагональному градієнті синій→фіолетовий), підключені в `templates/game.html` (`<link rel="icon"/apple-touch-icon>`) і `static/manifest.webmanifest` (`icons`). Генеруються скриптом `scripts/gen_icons.py` з тайлів у `static/game/tiles/` — Pillow тягнеться ефемерно, у проєктні залежності не додається: `uv run --with pillow python scripts/gen_icons.py`.
 
 ### Нюанси рендеру (не ламати)
 
