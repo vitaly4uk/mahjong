@@ -38,6 +38,15 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h]
 
+# Прод йде через Cloudflare Tunnel -> dokku nginx (термінує TLS) -> gunicorn
+# по звичайному HTTP. Без цього Django вважає кожен запит незахищеним
+# (request.is_secure() == False) і CSRF-перевірка Origin-заголовка (браузер
+# шле "https://...") не збігається з очікуваною "http://..." схемою -> 403
+# на кожному POST, незалежно від коректності самого CSRF-токена. dokku nginx
+# завжди проставляє X-Forwarded-Proto, тож довіряємо йому.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+CSRF_TRUSTED_ORIGINS = [f'https://{h}' for h in ALLOWED_HOSTS]
+
 # Ключ Pexels API для фонових фото гри (docs/superpowers/specs/... фон).
 # Порожній рядок = фон вимкнено, клієнт отримує {"url": null} і лишається дефолтний колір.
 PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY', '')
