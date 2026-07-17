@@ -1,3 +1,12 @@
+// Домен видів кісток: 34 автентичні riichi-види (раніше жив у видаленому
+// static/game/generator.js — генерація тепер серверна, gameplay/generator.py).
+export const KINDS = [
+  ...['Man', 'Pin', 'Sou'].flatMap(
+    (suit) => Array.from({ length: 9 }, (_, i) => `${suit}${i + 1}`),
+  ),
+  'Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun',
+];
+
 export const WIDTH = 12;
 export const HEIGHT = 8;
 export const LAYERS = 3;
