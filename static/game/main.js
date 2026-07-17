@@ -64,8 +64,18 @@ const BG_CREDIT_PADDING = 8;
 const STATUS_BAR_PLATE_DEPTH = FALLING_DEPTH + 1;
 const STATUS_BAR_DEPTH = FALLING_DEPTH + 2;
 const STATUS_BAR_PADDING = MARGIN;
-const STATUS_TEXT_STYLE = { fontSize: '22px', color: '#ffffff', fontFamily: 'system-ui, sans-serif' };
-const STATUS_META_STYLE = { fontSize: '16px', color: '#dfeaff', fontFamily: 'system-ui, sans-serif' };
+// Text-об'єкти растеризують власний бітмап окремо від канваса гри й завжди
+// роблять це в 1x, якщо не вказати resolution явно (на відміну від фото/
+// кісток, ігрового zoom вони не успадковують) — тому тонкі лінії шрифту були
+// розмиті навіть після підняття zoom канваса. TEXT_RESOLUTION узгоджує їхню
+// щільність із рештою сцени.
+const TEXT_RESOLUTION = window.devicePixelRatio || 1;
+const STATUS_TEXT_STYLE = {
+  fontSize: '22px', color: '#ffffff', fontFamily: 'system-ui, sans-serif', resolution: TEXT_RESOLUTION,
+};
+const STATUS_META_STYLE = {
+  fontSize: '16px', color: '#dfeaff', fontFamily: 'system-ui, sans-serif', resolution: TEXT_RESOLUTION,
+};
 
 // --- Тулбар (кнопки) — той самий візуальний прийом, що й смуга статусу, ---
 // --- тільки зверху канваса.
@@ -75,7 +85,9 @@ const TOOLBAR_BTN_GAP = 12;
 const TOOLBAR_BTN_H = 42;
 const TOOLBAR_BTN_BG = 0x3a5a40;
 const TOOLBAR_BTN_HOVER = 0x4c7454;
-const TOOLBAR_TEXT_STYLE = { fontSize: '17px', color: '#ffffff', fontFamily: 'system-ui, sans-serif' };
+const TOOLBAR_TEXT_STYLE = {
+  fontSize: '17px', color: '#ffffff', fontFamily: 'system-ui, sans-serif', resolution: TEXT_RESOLUTION,
+};
 // Радіус заокруглення кутів кнопок — той самий стиль, що й у кісток
 // (CORNER_R), пропорційно збільшений під розмір кнопки.
 const BTN_CORNER_R = 10;
@@ -407,7 +419,7 @@ class MainScene extends Phaser.Scene {
       GAME_W - BG_CREDIT_PADDING,
       BOARD_TOP + BOARD_H - BG_CREDIT_PADDING,
       `Фото: ${photographer} · Pexels`,
-      { fontSize: '12px', color: '#ffffff', fontFamily: 'system-ui, sans-serif' },
+      { fontSize: '12px', color: '#ffffff', fontFamily: 'system-ui, sans-serif', resolution: TEXT_RESOLUTION },
     )
       .setOrigin(1, 1)
       .setDepth(BG_CREDIT_DEPTH)
@@ -987,6 +999,13 @@ const game = new Phaser.Game({
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: GAME_W,
     height: GAME_H,
+    // zoom піднімає внутрішній піксельний буфер канваса під щільність екрана
+    // (Retina тощо) — без цього Scale.FIT розтягує логічні GAME_W/GAME_H
+    // пікселі через CSS, і все (особливо тонкі лінії тексту) виглядає
+    // розмито, як розтягнута картинка. autoRound прибирає дробове CSS-
+    // масштабування (ще одне джерело розмиття при нецілій щільності).
+    zoom: window.devicePixelRatio || 1,
+    autoRound: true,
   },
   scene: MainScene,
 });
