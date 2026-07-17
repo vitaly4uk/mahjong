@@ -14,9 +14,14 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Локальна розробка: підхоплюємо .env з кореня проєкту (у .gitignore).
+# override=False (дефолт) — у проді (dokku інжектить env, .env відсутній) це no-op.
+load_dotenv(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
@@ -32,6 +37,10 @@ SECRET_KEY = os.environ.get(
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h]
+
+# Ключ Pexels API для фонових фото гри (docs/superpowers/specs/... фон).
+# Порожній рядок = фон вимкнено, клієнт отримує {"url": null} і лишається дефолтний колір.
+PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY', '')
 
 
 # Application definition

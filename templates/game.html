@@ -27,48 +27,20 @@
        тягати вікно за неї, а інтерактивні елементи виключаємо нижче */
     -webkit-app-region: drag;
   }
-  #toolbar {
-    display: flex; gap: 8px; align-items: center; padding: 10px;
-    height: 36px; box-sizing: content-box; flex: none;
-  }
-  #toolbar button {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 8px 14px; font-size: 15px; font-weight: 500;
-    border: 0; border-radius: 6px;
-    background: #3a5a40; color: #fff; cursor: pointer;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-    transition: background .15s ease;
-    -webkit-app-region: no-drag;
-  }
-  #toolbar button:hover { background: #4c7454; }
-  /* Фіксована висота (вьюпорт мінус тулбар, статус-рядок і зона заголовка),
-     щоб розмір контейнера не залежав від канваса — інакше Scale.FIT
-     масштабує ривками */
+  /* Фіксована висота (вьюпорт мінус зона заголовка), щоб розмір контейнера не
+     залежав від канваса — інакше Scale.FIT масштабує ривками. Тулбар кнопок і
+     смуга статусу — оверлей-плашки у власних зонах зверху/знизу канваса, які
+     GAME_H вже включає (render-constants.js), тож канвас займає весь доступний
+     екран — жодного окремого DOM-рядка над/під ним більше немає. */
   #game-container {
     width: 100%; max-width: 800px;
-    height: calc(100vh - 56px - 36px - var(--safe-top)); flex: none;
+    height: calc(100vh - var(--safe-top)); flex: none;
     -webkit-app-region: no-drag;
   }
-  /* Один рядок під полем: статус партії, рівень складності, довічна
-     зведена статистика — усе, що раніше було праворуч від кнопок */
-  #status-bar {
-    display: flex; align-items: center; justify-content: center;
-    flex-wrap: wrap; gap: 4px 14px;
-    height: 20px; padding: 8px 10px; box-sizing: content-box; flex: none;
-    overflow: hidden;
-    -webkit-app-region: no-drag;
-  }
-  #status {
-    display: inline-flex; align-items: center; gap: 6px; font-size: 15px;
-  }
-  #difficulty-label {
-    display: inline-flex; align-items: center;
-    font-size: 14px; color: #cde;
-  }
-  #stats-summary {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 14px; color: #cde;
-  }
+  /* Тулбар кнопок, смуга статусу (партія/складність/довічна статистика) і
+     кредит фотографа (Pexels License) тепер рендеряться всередині самого
+     канваса (Phaser Text/rectangle, main.js: createToolbar/createStatusBar/
+     setBgCredit) — окремих DOM-елементів не потрібно. */
   #stats-modal, #newgame-modal {
     display: none; position: fixed; inset: 0; z-index: 10;
     background: rgba(0, 0, 0, 0.5);
@@ -99,13 +71,22 @@
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     text-align: center;
   }
+  /* Той самий тактильний прийом, що й у кнопок тулбару-канваса (main.js:
+     createToolbar) — трохи більше при наведенні, менше й "утоплено" при
+     натисканні (:active), плавно повертається назад при відпусканні. */
   #stats-modal button, #newgame-modal button {
     padding: 6px 20px; font-size: 14px; font-weight: 500;
     border: 0; border-radius: 6px; min-width: 120px;
     background: #3a5a40; color: #fff; cursor: pointer;
-    transition: background .15s ease;
+    transition: background .15s ease, transform .12s ease;
   }
-  #stats-modal button:hover, #newgame-modal button:hover { background: #4c7454; }
+  #stats-modal button:hover, #newgame-modal button:hover {
+    background: #4c7454; transform: scale(1.05);
+  }
+  #stats-modal button:active, #newgame-modal button:active {
+    background: #4c7454; transform: scale(0.93) translateY(2px);
+    transition: background .15s ease, transform .08s ease;
+  }
   #newgame-modal .levels {
     display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px;
   }
@@ -113,9 +94,7 @@
     padding: 10px 20px; font-size: 15px; font-weight: 500;
     border: 0; border-radius: 6px; min-width: 180px;
     background: #3a5a40; color: #fff; cursor: pointer;
-    transition: background .15s ease;
   }
-  #newgame-modal .levels button:hover { background: #4c7454; }
   #newgame-modal .levels button.selected {
     background: #6ea56f; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3) inset;
   }
@@ -135,22 +114,14 @@
   }
   @media (prefers-reduced-motion: reduce) {
     #stats-modal, #stats-modal .panel, #newgame-modal, #newgame-modal .panel { animation: none; }
+    #stats-modal button, #newgame-modal button { transition: background .15s ease; }
+    #stats-modal button:hover, #newgame-modal button:hover,
+    #stats-modal button:active, #newgame-modal button:active { transform: none; }
   }
 </style>
 </head>
 <body>
-<div id="toolbar">
-  <button id="btn-new">🆕 Нова гра</button>
-  <button id="btn-hint">💡 Підказка</button>
-  <button id="btn-undo">↩️ Скасувати</button>
-  <button id="btn-stats">📊 Статистика</button>
-</div>
 <div id="game-container"></div>
-<div id="status-bar">
-  <span id="status"></span>
-  <span id="difficulty-label"></span>
-  <span id="stats-summary"></span>
-</div>
 <div id="newgame-modal">
   <div class="panel">
     <h2>🆕 Нова гра</h2>

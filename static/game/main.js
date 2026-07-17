@@ -5,7 +5,8 @@ import {
 } from './stats.js';
 import {
   TILE_W, TILE_H, DEPTH_X, DEPTH_Y, CORNER_R, FACE_W, FACE_H, LAYER_DX, LAYER_DY, MARGIN,
-  GAME_W, GAME_H, SELECT_TINT, LAYER_TINTS, SIDE_COLOR, SIDE_SHADOW, SIDE_EDGE_COLOR,
+  GAME_W, GAME_H, BOARD_H, BOARD_TOP, TOOLBAR_H, STATUS_BAR_H, STATUS_BAR_BG, STATUS_BAR_BG_ALPHA,
+  SELECT_TINT, LAYER_TINTS, SIDE_COLOR, SIDE_SHADOW, SIDE_EDGE_COLOR,
   GLOW_COLOR, GLOW_STRENGTH, GLOW_PULSE_DELTA, SELECT_TILT_DEG, HINT_GLOW_COLOR, SPARK_COLORS,
   POOF_COUNT, END_EFFECT_MS, CRUMBLE_FALL, UNDO_DROP, FALLING_DEPTH,
   HOVER_SCALE, HOVER_WOBBLE_DEG, HOVER_WOBBLE_MS, HOVER_MS,
@@ -41,11 +42,6 @@ function saveDifficultyPref(level) {
 }
 
 const tileUrl = (name) => `/static/game/tiles/${name}.png`;
-const statusEl = document.getElementById('status');
-const summaryEl = document.getElementById('stats-summary');
-const difficultyLabelEl = document.getElementById('difficulty-label');
-const hintBtn = document.getElementById('btn-hint');
-const undoBtn = document.getElementById('btn-undo');
 const statsModal = document.getElementById('stats-modal');
 const statsTitleEl = document.getElementById('stats-title');
 const statsLevelsEl = document.getElementById('stats-levels');
@@ -53,12 +49,47 @@ const newgameModal = document.getElementById('newgame-modal');
 const newgameLevelButtons = [...newgameModal.querySelectorAll('[data-level]')];
 const newgameCloseBtn = document.getElementById('btn-newgame-close');
 
+const BG_VEIL_ALPHA = 0.45;
+const BG_DEPTH = -2;
+const BG_VEIL_DEPTH = -1;
+// Кредит фотографа — у правому нижньому куті ігрового поля (над фото, над
+// плашкою статусу), над усім, включно з кістками, що летять.
+const BG_CREDIT_DEPTH = FALLING_DEPTH + 1;
+const BG_CREDIT_PADDING = 8;
+
+// Оверлей-плашки тулбару й статусу лежать понад краями канваса (поверх
+// фонового фото й кісток) — вищі за FALLING_DEPTH, щоб кістка, що летить до
+// лічильника (FLIGHT_TARGET_Y лежить усередині плашки статусу), "зникала під"
+// нею, а не перекривала текст; сам текст — ще на крок вище за плиту.
+const STATUS_BAR_PLATE_DEPTH = FALLING_DEPTH + 1;
+const STATUS_BAR_DEPTH = FALLING_DEPTH + 2;
+const STATUS_BAR_PADDING = MARGIN;
+const STATUS_TEXT_STYLE = { fontSize: '22px', color: '#ffffff', fontFamily: 'system-ui, sans-serif' };
+const STATUS_META_STYLE = { fontSize: '16px', color: '#dfeaff', fontFamily: 'system-ui, sans-serif' };
+
+// --- Тулбар (кнопки) — той самий візуальний прийом, що й смуга статусу, ---
+// --- тільки зверху канваса.
+const TOOLBAR_PLATE_DEPTH = FALLING_DEPTH + 1;
+const TOOLBAR_DEPTH = FALLING_DEPTH + 2;
+const TOOLBAR_BTN_GAP = 12;
+const TOOLBAR_BTN_H = 42;
+const TOOLBAR_BTN_BG = 0x3a5a40;
+const TOOLBAR_BTN_HOVER = 0x4c7454;
+const TOOLBAR_TEXT_STYLE = { fontSize: '17px', color: '#ffffff', fontFamily: 'system-ui, sans-serif' };
+// Радіус заокруглення кутів кнопок — той самий стиль, що й у кісток
+// (CORNER_R), пропорційно збільшений під розмір кнопки.
+const BTN_CORNER_R = 10;
+
 class MainScene extends Phaser.Scene {
   constructor() {
     super('main');
   }
 
   preload() {
+    // Фото з Pexels вантажаться в рантаймі окремим loader-циклом (loadBackground) і
+    // теж використовуватимуть цей crossOrigin — потрібен для WebGL-текстур із
+    // зовнішнього хоста.
+    this.load.crossOrigin = 'anonymous';
     this.load.image('Front', tileUrl('Front'));
     for (const kind of KINDS) this.load.image(kind, tileUrl(kind));
   }
@@ -163,8 +194,27 @@ class MainScene extends Phaser.Scene {
     spark.generateTexture('spark', 8, 8);
     spark.destroy();
 
+    // Текстура фону кнопки — заокруглений прямокутник у стилі кісток
+    // (той самий прийом заокруглення кутів радіусом BTN_CORNER_R), одна
+    // текстура на всі кнопки тулбару; колір — через tint (біла заливка),
+    // щоб на hover/press можна було міняти tint без перемальовування.
+    const btnCount = 4; // має збігатись із кількістю кнопок у createToolbar()
+    this.toolbarBtnW = (GAME_W - TOOLBAR_BTN_GAP * (btnCount + 1)) / btnCount;
+    const btnBg = this.make.graphics({}, false);
+    btnBg.fillStyle(0xffffff);
+    btnBg.fillRoundedRect(0, 0, this.toolbarBtnW, TOOLBAR_BTN_H, BTN_CORNER_R);
+    btnBg.generateTexture('toolbarBtnBg', this.toolbarBtnW, TOOLBAR_BTN_H);
+    btnBg.destroy();
+
     this.sprites = new Map(); // tile -> Phaser container
     this.selected = null;
+    this.bgCounter = 0; // унікальний суфікс текстурного ключа для кожного фону, що вантажиться
+    this.bgImage = null;
+    this.bgVeil = null;
+    this.bgCredit = null;
+
+    this.createStatusBar();
+    this.createToolbar();
 
     // Системне «зменшити рух» — вимикає важкі ефекти (салют/осипання/пуф),
     // лишаючи лише статичне виділення. glow FX (postFX) працює тільки на
@@ -191,8 +241,6 @@ class MainScene extends Phaser.Scene {
       },
     });
 
-    document.getElementById('btn-new').addEventListener('click', () => this.openNewGameModal());
-    document.getElementById('btn-stats').addEventListener('click', () => this.toggleStatsModal());
     document.getElementById('btn-stats-close').addEventListener('click', () => this.closeAllModals());
     document.getElementById('btn-stats-new').addEventListener('click', () => this.openNewGameModal());
     newgameCloseBtn.addEventListener('click', () => this.closeAllModals());
@@ -214,6 +262,163 @@ class MainScene extends Phaser.Scene {
     // Перший запуск сторінки: показуємо стартову модалку — гравець сам
     // обирає рівень і час; без кнопки закриття, бо грати ще нема в що.
     this.openNewGameModal(false);
+
+    this.loadBackground();
+  }
+
+  // Смуга статусу — велика напівпрозора плашка-оверлей у власній зоні знизу
+  // канваса (нижче ігрового поля, куди кістки ніколи не потрапляють), поверх
+  // фонового фото (воно розтягнуте на весь канвас, включно з цією зоною) —
+  // тому плашка виглядає "поверх картинки", а не окремою смугою іншого
+  // кольору, і при цьому не перекриває жодну кістку. Три текстові об'єкти
+  // замінюють колишній DOM-рядок #status-bar: статус партії (ліворуч),
+  // рівень складності (по центру), довічна статистика (праворуч) —
+  // оновлюються в updateStatus()/renderStats().
+  createStatusBar() {
+    const y = BOARD_TOP + BOARD_H + STATUS_BAR_H / 2;
+    this.add.rectangle(GAME_W / 2, y, GAME_W, STATUS_BAR_H, STATUS_BAR_BG, STATUS_BAR_BG_ALPHA)
+      .setDepth(STATUS_BAR_PLATE_DEPTH);
+    this.statusText = this.add.text(STATUS_BAR_PADDING, y, '', STATUS_TEXT_STYLE)
+      .setOrigin(0, 0.5)
+      .setDepth(STATUS_BAR_DEPTH);
+    this.difficultyText = this.add.text(GAME_W / 2, y, '', STATUS_META_STYLE)
+      .setOrigin(0.5, 0.5)
+      .setDepth(STATUS_BAR_DEPTH);
+    this.summaryText = this.add.text(GAME_W - STATUS_BAR_PADDING, y, '', STATUS_META_STYLE)
+      .setOrigin(1, 0.5)
+      .setDepth(STATUS_BAR_DEPTH);
+  }
+
+  // Тулбар — та сама напівпрозора плашка-оверлей, тільки зверху канваса
+  // (над ігровим полем, куди кістки ніколи не потрапляють — BOARD_TOP зсуває
+  // все поле вниз). Чотири рівні кнопки замінюють колишній DOM-рядок
+  // #toolbar: нова гра / підказка / скасувати / статистика. Кожна кнопка —
+  // контейнер (фон + текст, разом масштабуються/зсуваються) з живим
+  // наведенням (трохи більша, як у кісток — HOVER_SCALE) і фізичним
+  // "вдавлюванням" при кліку (менша й опущена, як PRESS_SCALE/PRESS_DROP
+  // у playPress) — той самий тактильний прийом, що й у самих кісток.
+  createToolbar() {
+    const y = TOOLBAR_H / 2;
+    this.add.rectangle(GAME_W / 2, y, GAME_W, TOOLBAR_H, STATUS_BAR_BG, STATUS_BAR_BG_ALPHA)
+      .setDepth(TOOLBAR_PLATE_DEPTH);
+
+    const labels = [
+      { key: 'new', text: '🆕 Нова гра', onClick: () => this.openNewGameModal() },
+      { key: 'hint', text: '💡 Підказка', onClick: () => this.hint() },
+      { key: 'undo', text: '↩️ Скасувати', onClick: () => this.undo() },
+      { key: 'stats', text: '📊 Статистика', onClick: () => this.toggleStatsModal() },
+    ];
+    const btnW = this.toolbarBtnW;
+    this.toolbarTexts = {};
+
+    labels.forEach(({ key, text, onClick }, i) => {
+      const x = TOOLBAR_BTN_GAP + btnW / 2 + i * (btnW + TOOLBAR_BTN_GAP);
+      // Заокруглений прямокутник (той самий стиль, що й у кісток) — біла
+      // текстура toolbarBtnBg, колір задається tint'ом (без перемальовування).
+      const bg = this.add.image(0, 0, 'toolbarBtnBg').setTint(TOOLBAR_BTN_BG);
+      const label = this.add.text(0, 0, text, TOOLBAR_TEXT_STYLE).setOrigin(0.5, 0.5);
+      this.toolbarTexts[key] = label;
+
+      const container = this.add.container(x, y, [bg, label])
+        .setDepth(TOOLBAR_DEPTH)
+        .setInteractive(
+          new Phaser.Geom.Rectangle(-btnW / 2, -TOOLBAR_BTN_H / 2, btnW, TOOLBAR_BTN_H),
+          Phaser.Geom.Rectangle.Contains,
+        );
+      container.input.cursor = 'pointer';
+
+      container.on('pointerover', () => {
+        bg.setTint(TOOLBAR_BTN_HOVER);
+        container._hoverTween?.stop();
+        container._hoverTween = this.tweens.add({
+          targets: container, scale: HOVER_SCALE, duration: HOVER_MS, ease: 'Sine.easeOut',
+        });
+      });
+      container.on('pointerout', () => {
+        bg.setTint(TOOLBAR_BTN_BG);
+        container._hoverTween?.stop();
+        container._hoverTween = this.tweens.add({
+          targets: container, scale: 1, y, duration: HOVER_MS, ease: 'Sine.easeOut',
+        });
+      });
+      container.on('pointerdown', () => {
+        container._hoverTween?.stop();
+        this.tweens.add({
+          targets: container,
+          scale: PRESS_SCALE,
+          y: y + PRESS_DROP,
+          duration: PRESS_MS,
+          ease: 'Back.easeOut',
+          yoyo: true,
+        });
+        onClick();
+      });
+    });
+  }
+
+  // Тягне випадкове дзен-фото з Pexels через серверний проксі (/api/background/,
+  // config/views.py — ключ живе тільки на сервері) і кладе його за кістками з
+  // темною вуаллю поверх для читаемості. Якщо фону нема (немає ключа, мережева
+  // помилка, ліміт) — тихо лишає поточний фон (за замовчуванням просто
+  // backgroundColor гри), нічого не ламаючи.
+  async loadBackground() {
+    let data;
+    try {
+      const response = await fetch('/api/background/');
+      data = await response.json();
+    } catch {
+      return;
+    }
+    if (!data?.url) return;
+
+    this.bgCounter += 1;
+    const key = `bg-${this.bgCounter}`;
+    this.load.image(key, data.url);
+    this.load.once(`filecomplete-image-${key}`, () => {
+      this.bgImage?.destroy();
+      this.bgVeil?.destroy();
+      this.bgImage = this.add.image(GAME_W / 2, GAME_H / 2, key)
+        .setDisplaySize(GAME_W, GAME_H)
+        .setDepth(BG_DEPTH);
+      this.bgVeil = this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x000000, BG_VEIL_ALPHA)
+        .setDepth(BG_VEIL_DEPTH);
+      // Стара текстура більше не потрібна — прибираємо, щоб не текла пам'ять
+      // при частій зміні фону («нова гра»).
+      if (this.bgTextureKey) this.textures.remove(this.bgTextureKey);
+      this.bgTextureKey = key;
+
+      this.setBgCredit(data.photographer, data.photographer_url);
+    });
+    this.load.once('loaderror', () => {
+      // Фото не довантажилось — лишаємо те, що вже було (або нічого).
+    });
+    this.load.start();
+  }
+
+  // Обов'язковий кредит фотографа (Pexels License) — білий текст у правому
+  // нижньому куті ігрового поля (над фото, над плашкою статусу — вони більше
+  // не перетинаються), клікабельний (веде на профіль фотографа).
+  setBgCredit(photographer, photographerUrl) {
+    this.bgCredit?.destroy();
+    this.bgCredit = null;
+    if (!photographer) return;
+
+    const text = this.add.text(
+      GAME_W - BG_CREDIT_PADDING,
+      BOARD_TOP + BOARD_H - BG_CREDIT_PADDING,
+      `Фото: ${photographer} · Pexels`,
+      { fontSize: '12px', color: '#ffffff', fontFamily: 'system-ui, sans-serif' },
+    )
+      .setOrigin(1, 1)
+      .setDepth(BG_CREDIT_DEPTH)
+      .setAlpha(0.75)
+      .setShadow(0, 1, '#000000', 2, true, true);
+
+    if (photographerUrl) {
+      text.setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => window.open(photographerUrl, '_blank', 'noopener'));
+    }
+    this.bgCredit = text;
   }
 
   startGame(level) {
@@ -221,7 +426,8 @@ class MainScene extends Phaser.Scene {
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
     this.selected = null;
-    statusEl.textContent = '⏳ Генерую розклад…';
+    this.statusText.setText('⏳ Генерую розклад…');
+    this.loadBackground();
     this.board = new Board(generateForDifficulty(level, Math.random));
     for (const tile of this.board.tiles()) this.addTileSprite(tile);
 
@@ -299,13 +505,13 @@ class MainScene extends Phaser.Scene {
   renderStats() {
     const hints = this.registry.get('gameHints') || 0;
     const undos = this.registry.get('gameUndos') || 0;
-    hintBtn.textContent = hints > 0 ? `💡 Підказка (${hints})` : '💡 Підказка';
-    undoBtn.textContent = undos > 0 ? `↩️ Скасувати (${undos})` : '↩️ Скасувати';
-    difficultyLabelEl.textContent = LEVEL_LABELS[this.currentLevel];
+    this.toolbarTexts.hint.setText(hints > 0 ? `💡 Підказка (${hints})` : '💡 Підказка');
+    this.toolbarTexts.undo.setText(undos > 0 ? `↩️ Скасувати (${undos})` : '↩️ Скасувати');
+    this.difficultyText.setText(LEVEL_LABELS[this.currentLevel]);
 
     const stats = this.lifetimeStats();
     const elapsed = this.registry.get('gameElapsedMs') || 0;
-    summaryEl.textContent = `🏆 ${stats.gamesWon}/${stats.gamesPlayed} · 🔥 ${stats.currentStreak} · ⏱️ ${fmtTime(elapsed)}`;
+    this.summaryText.setText(`🏆 ${stats.gamesWon}/${stats.gamesPlayed} · 🔥 ${stats.currentStreak} · ⏱️ ${fmtTime(elapsed)}`);
 
     const allStats = this.registry.get('allStats');
     statsLevelsEl.innerHTML = LEVELS.map((level) => {
@@ -358,7 +564,7 @@ class MainScene extends Phaser.Scene {
       for (let i = 0; i < shots; i += 1) {
         this.time.delayedCall((END_EFFECT_MS / shots) * i, () => {
           const x = Phaser.Math.Between(MARGIN, GAME_W - MARGIN);
-          const y = Phaser.Math.Between(MARGIN, GAME_H * 0.5);
+          const y = Phaser.Math.Between(BOARD_TOP + MARGIN, BOARD_TOP + BOARD_H * 0.5);
           this.spawnBurst(x, y, {
             count: 26, speed: 260, lifespan: 700, gravityY: 220, scale: 0.9,
           });
@@ -388,7 +594,7 @@ class MainScene extends Phaser.Scene {
   // (glow-таргетів, частинок), щоб не дублювати математику.
   tileScreenPos(tile) {
     const x = MARGIN + tile.x * TILE_W + TILE_W / 2 + tile.z * LAYER_DX;
-    const y = MARGIN + LAYERS * LAYER_DY
+    const y = BOARD_TOP + MARGIN + LAYERS * LAYER_DY
       + tile.y * TILE_H + TILE_H / 2 - tile.z * LAYER_DY;
     return { x, y };
   }
@@ -610,6 +816,19 @@ class MainScene extends Phaser.Scene {
 
   removePair(a, b) {
     if (!this.board.removePair(a, b)) return;
+    this.selected = null;
+    this.bumpCounter('gamePairs', 'pairsTotal');
+
+    // Лічильник «Залишилось: N» (updateStatus) оновлюється лише тоді, коли
+    // обидві кістки долетіли до кута й зникли — інакше цифра змінюється
+    // раніше, ніж гравець бачить, куди вони поділись. При reducedMotion
+    // (кістки зникають миттєво) чекати нічого не треба.
+    let pending = 0;
+    const onTileGone = () => {
+      pending -= 1;
+      if (pending === 0) this.updateStatus();
+    };
+
     for (const tile of [a, b]) {
       const container = this.sprites.get(tile);
       container._glowTween?.stop();
@@ -625,17 +844,16 @@ class MainScene extends Phaser.Scene {
       // hover-обробникам чіпляти твіни на кістку, що вже летить геть.
       container.setDepth(FALLING_DEPTH);
       container._flying = true;
-      this.flyToCenterThenDown(container);
+      pending += 1;
+      this.flyToCenterThenDown(container, onTileGone);
     }
-    this.selected = null;
-    this.bumpCounter('gamePairs', 'pairsTotal');
-    this.updateStatus();
+    if (pending === 0) this.updateStatus();
   }
 
   // Фаза 1 знятої кістки: летить у центр екрана, зростаючи (Back.easeOut дає
   // легкий "поп"). Обидві кістки пари летять в одну й ту саму точку — так вони
   // візуально «зустрічаються»/зливаються, перш ніж полетіти далі разом.
-  flyToCenterThenDown(container) {
+  flyToCenterThenDown(container, onDone) {
     this.tweens.add({
       targets: container,
       x: FLIGHT_CENTER_X,
@@ -643,16 +861,17 @@ class MainScene extends Phaser.Scene {
       scale: FLIGHT_MERGE_SCALE,
       duration: FLIGHT_TO_CENTER_MS,
       ease: 'Back.easeOut',
-      onComplete: () => this.flyDownFromCenter(container),
+      onComplete: () => this.flyDownFromCenter(container, onDone),
     });
   }
 
   // Фаза 2: з центру (де кістки щойно злилися) обидві летять по тому самому
-  // дуговому шляху вниз до лічильника пар (DOM #status під канвасом —
-  // FLIGHT_TARGET_X/Y це найближча до нього точка на самому канвасі),
-  // зменшуючись назад до зникнення. Взрив частинок — у точці зникнення, вже
-  // після завершення польоту, і лише тоді знищуємо контейнер.
-  flyDownFromCenter(container) {
+  // дуговому шляху вниз до лічильника пар (this.statusText у смузі статусу —
+  // FLIGHT_TARGET_X/Y це її вертикальний центр), зменшуючись назад до
+  // зникнення. Взрив частинок — у точці зникнення, вже після завершення
+  // польоту, і лише тоді знищуємо контейнер і сповіщаємо onDone (щоб
+  // removePair оновив лічильник, коли обидві кістки вже зникли).
+  flyDownFromCenter(container, onDone) {
     const start = new Phaser.Math.Vector2(container.x, container.y);
     const end = new Phaser.Math.Vector2(FLIGHT_TARGET_X, FLIGHT_TARGET_Y);
     const control = new Phaser.Math.Vector2(
@@ -680,6 +899,7 @@ class MainScene extends Phaser.Scene {
           count: POOF_COUNT, speed: 180, lifespan: 400, scale: 0.5,
         });
         container.destroy();
+        onDone();
       },
     });
   }
@@ -747,13 +967,13 @@ class MainScene extends Phaser.Scene {
 
   updateStatus() {
     if (this.board.isWon()) {
-      statusEl.textContent = '🎉 Перемога!';
+      this.statusText.setText('🎉 Перемога!');
       this.finishGame(true);
     } else if (this.board.isDeadlocked()) {
-      statusEl.textContent = '🚫 Немає ходів — почніть нову гру';
+      this.statusText.setText('🚫 Немає ходів — почніть нову гру');
       this.finishGame(false);
     } else {
-      statusEl.textContent = `🀄 Залишилось: ${this.board.remaining}`;
+      this.statusText.setText(`🀄 Залишилось: ${this.board.remaining}`);
     }
   }
 }
@@ -772,7 +992,3 @@ const game = new Phaser.Game({
 });
 
 window.mahjongGame = game;
-
-const scene = () => game.scene.keys.main;
-hintBtn.addEventListener('click', () => scene().hint());
-undoBtn.addEventListener('click', () => scene().undo());

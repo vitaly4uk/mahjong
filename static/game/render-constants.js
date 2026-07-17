@@ -21,7 +21,19 @@ export const LAYER_DX = 8; // зсув шару вгору-вправо для �
 export const LAYER_DY = 10;
 export const MARGIN = 30;
 export const GAME_W = WIDTH * TILE_W + 2 * MARGIN + LAYERS * LAYER_DX;
-export const GAME_H = HEIGHT * TILE_H + 2 * MARGIN + LAYERS * LAYER_DY;
+// Ігрове поле (кістки) — окремо від повної висоти канваса: тулбар кнопок
+// додає своє місце зверху (TOOLBAR_H), смуга статусу — знизу (STATUS_BAR_H).
+// Кістки ніколи не потрапляють у ці зони (BOARD_TOP зсуває все поле вниз),
+// але фонове фото/вуаль розтягнуті на весь канвас, тож обидві напівпрозорі
+// плашки все одно виглядають "поверх картинки", а не окремими смугами
+// іншого кольору над/під нею.
+export const BOARD_H = HEIGHT * TILE_H + 2 * MARGIN + LAYERS * LAYER_DY;
+export const TOOLBAR_H = 64;
+export const BOARD_TOP = TOOLBAR_H;
+export const STATUS_BAR_H = 56;
+export const GAME_H = TOOLBAR_H + BOARD_H + STATUS_BAR_H;
+export const STATUS_BAR_BG = 0x0d1a10;
+export const STATUS_BAR_BG_ALPHA = 0.6;
 export const SELECT_TINT = 0x77bbff;
 // Затемнення нижніх шарів, щоб шари читалися окремо
 export const LAYER_TINTS = [0xb0b0b0, 0xd8d8d8, 0xffffff];
@@ -72,8 +84,9 @@ export const FLIGHT_MERGE_SCALE = 1.35; // до якого розміру кіс
 export const FLIGHT_DOWN_MS = 900;
 export const FLIGHT_ARC_LIFT = 90; // наскільки контрольна точка дуги фази 2 зсунута вбік від прямої
 export const FLIGHT_CENTER_X = GAME_W / 2;
-export const FLIGHT_CENTER_Y = GAME_H / 2;
-// Лічильник пар живе в DOM під канвасом (#status), тож ціль польоту на канвасі —
-// нижній центр: найближча точка канваса до реального лічильника.
-export const FLIGHT_TARGET_X = GAME_W / 2;
-export const FLIGHT_TARGET_Y = GAME_H;
+export const FLIGHT_CENTER_Y = BOARD_TOP + BOARD_H / 2; // центр саме ігрового поля
+// Лічильник пар — текст статусу («🀄 Залишилось: N»), притиснутий до лівого
+// краю плашки статусу (STATUS_BAR_PADDING у main.js === MARGIN), тож ціль
+// польоту — та сама точка, а не центр канваса.
+export const FLIGHT_TARGET_X = MARGIN + 60;
+export const FLIGHT_TARGET_Y = BOARD_TOP + BOARD_H + STATUS_BAR_H / 2;
