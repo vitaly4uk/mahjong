@@ -1,5 +1,5 @@
-import { WIDTH, LAYERS, Board } from './board.js';
-import { generateForDifficulty, KINDS } from './generator.js';
+import { WIDTH, LAYERS, Board, KINDS } from './board.js';
+import { startGame as apiStartGame, finishGame as apiFinishGame } from './sync.js';
 import {
   load as loadStats, save as saveStats, applyWin, applyLoss, winRate, fmtTime, LEVELS,
 } from './stats.js';
@@ -224,6 +224,8 @@ class MainScene extends Phaser.Scene {
     this.bgImage = null;
     this.bgVeil = null;
     this.bgCredit = null;
+    this.sessionToken = null;
+    this.movesLog = [];
 
     this.createStatusBar();
     this.createToolbar();
@@ -433,14 +435,27 @@ class MainScene extends Phaser.Scene {
     this.bgCredit = text;
   }
 
-  startGame(level) {
+  async startGame(level) {
     this.currentLevel = level;
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
     this.selected = null;
     this.statusText.setText('⏳ Генерую розклад…');
     this.loadBackground();
-    this.board = new Board(generateForDifficulty(level, Math.random));
+    this.closeAllModals();
+
+    let data;
+    try {
+      data = await apiStartGame(level);
+    } catch {
+      this.statusText.setText('⚠️ Не вдалося почати гру — перевірте з\'єднання');
+      return;
+    }
+
+    this.sessionToken = data.token;
+    this.movesLog = [];
+    const tiles = data.layout.map((t, idx) => ({ ...t, idx }));
+    this.board = new Board(tiles);
     for (const tile of this.board.tiles()) this.addTileSprite(tile);
 
     this.registry.set('gameHints', 0);
@@ -449,7 +464,6 @@ class MainScene extends Phaser.Scene {
     this.registry.set('gameStartMs', Date.now());
     this.registry.set('gameElapsedMs', 0);
     this.registry.set('gameFinished', false);
-    this.closeAllModals();
     this.renderStats();
 
     this.updateStatus();
@@ -548,18 +562,38 @@ class MainScene extends Phaser.Scene {
     }).join('');
   }
 
-  // Зараховує завершену партію (перемога чи глухий кут) рівно один раз.
-  finishGame(won) {
+  // Зараховує завершену партію (перемога чи глухий кут) рівно один раз —
+  // лише після того, як сервер підтвердив лог ходів реплеєм (анти-чит,
+  // docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md).
+  // Локальна lifetime-статистика оновлюється тільки за підтвердженим
+  // результатом; серверний час (elapsedMs) — джерело істини, не клієнтський.
+  async finishGame(won) {
     if (this.registry.get('gameFinished')) return;
     this.registry.set('gameFinished', true);
-    const elapsed = Date.now() - this.registry.get('gameStartMs');
-    this.registry.set('gameElapsedMs', elapsed);
-    const updated = won
-      ? applyWin(this.lifetimeStats(), elapsed)
+
+    const outcome = won ? 'win' : 'deadlock';
+    let result;
+    try {
+      result = await apiFinishGame(this.sessionToken, this.movesLog, outcome);
+    } catch {
+      this.statusText.setText('⚠️ Не вдалося підтвердити результат партії');
+      this.openStatsModal('⚠️ Партія не підтверджена сервером');
+      return;
+    }
+
+    if (!result.valid) {
+      this.statusText.setText('⚠️ Партія не підтверджена сервером');
+      this.openStatsModal('⚠️ Партія не підтверджена сервером');
+      return;
+    }
+
+    this.registry.set('gameElapsedMs', result.elapsedMs);
+    const updated = result.won
+      ? applyWin(this.lifetimeStats(), result.elapsedMs)
       : applyLoss(this.lifetimeStats());
     this.updateLifetimeStats(updated);
-    this.playEndEffect(won, () => {
-      this.openStatsModal(won ? '🎉 Перемога!' : '🚫 Глухий кут — немає ходів');
+    this.playEndEffect(result.won, () => {
+      this.openStatsModal(result.won ? '🎉 Перемога!' : '🚫 Глухий кут — немає ходів');
     });
   }
 
@@ -828,6 +862,7 @@ class MainScene extends Phaser.Scene {
 
   removePair(a, b) {
     if (!this.board.removePair(a, b)) return;
+    this.movesLog.push([a.idx, b.idx]);
     this.selected = null;
     this.bumpCounter('gamePairs', 'pairsTotal');
 
@@ -919,6 +954,7 @@ class MainScene extends Phaser.Scene {
   undo() {
     const pair = this.board.undo();
     if (!pair) return;
+    this.movesLog.pop();
     this.deselect();
     for (const tile of pair) this.animateUndoTile(tile);
     this.bumpCounter('gameUndos', 'undosTotal');
