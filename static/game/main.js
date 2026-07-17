@@ -7,7 +7,12 @@ import {
   TILE_W, TILE_H, DEPTH_X, DEPTH_Y, CORNER_R, FACE_W, FACE_H, LAYER_DX, LAYER_DY, MARGIN,
   GAME_W, GAME_H, SELECT_TINT, LAYER_TINTS, SIDE_COLOR, SIDE_SHADOW, SIDE_EDGE_COLOR,
   GLOW_COLOR, GLOW_STRENGTH, GLOW_PULSE_DELTA, SELECT_TILT_DEG, HINT_GLOW_COLOR, SPARK_COLORS,
-  POOF_COUNT, END_EFFECT_MS, CRUMBLE_FALL, POOF_FALL, UNDO_DROP, FALLING_DEPTH,
+  POOF_COUNT, END_EFFECT_MS, CRUMBLE_FALL, UNDO_DROP, FALLING_DEPTH,
+  HOVER_SCALE, HOVER_WOBBLE_DEG, HOVER_WOBBLE_MS, HOVER_MS,
+  PRESS_SCALE, PRESS_DROP, PRESS_MS, PRESS_TINT,
+  ERROR_SHAKE_PX, ERROR_SHAKE_MS, ERROR_SHAKE_REPEAT, ERROR_TINT, ERROR_TINT_MS,
+  FLIGHT_TO_CENTER_MS, FLIGHT_MERGE_SCALE, FLIGHT_DOWN_MS, FLIGHT_ARC_LIFT,
+  FLIGHT_CENTER_X, FLIGHT_CENTER_Y, FLIGHT_TARGET_X, FLIGHT_TARGET_Y,
 } from './render-constants.js';
 
 const DIFFICULTY_KEY = 'mahjong.difficulty';
@@ -203,6 +208,8 @@ class MainScene extends Phaser.Scene {
     // Один сценовий обробник на всі плитки (замість замикання на кожну):
     // спрацьовує і для плиток, доданих пізніше (undo, нова гра).
     this.input.on('gameobjectdown', (pointer, obj) => this.handleTileClick(obj.getData('tile')));
+    this.input.on('gameobjectover', (pointer, obj) => this.handleTileOver(obj.getData('tile')));
+    this.input.on('gameobjectout', (pointer, obj) => this.handleTileOut(obj.getData('tile')));
 
     // Перший запуск сторінки: показуємо стартову модалку — гравець сам
     // обирає рівень і час; без кнопки закриття, бо грати ще нема в що.
@@ -465,8 +472,109 @@ class MainScene extends Phaser.Scene {
     this.resetTileTint(tile);
   }
 
+  // Миттєво знімає hover-твіни (scale/wobble) без плавного переходу — потрібно
+  // перед select/removePair, де кістка вже отримує власний tilt чи летить геть.
+  clearHover(container) {
+    if (!container) return;
+    container._hoverWobble?.stop();
+    container._hoverWobble = null;
+    container._hoverScaleTween?.stop();
+    container._hoverScaleTween = null;
+    container.setScale(1);
+    container.angle = 0;
+  }
+
+  // Живе наведення: плавне збільшення + неперервне «дихання» по куту. Не чіпаємо
+  // вибрану кістку (у неї вже є власний pulse/tilt від applyGlow) і кістки, що
+  // летять до лічильника після знятої пари.
+  handleTileOver(tile) {
+    if (this.reducedMotion) return;
+    const container = this.sprites.get(tile);
+    if (!container || tile === this.selected || container._flying) return;
+    container._hoverScaleTween?.stop();
+    container._hoverScaleTween = this.tweens.add({
+      targets: container, scale: HOVER_SCALE, duration: HOVER_MS, ease: 'Sine.easeOut',
+    });
+    container._hoverWobble?.stop();
+    container._hoverWobble = this.tweens.add({
+      targets: container,
+      angle: { from: -HOVER_WOBBLE_DEG, to: HOVER_WOBBLE_DEG },
+      duration: HOVER_WOBBLE_MS,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+  }
+
+  handleTileOut(tile) {
+    if (this.reducedMotion) return;
+    const container = this.sprites.get(tile);
+    if (!container || tile === this.selected || container._flying) return;
+    container._hoverWobble?.stop();
+    container._hoverWobble = null;
+    container._hoverScaleTween?.stop();
+    container._hoverScaleTween = this.tweens.add({
+      targets: container, scale: 1, angle: 0, duration: HOVER_MS, ease: 'Sine.easeOut',
+    });
+  }
+
+  // Повертає тінт кістки після тимчасового спалаху (press/error) з урахуванням
+  // поточного стану — якщо кістка вже знята чи улетіла, нічого робити не треба;
+  // якщо це досі виділена кістка на Canvas-фолбеку (без postFX), її тінт —
+  // GLOW_COLOR, а не пошаровий.
+  restoreTint(tile) {
+    if (!this.sprites.has(tile)) return;
+    if (tile === this.selected && !this.webgl) this.setTileTint(tile, GLOW_COLOR);
+    else this.resetTileTint(tile);
+  }
+
+  // Фізичне вдавлювання при кліку по вільній кістці: короткий «пресс» вниз
+  // зі стиском + яскравий золотий спалах, що потім згасає до звичного тінту.
+  playPress(tile) {
+    if (this.reducedMotion) return;
+    const container = this.sprites.get(tile);
+    if (!container) return;
+    this.tweens.add({
+      targets: container,
+      y: `+=${PRESS_DROP}`,
+      scale: PRESS_SCALE,
+      duration: PRESS_MS,
+      ease: 'Back.easeOut',
+      yoyo: true,
+    });
+    this.setTileTint(tile, PRESS_TINT);
+    this.time.delayedCall(PRESS_MS * 2, () => this.restoreTint(tile));
+  }
+
+  // «Заперечна» тряска по X при кліку на заблоковану кістку + червоний спалах.
+  // Спалах лишається навіть при reduced-motion (це не рух, а миттєвий колір);
+  // саму тряску пропускаємо.
+  playError(tile) {
+    const container = this.sprites.get(tile);
+    if (!container) return;
+    this.setTileTint(tile, ERROR_TINT);
+    this.time.delayedCall(ERROR_TINT_MS, () => this.restoreTint(tile));
+    if (this.reducedMotion || container._errorTween) return;
+    const baseX = container.x;
+    container._errorTween = this.tweens.add({
+      targets: container,
+      x: { from: baseX - ERROR_SHAKE_PX, to: baseX + ERROR_SHAKE_PX },
+      duration: ERROR_SHAKE_MS,
+      yoyo: true,
+      repeat: ERROR_SHAKE_REPEAT,
+      onComplete: () => {
+        container.x = baseX;
+        container._errorTween = null;
+      },
+    });
+  }
+
   handleTileClick(tile) {
-    if (!this.board.isFree(tile)) return;
+    if (!this.board.isFree(tile)) {
+      this.playError(tile);
+      return;
+    }
+    this.playPress(tile);
     if (this.selected === tile) {
       this.deselect();
       return;
@@ -477,6 +585,7 @@ class MainScene extends Phaser.Scene {
     }
     this.deselect();
     this.selected = tile;
+    this.clearHover(this.sprites.get(tile));
     this.applyGlow(tile, GLOW_COLOR);
   }
 
@@ -505,29 +614,74 @@ class MainScene extends Phaser.Scene {
       const container = this.sprites.get(tile);
       container._glowTween?.stop();
       container._tiltTween?.stop();
+      this.clearHover(container);
       this.sprites.delete(tile);
       if (this.reducedMotion) {
         container.destroy();
         continue;
       }
-      const { x, y } = container;
-      // Піднімаємо над усіма іншими кістками на час падіння — інакше
-      // знята пара пролітає позаду сусідніх кісток з вищим depth.
+      // Піднімаємо над усіма іншими кістками на час польоту — інакше знята
+      // пара пролітає позаду сусідніх кісток з вищим depth. `_flying` не дає
+      // hover-обробникам чіпляти твіни на кістку, що вже летить геть.
       container.setDepth(FALLING_DEPTH);
-      this.spawnBurst(x, y, { count: POOF_COUNT, speed: 120, lifespan: 250, scale: 0.45 });
-      this.tweens.add({
-        targets: container,
-        y: container.y + POOF_FALL,
-        angle: Phaser.Math.Between(-40, 40),
-        alpha: 0,
-        duration: 700,
-        ease: 'Quad.easeIn',
-        onComplete: () => container.destroy(),
-      });
+      container._flying = true;
+      this.flyToCenterThenDown(container);
     }
     this.selected = null;
     this.bumpCounter('gamePairs', 'pairsTotal');
     this.updateStatus();
+  }
+
+  // Фаза 1 знятої кістки: летить у центр екрана, зростаючи (Back.easeOut дає
+  // легкий "поп"). Обидві кістки пари летять в одну й ту саму точку — так вони
+  // візуально «зустрічаються»/зливаються, перш ніж полетіти далі разом.
+  flyToCenterThenDown(container) {
+    this.tweens.add({
+      targets: container,
+      x: FLIGHT_CENTER_X,
+      y: FLIGHT_CENTER_Y,
+      scale: FLIGHT_MERGE_SCALE,
+      duration: FLIGHT_TO_CENTER_MS,
+      ease: 'Back.easeOut',
+      onComplete: () => this.flyDownFromCenter(container),
+    });
+  }
+
+  // Фаза 2: з центру (де кістки щойно злилися) обидві летять по тому самому
+  // дуговому шляху вниз до лічильника пар (DOM #status під канвасом —
+  // FLIGHT_TARGET_X/Y це найближча до нього точка на самому канвасі),
+  // зменшуючись назад до зникнення. Взрив частинок — у точці зникнення, вже
+  // після завершення польоту, і лише тоді знищуємо контейнер.
+  flyDownFromCenter(container) {
+    const start = new Phaser.Math.Vector2(container.x, container.y);
+    const end = new Phaser.Math.Vector2(FLIGHT_TARGET_X, FLIGHT_TARGET_Y);
+    const control = new Phaser.Math.Vector2(
+      (start.x + end.x) / 2 + FLIGHT_ARC_LIFT,
+      (start.y + end.y) / 2,
+    );
+    const curve = new Phaser.Curves.QuadraticBezier(start, control, end);
+    const point = new Phaser.Math.Vector2();
+    const startScale = container.scaleX;
+    this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: FLIGHT_DOWN_MS,
+      ease: 'Sine.easeIn',
+      onUpdate: (tween) => {
+        const t = tween.getValue();
+        curve.getPoint(t, point);
+        container.x = point.x;
+        container.y = point.y;
+        container.setScale(startScale * (1 - t));
+        container.alpha = 1 - t;
+      },
+      onComplete: () => {
+        this.spawnBurst(FLIGHT_TARGET_X, FLIGHT_TARGET_Y, {
+          count: POOF_COUNT, speed: 180, lifespan: 400, scale: 0.5,
+        });
+        container.destroy();
+      },
+    });
   }
 
   undo() {

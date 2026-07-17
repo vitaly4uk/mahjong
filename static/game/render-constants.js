@@ -43,3 +43,37 @@ export const POOF_FALL = 160; // на скільки px падає знята п
 export const UNDO_DROP = 70; // з якої висоти «падає» на місце кістка, повернута через undo
 // Гарантовано вище за depth будь-якої кістки на полі (макс. LAYERS*10000 + HEIGHT*100 + WIDTH)
 export const FALLING_DEPTH = 1000000;
+
+// --- Hover ("живе наведення") ---
+export const HOVER_SCALE = 1.05;
+export const HOVER_WOBBLE_DEG = 2; // амплітуда «дихання» по куту при наведенні
+export const HOVER_WOBBLE_MS = 400;
+export const HOVER_MS = 120; // тривалість in/out переходу scale/angle
+
+// --- Press ("фізичне вдавлювання") ---
+export const PRESS_SCALE = 0.95;
+export const PRESS_DROP = 3; // на скільки px кістка «вдавлюється» вниз
+export const PRESS_MS = 90;
+export const PRESS_TINT = 0xffe08a; // світло-золотий спалах при натисканні
+
+// --- Error ("заперечна тряска" по заблокованій кістці) ---
+export const ERROR_SHAKE_PX = 6;
+export const ERROR_SHAKE_MS = 40;
+export const ERROR_SHAKE_REPEAT = 4;
+export const ERROR_TINT = 0xff5555;
+export const ERROR_TINT_MS = 200;
+
+// --- Політ пари до лічильника (заміна падіння вниз при знятті пари) ---
+// Двофазний політ: (1) обидві кістки летять до центру екрана й ростуть —
+// «зустрічаються»; (2) звідти вже разом дугою летять вниз до лічильника,
+// зменшуючись до зникнення.
+export const FLIGHT_TO_CENTER_MS = 650;
+export const FLIGHT_MERGE_SCALE = 1.35; // до якого розміру кістки виростають у центрі
+export const FLIGHT_DOWN_MS = 900;
+export const FLIGHT_ARC_LIFT = 90; // наскільки контрольна точка дуги фази 2 зсунута вбік від прямої
+export const FLIGHT_CENTER_X = GAME_W / 2;
+export const FLIGHT_CENTER_Y = GAME_H / 2;
+// Лічильник пар живе в DOM під канвасом (#status), тож ціль польоту на канвасі —
+// нижній центр: найближча точка канваса до реального лічильника.
+export const FLIGHT_TARGET_X = GAME_W / 2;
+export const FLIGHT_TARGET_Y = GAME_H;
