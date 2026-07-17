@@ -1,4 +1,6 @@
-import { targetPositions, posKey, isFreePosition } from './board.js';
+import {
+  targetPositions, posKeyOf, isFreePosition,
+} from './board.js';
 import { measureWinRate } from './simulate.js';
 
 export const KINDS = [
@@ -35,6 +37,8 @@ function shuffle(arr, rng) {
   return arr;
 }
 
+const pick = (arr, rng) => arr[Math.floor(rng() * arr.length)];
+
 // 68 пар: усі 34 види по 2 пари (4 копії) — рівно автентична riichi-колода.
 // pairScheduling визначає порядок пар у черзі; знімаються вони з кінця
 // (pop()) і кладуться в розклад шар-за-шаром згори вниз — тобто початок
@@ -45,16 +49,14 @@ function shuffle(arr, rng) {
 //   але пари всередині виду — ні): копії виду відкриваються одночасно.
 // - split   — пари одного виду розкидані по протилежних половинах черги:
 //   одна пара лягає на дно, друга — на поверхню.
+const expand = (kindPairs) => kindPairs.flatMap(({ kind, pairs }) => Array(pairs).fill(kind));
+
 function buildPairKinds(rng, pairScheduling = 'random') {
   const kinds = shuffle([...KINDS], rng);
   const kindPairs = kinds.map((kind) => ({ kind, pairs: 2 }));
 
   if (pairScheduling === 'grouped') {
-    const pairKinds = [];
-    for (const { kind, pairs } of kindPairs) {
-      for (let p = 0; p < pairs; p++) pairKinds.push(kind);
-    }
-    return pairKinds;
+    return expand(kindPairs);
   }
 
   if (pairScheduling === 'split') {
@@ -68,11 +70,7 @@ function buildPairKinds(rng, pairScheduling = 'random') {
     return [...shuffle(bottom, rng), ...shuffle(top, rng)];
   }
 
-  const pairKinds = [];
-  for (const { kind, pairs } of kindPairs) {
-    for (let p = 0; p < pairs; p++) pairKinds.push(kind);
-  }
-  return shuffle(pairKinds, rng);
+  return shuffle(expand(kindPairs), rng);
 }
 
 // Дві позиції суміжні, якщо лежать в одному шарі впритул одна до одної.
@@ -94,7 +92,7 @@ function pickSurfacePair(free, rng) {
   if (topFree.length === 1) {
     const a = topFree[0];
     const rest = free.filter((p) => p !== a);
-    return [a, rest[Math.floor(rng() * rest.length)]];
+    return [a, pick(rest, rng)];
   }
   if (rng() < SURFACE_ADJACENCY_BIAS) {
     const adjacentPairs = [];
@@ -106,7 +104,7 @@ function pickSurfacePair(free, rng) {
       }
     }
     if (adjacentPairs.length > 0) {
-      return adjacentPairs[Math.floor(rng() * adjacentPairs.length)];
+      return pick(adjacentPairs, rng);
     }
   }
   const shuffled = shuffle([...topFree], rng);
@@ -119,15 +117,14 @@ function pickSurfacePair(free, rng) {
 // кандидати є. Якщо фільтр не лишає нікого — bail-out до "будь-яка вільна,
 // крім першої": за гарантії free.length >= 2 цей набір ніколи не порожній.
 function pickSpreadPair(free, rng, requireLayerSplit) {
-  const a = free[Math.floor(rng() * free.length)];
+  const a = pick(free, rng);
   let candidates = free.filter((p) => p !== a && !isAdjacent(p, a));
   if (requireLayerSplit) {
     const crossLayer = candidates.filter((p) => p.z !== a.z);
     if (crossLayer.length > 0) candidates = crossLayer;
   }
   if (candidates.length === 0) candidates = free.filter((p) => p !== a);
-  const b = candidates[Math.floor(rng() * candidates.length)];
-  return [a, b];
+  return [a, pick(candidates, rng)];
 }
 
 // Симуляція зворотної гри: з повної форми знімаються пари вільних позицій,
@@ -136,7 +133,7 @@ function pickSpreadPair(free, rng, requireLayerSplit) {
 // placement визначає, як саме обираються половинки пари (див. DIFFICULTIES).
 function tryGenerate(rng, { placement = 'uniform', pairScheduling = 'random' } = {}) {
   const occupied = new Map(
-    targetPositions().map((p) => [posKey(p.x, p.y, p.z), p]),
+    targetPositions().map((p) => [posKeyOf(p), p]),
   );
   const pairKinds = buildPairKinds(rng, pairScheduling);
   const tiles = [];
@@ -153,8 +150,8 @@ function tryGenerate(rng, { placement = 'uniform', pairScheduling = 'random' } =
 
     const kind = pairKinds.pop();
     tiles.push({ x: a.x, y: a.y, z: a.z, kind }, { x: b.x, y: b.y, z: b.z, kind });
-    occupied.delete(posKey(a.x, a.y, a.z));
-    occupied.delete(posKey(b.x, b.y, b.z));
+    occupied.delete(posKeyOf(a));
+    occupied.delete(posKeyOf(b));
   }
   return tiles;
 }

@@ -3,6 +3,7 @@ export const HEIGHT = 8;
 export const LAYERS = 3;
 
 export const posKey = (x, y, z) => `${x},${y},${z}`;
+export const posKeyOf = (p) => posKey(p.x, p.y, p.z);
 
 // Класична розкладка "Turtle" (KMahjongg default.layout / cheshire137
 // turtle.txt), обрізана до 136 клітинок = автентична riichi-колода 34×4.
@@ -49,7 +50,7 @@ export function isFreePosition(occupied, x, y, z) {
 export class Board {
   constructor(tiles) {
     this.byPos = new Map();
-    for (const tile of tiles) this.byPos.set(posKey(tile.x, tile.y, tile.z), tile);
+    for (const tile of tiles) this.byPos.set(posKeyOf(tile), tile);
     this.undoStack = [];
   }
 
@@ -58,7 +59,7 @@ export class Board {
   }
 
   isFree(tile) {
-    if (this.byPos.get(posKey(tile.x, tile.y, tile.z)) !== tile) return false;
+    if (this.byPos.get(posKeyOf(tile)) !== tile) return false;
     return isFreePosition(this.byPos, tile.x, tile.y, tile.z);
   }
 
@@ -68,8 +69,8 @@ export class Board {
 
   removePair(a, b) {
     if (!this.canMatch(a, b)) return false;
-    this.byPos.delete(posKey(a.x, a.y, a.z));
-    this.byPos.delete(posKey(b.x, b.y, b.z));
+    this.byPos.delete(posKeyOf(a));
+    this.byPos.delete(posKeyOf(b));
     this.undoStack.push([a, b]);
     return true;
   }
@@ -77,7 +78,7 @@ export class Board {
   undo() {
     const pair = this.undoStack.pop();
     if (!pair) return null;
-    for (const tile of pair) this.byPos.set(posKey(tile.x, tile.y, tile.z), tile);
+    for (const tile of pair) this.byPos.set(posKeyOf(tile), tile);
     return pair;
   }
 

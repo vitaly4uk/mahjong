@@ -22,7 +22,7 @@ export function emptyStats() {
 }
 
 export function emptyAllStats() {
-  return { easy: emptyStats(), normal: emptyStats(), hard: emptyStats() };
+  return Object.fromEntries(LEVELS.map((level) => [level, emptyStats()]));
 }
 
 // Перемога: гра зіграна, серія росте, рекорд часу — мінімум серед перемог.

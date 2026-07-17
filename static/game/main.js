@@ -6,8 +6,17 @@ import {
 
 const TILE_W = 70; // крок сітки
 const TILE_H = 90;
-const FACE_W = TILE_W - 6; // кришка менша за крок — між кістками видно зазор
-const FACE_H = TILE_H - 6;
+const DEPTH_X = 6; // товщина боковинок (справжній 3D-корпус, не зсунута копія)
+const DEPTH_Y = 8; // кістка — плоска плитка, тож товщина скромна
+const CORNER_R = 3; // радіус заокруглення кутів корпусу — узгоджений з Front.png
+// GAP — гарантований проміжок саме між ЛИЦЯМИ сусідніх кісток (тому FACE_W
+// рахується від TILE_W напряму, без DEPTH_X). Боковина (корпус) ширша за
+// лице на DEPTH_X і тому природно "заходить" на боковину сусідки на
+// (DEPTH_X − GAP) px — це і дає бажаний ефект: боковини перекриваються,
+// а лиця — ніколи не торкаються.
+const GAP = 3;
+const FACE_W = TILE_W - GAP;
+const FACE_H = TILE_H - GAP;
 const LAYER_DX = 8; // зсув шару вгору-вправо для псевдо-3D
 const LAYER_DY = 10;
 const MARGIN = 30;
@@ -16,8 +25,9 @@ const GAME_H = HEIGHT * TILE_H + 2 * MARGIN + LAYERS * LAYER_DY;
 const SELECT_TINT = 0x77bbff;
 // Затемнення нижніх шарів, щоб шари читалися окремо
 const LAYER_TINTS = [0xb0b0b0, 0xd8d8d8, 0xffffff];
-const SIDE_COLOR = 0xe6c88f; // кремова боковинка
-const SIDE_EDGE_COLOR = 0x9c7f52;
+const SIDE_COLOR = 0xd9b878; // кремова ліва стінка
+const SIDE_SHADOW = 0xa9814a; // темніша нижня стінка (у тіні) — вищий контраст
+const SIDE_EDGE_COLOR = 0x7a5c33; // темніший край для чіткішого силуету
 
 const DIFFICULTY_KEY = 'mahjong.difficulty';
 const DEFAULT_DIFFICULTY = 'normal';
@@ -68,13 +78,95 @@ class MainScene extends Phaser.Scene {
   }
 
   create() {
-    // Текстура боковинки: кремовий заокруглений прямокутник з темнішим краєм
+    // Текстура корпусу кістки: справжній паралелепіпед — верхня грань (під
+    // Front) + дві скошені бокові стінки, що йдуть униз-вліво (товщина
+    // DEPTH_X/DEPTH_Y). Одна текстура на всі 136 кісток.
+    const bodyW = FACE_W + DEPTH_X;
+    const bodyH = FACE_H + DEPTH_Y;
+
+    // Заокруглення кута без тригонометрії: дві точки-дотики (де пряме ребро
+    // переходить у заокруглення) + коло того самого радіуса поверх — воно
+    // рівно заповнює дугу між дотичними, не залежачи від напрямку обходу
+    // (на відміну від ручної дуги, тут неможливо переплутати порядок точок).
+    const TANGENTS = {
+      TL: (x, y, w, h) => [{ x, y: y + CORNER_R }, { x: x + CORNER_R, y }],
+      TR: (x, y, w, h) => [{ x: x + w - CORNER_R, y }, { x: x + w, y: y + CORNER_R }],
+      BR: (x, y, w, h) => [{ x: x + w, y: y + h - CORNER_R }, { x: x + w - CORNER_R, y: y + h }],
+      BL: (x, y, w, h) => [{ x: x + CORNER_R, y: y + h }, { x, y: y + h - CORNER_R }],
+    };
+    const CENTERS = {
+      TL: (x, y) => [x + CORNER_R, y + CORNER_R],
+      TR: (x, y, w) => [x + w - CORNER_R, y + CORNER_R],
+      BR: (x, y, w, h) => [x + w - CORNER_R, y + h - CORNER_R],
+      BL: (x, y, w, h) => [x + CORNER_R, y + h - CORNER_R],
+    };
+    const tangents = (x, y, w, h, which) => TANGENTS[which](x, y, w, h);
+    const center = (x, y, w, h, which) => CENTERS[which](x, y, w, h);
+    // Точки дуги того самого кола — лише для контуру зовнішніх кутів, щоб
+    // темна лінія огинала ту саму дугу, яку домальовує коло-заповнювач
+    // (інакше пряма фаска зрізає видиму випуклість, лишаючи характерний шов).
+    const ARCS = {
+      TL: [180, 270], TR: [270, 360], BR: [0, 90], BL: [90, 180],
+    };
+    const arcPoints = (x, y, w, h, which, segments = 3) => {
+      const [cx, cy] = center(x, y, w, h, which);
+      const [from, to] = ARCS[which];
+      return Array.from({ length: segments + 1 }, (_, i) => {
+        const rad = Phaser.Math.DegToRad(from + (to - from) * (i / segments));
+        return { x: cx + CORNER_R * Math.cos(rad), y: cy + CORNER_R * Math.sin(rad) };
+      });
+    };
+
+    // Кути верхньої грані (сюди ляже Front) і відповідні кути основи,
+    // зсунуті на (-DEPTH_X, +DEPTH_Y) — та сама сторона, куди зсунуті шари.
+    // Кожна пара точок задана в "природному" напрямку обходу зовнішнього
+    // контуру за годинниковою стрілкою (faceTL→faceTR→faceBR→baseBR→baseBL→baseTL).
+    const faceTL = tangents(DEPTH_X, 0, FACE_W, FACE_H, 'TL');
+    const faceTR = tangents(DEPTH_X, 0, FACE_W, FACE_H, 'TR');
+    const faceBR = tangents(DEPTH_X, 0, FACE_W, FACE_H, 'BR');
+    const baseTL = tangents(0, DEPTH_Y, FACE_W, FACE_H, 'TL');
+    const baseBR = tangents(0, DEPTH_Y, FACE_W, FACE_H, 'BR');
+    const baseBL = tangents(0, DEPTH_Y, FACE_W, FACE_H, 'BL');
+    // faceBL не входить у зовнішній контур (він захований під Front) — його
+    // напрямок обирається так, щоб починатись на лівому ребрі лиця і
+    // закінчуватись на нижньому, як того потребують обидві стінки нижче.
+    const faceBL = [...tangents(DEPTH_X, 0, FACE_W, FACE_H, 'BL')].reverse();
+
     const g = this.make.graphics({}, false);
     g.fillStyle(SIDE_COLOR);
-    g.fillRoundedRect(0, 0, FACE_W, FACE_H, 8);
+    // Ліва стінка йде вниз по лівому ребру лиця — тут faceTL потрібен у
+    // зворотному напрямку (щоб закінчуватись на лівому ребрі, а не на
+    // верхньому, як для зовнішнього контуру).
+    g.fillPoints([...[...faceTL].reverse(), ...faceBL, ...baseBL, ...baseTL], true);
+    g.fillStyle(SIDE_SHADOW);
+    // Нижня стінка йде по нижньому ребру лиця — тут faceBR потрібен у
+    // зворотному напрямку (щоб починатися на нижньому ребрі, а не на
+    // правому, як для зовнішнього контуру).
+    g.fillPoints([...faceBL, ...[...faceBR].reverse(), ...baseBR, ...baseBL], true);
+
+    // Кола поверх фасок домальовують плавну дугу точно між дотичними точками.
+    const round = (x, y, w, h, which, color) => {
+      const [cx, cy] = center(x, y, w, h, which);
+      g.fillStyle(color);
+      g.fillCircle(cx, cy, CORNER_R);
+    };
+    round(DEPTH_X, 0, FACE_W, FACE_H, 'TL', SIDE_COLOR);
+    round(DEPTH_X, 0, FACE_W, FACE_H, 'BL', SIDE_SHADOW);
+    round(DEPTH_X, 0, FACE_W, FACE_H, 'BR', SIDE_SHADOW);
+    round(0, DEPTH_Y, FACE_W, FACE_H, 'TL', SIDE_COLOR);
+    round(0, DEPTH_Y, FACE_W, FACE_H, 'BL', SIDE_SHADOW);
+    round(0, DEPTH_Y, FACE_W, FACE_H, 'BR', SIDE_SHADOW);
+
     g.lineStyle(2, SIDE_EDGE_COLOR);
-    g.strokeRoundedRect(1, 1, FACE_W - 2, FACE_H - 2, 8);
-    g.generateTexture('tileSide', FACE_W, FACE_H);
+    g.strokePoints([
+      ...arcPoints(DEPTH_X, 0, FACE_W, FACE_H, 'TL'),
+      ...arcPoints(DEPTH_X, 0, FACE_W, FACE_H, 'TR'),
+      ...arcPoints(DEPTH_X, 0, FACE_W, FACE_H, 'BR'),
+      ...arcPoints(0, DEPTH_Y, FACE_W, FACE_H, 'BR'),
+      ...arcPoints(0, DEPTH_Y, FACE_W, FACE_H, 'BL'),
+      ...arcPoints(0, DEPTH_Y, FACE_W, FACE_H, 'TL'),
+    ], true, true);
+    g.generateTexture('tileBody', bodyW, bodyH);
     g.destroy();
 
     this.sprites = new Map(); // tile -> Phaser container
@@ -103,7 +195,7 @@ class MainScene extends Phaser.Scene {
     document.getElementById('btn-stats').addEventListener('click', () => this.toggleStatsModal());
     document.getElementById('btn-stats-close').addEventListener('click', () => this.closeAllModals());
     document.getElementById('btn-stats-new').addEventListener('click', () => this.openNewGameModal());
-    document.getElementById('btn-newgame-close').addEventListener('click', () => this.closeAllModals());
+    newgameCloseBtn.addEventListener('click', () => this.closeAllModals());
     for (const btn of newgameLevelButtons) {
       btn.addEventListener('click', () => {
         const level = btn.dataset.level;
@@ -112,6 +204,10 @@ class MainScene extends Phaser.Scene {
         this.startGame(level);
       });
     }
+
+    // Один сценовий обробник на всі плитки (замість замикання на кожну):
+    // спрацьовує і для плиток, доданих пізніше (undo, нова гра).
+    this.input.on('gameobjectdown', (pointer, obj) => this.handleTileClick(obj.getData('tile')));
 
     // Перший запуск сторінки: показуємо стартову модалку — гравець сам
     // обирає рівень і час; без кнопки закриття, бо грати ще нема в що.
@@ -133,7 +229,7 @@ class MainScene extends Phaser.Scene {
     this.registry.set('gameStartMs', Date.now());
     this.registry.set('gameElapsedMs', 0);
     this.registry.set('gameFinished', false);
-    this.closeStatsModal();
+    this.closeAllModals();
     this.renderStats();
 
     this.updateStatus();
@@ -152,6 +248,22 @@ class MainScene extends Phaser.Scene {
     saveStats(allStats);
   }
 
+  // Інкремент лічильника поточної партії (registry) і парного довічного
+  // тоталу (allStats) — спільний хвіст для removePair/undo/hint.
+  bumpCounter(gameKey, totalKey) {
+    this.registry.set(gameKey, this.registry.get(gameKey) + 1);
+    const stats = this.lifetimeStats();
+    this.updateLifetimeStats({ ...stats, [totalKey]: stats[totalKey] + 1 });
+  }
+
+  // Знімає виділення з поточної плитки, якщо вона є.
+  deselect() {
+    if (this.selected) {
+      this.resetTileTint(this.selected);
+      this.selected = null;
+    }
+  }
+
   // Модалки взаємовиключні — перш ніж відкрити одну, завжди закриваємо решту,
   // щоб ніколи не було двох відкритих одночасно (однаковий z-index, інакше
   // одна ховає іншу непомітно для гравця).
@@ -164,10 +276,6 @@ class MainScene extends Phaser.Scene {
     this.closeAllModals();
     statsTitleEl.textContent = title || '📊 Статистика';
     statsModal.classList.add('open');
-  }
-
-  closeStatsModal() {
-    statsModal.classList.remove('open');
   }
 
   toggleStatsModal() {
@@ -237,13 +345,14 @@ class MainScene extends Phaser.Scene {
     const px = MARGIN + tile.x * TILE_W + TILE_W / 2 + tile.z * LAYER_DX;
     const py = MARGIN + LAYERS * LAYER_DY
       + tile.y * TILE_H + TILE_H / 2 - tile.z * LAYER_DY;
-    // Боковинка зсунута вниз-вліво — протилежно до зсуву шарів угору-вправо
-    const side = this.add.image(-LAYER_DX, LAYER_DY, 'tileSide')
-      .setDisplaySize(FACE_W, FACE_H);
+    // Корпус (верхня грань + бокові стінки) центрований так, щоб його верхня
+    // грань точно збіглася з Front — стінки при цьому природно стирчать
+    // вниз-вліво, у бік зсуву шарів угору-вправо.
+    const body = this.add.image(-DEPTH_X / 2, DEPTH_Y / 2, 'tileBody');
     const front = this.add.image(0, 0, 'Front').setDisplaySize(FACE_W, FACE_H);
     const face = this.add.image(0, -3, tile.kind)
       .setDisplaySize(FACE_W * 0.78, FACE_H * 0.78);
-    const container = this.add.container(px, py, [side, front, face]);
+    const container = this.add.container(px, py, [body, front, face]);
     container.setSize(TILE_W, TILE_H);
     // Боковинка стирчить униз-вліво, тож ближчі до глядача тайли
     // (нижчі ряди, лівіші колонки, вищі шари) малюємо поверх
@@ -251,14 +360,13 @@ class MainScene extends Phaser.Scene {
       tile.z * 10000 + tile.y * 100 + (WIDTH - 1 - tile.x),
     );
     container.setInteractive();
-    container.on('pointerdown', () => this.handleTileClick(tile));
-    container.tintTargets = [side, front, face];
+    container.setData('tile', tile);
     this.sprites.set(tile, container);
     this.resetTileTint(tile);
   }
 
   setTileTint(tile, color) {
-    for (const img of this.sprites.get(tile).tintTargets) img.setTint(color);
+    Phaser.Actions.SetTint(this.sprites.get(tile).list, color);
   }
 
   resetTileTint(tile) {
@@ -268,15 +376,14 @@ class MainScene extends Phaser.Scene {
   handleTileClick(tile) {
     if (!this.board.isFree(tile)) return;
     if (this.selected === tile) {
-      this.resetTileTint(tile);
-      this.selected = null;
+      this.deselect();
       return;
     }
     if (this.selected && this.board.canMatch(this.selected, tile)) {
       this.removePair(this.selected, tile);
       return;
     }
-    if (this.selected) this.resetTileTint(this.selected);
+    this.deselect();
     this.selected = tile;
     this.setTileTint(tile, SELECT_TINT);
   }
@@ -288,23 +395,16 @@ class MainScene extends Phaser.Scene {
       this.sprites.delete(tile);
     }
     this.selected = null;
-    this.registry.set('gamePairs', this.registry.get('gamePairs') + 1);
-    const stats = this.lifetimeStats();
-    this.updateLifetimeStats({ ...stats, pairsTotal: stats.pairsTotal + 1 });
+    this.bumpCounter('gamePairs', 'pairsTotal');
     this.updateStatus();
   }
 
   undo() {
     const pair = this.board.undo();
     if (!pair) return;
-    if (this.selected) {
-      this.resetTileTint(this.selected);
-      this.selected = null;
-    }
+    this.deselect();
     for (const tile of pair) this.addTileSprite(tile);
-    this.registry.set('gameUndos', this.registry.get('gameUndos') + 1);
-    const stats = this.lifetimeStats();
-    this.updateLifetimeStats({ ...stats, undosTotal: stats.undosTotal + 1 });
+    this.bumpCounter('gameUndos', 'undosTotal');
     this.updateStatus();
   }
 
@@ -320,9 +420,7 @@ class MainScene extends Phaser.Scene {
         repeat: 3,
       });
     }
-    this.registry.set('gameHints', this.registry.get('gameHints') + 1);
-    const stats = this.lifetimeStats();
-    this.updateLifetimeStats({ ...stats, hintsTotal: stats.hintsTotal + 1 });
+    this.bumpCounter('gameHints', 'hintsTotal');
   }
 
   updateStatus() {
@@ -354,5 +452,5 @@ const game = new Phaser.Game({
 window.mahjongGame = game;
 
 const scene = () => game.scene.keys.main;
-document.getElementById('btn-hint').addEventListener('click', () => scene().hint());
-document.getElementById('btn-undo').addEventListener('click', () => scene().undo());
+hintBtn.addEventListener('click', () => scene().hint());
+undoBtn.addEventListener('click', () => scene().undo());
