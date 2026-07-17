@@ -136,10 +136,20 @@ def finish_game(request, payload: FinishRequest):
         return {'valid': False, 'reason': 'board is not deadlocked'}
 
     elapsed_ms = int((timezone.now() - session.created_at).total_seconds() * 1000)
-    session.status = GameSession.Status.CLAIMED
-    session.claimed_at = timezone.now()
-    session.elapsed_ms = elapsed_ms
-    session.won = payload.outcome == 'win'
-    session.save(update_fields=['status', 'claimed_at', 'elapsed_ms', 'won'])
 
-    return {'valid': True, 'won': session.won, 'elapsed_ms': elapsed_ms}
+    # Атомарний conditional UPDATE замикає claim-гонку: якщо два finish-запити
+    # обидва прочитали status=ACTIVE до того, як хтось встиг записати CLAIMED,
+    # у БД реально виконається лише один UPDATE (WHERE status='active'), другий
+    # зматчить 0 рядків — ACTIVE->CLAIMED відбувається рівно один раз.
+    claimed_count = GameSession.objects.filter(
+        token=session.token, status=GameSession.Status.ACTIVE,
+    ).update(
+        status=GameSession.Status.CLAIMED,
+        claimed_at=timezone.now(),
+        elapsed_ms=elapsed_ms,
+        won=payload.outcome == 'win',
+    )
+    if claimed_count == 0:
+        return {'valid': False, 'reason': 'session already claimed'}
+
+    return {'valid': True, 'won': payload.outcome == 'win', 'elapsed_ms': elapsed_ms}

@@ -5,6 +5,7 @@ from django.test import Client, TestCase
 from .api import api as gameplay_api  # noqa: F401 (реєструє роутер при імпорті тестового модуля)
 from .board import Board, Tile, is_free_position, target_positions
 from .generator import DIFFICULTIES, generate_for_difficulty
+from .models import GameSession
 
 
 class BoardRuleTests(TestCase):
@@ -159,6 +160,26 @@ class GameApiTests(TestCase):
         self.assertTrue(first.json()['valid'])
         second = self.client.post('/api/game/finish', data=payload, content_type='application/json')
         self.assertFalse(second.json()['valid'])
+
+    def test_finish_double_claim_race_is_atomic(self):
+        """Симулює гонку: обидва запити читають ACTIVE, але лише один атомарний
+        UPDATE справді змінює статус — другий отримує 0 оновлених рядків."""
+        data = self._start()
+        moves = self._win_moves(data['layout'])
+        payload = {'token': data['token'], 'moves': moves, 'outcome': 'win'}
+
+        session = GameSession.objects.get(token=data['token'])
+        self.assertEqual(session.status, GameSession.Status.ACTIVE)
+
+        # Перший finish виконує атомарний UPDATE ACTIVE->CLAIMED.
+        first = self.client.post('/api/game/finish', data=payload, content_type='application/json')
+        self.assertTrue(first.json()['valid'])
+
+        # Другий, навіть якби прочитав status=ACTIVE до першого запису (гонка),
+        # усе одно провалить conditional UPDATE, бо рядок уже CLAIMED.
+        second = self.client.post('/api/game/finish', data=payload, content_type='application/json')
+        self.assertFalse(second.json()['valid'])
+        self.assertEqual(second.json()['reason'], 'session already claimed')
 
     def test_finish_rejects_unknown_token(self):
         response = self.client.post(
