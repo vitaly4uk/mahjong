@@ -2,7 +2,7 @@
 
 Композиція: кремова костяшка маджонга (Front.png) з червоним символом
 中 — Червоний дракон (Chun.png) — по центру, на діагональному градієнті
-глибокий синій → фіолетовий, з м'якою тінню під тайлом.
+глибокий зелений → смарагдовий, з м'якою тінню під тайлом.
 
 Запуск (Pillow не є проєктною залежністю, тягнеться ефемерно через uv):
 
@@ -22,16 +22,16 @@ OUT_DIR = BASE_DIR / "static" / "icons"
 
 MASTER_SIZE = 1024
 
-GRADIENT_START = (30, 58, 138)   # #1e3a8a — глибокий синій
-GRADIENT_END = (109, 40, 217)    # #6d28d9 — фіолетовий
+GRADIENT_START = (20, 40, 26)    # #14281a — глибокий зелений
+GRADIENT_END = (47, 107, 63)     # #2f6b3f — смарагдовий
 
 SHADOW_COLOR = (0, 0, 0)
 SHADOW_OPACITY = 110
 SHADOW_OFFSET_FRAC = 0.04
 SHADOW_BLUR_FRAC = 0.03
 
-TILE_FRAC_NORMAL = 0.72
-TILE_FRAC_MASKABLE = 0.55
+TILE_FRAC_NORMAL = 0.90
+TILE_FRAC_MASKABLE = 0.66
 DRAGON_FRAC_OF_TILE = 0.62
 
 
