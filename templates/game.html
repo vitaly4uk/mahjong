@@ -38,20 +38,33 @@
     -webkit-app-region: no-drag;
   }
   #toolbar button:hover { background: #4c7454; }
+  /* Фіксована висота (вьюпорт мінус тулбар, статус-рядок і зона заголовка),
+     щоб розмір контейнера не залежав від канваса — інакше Scale.FIT
+     масштабує ривками */
+  #game-container {
+    width: 100%; max-width: 800px;
+    height: calc(100vh - 56px - 36px - var(--safe-top)); flex: none;
+    -webkit-app-region: no-drag;
+  }
+  /* Один рядок під полем: статус партії, рівень складності, довічна
+     зведена статистика — усе, що раніше було праворуч від кнопок */
+  #status-bar {
+    display: flex; align-items: center; justify-content: center;
+    flex-wrap: wrap; gap: 4px 14px;
+    height: 20px; padding: 8px 10px; box-sizing: content-box; flex: none;
+    overflow: hidden;
+    -webkit-app-region: no-drag;
+  }
   #status {
-    display: inline-flex; align-items: center; gap: 6px;
-    margin-left: 12px; font-size: 15px;
+    display: inline-flex; align-items: center; gap: 6px; font-size: 15px;
+  }
+  #difficulty-label {
+    display: inline-flex; align-items: center;
+    font-size: 14px; color: #cde;
   }
   #stats-summary {
     display: inline-flex; align-items: center; gap: 6px;
-    margin-left: 12px; font-size: 14px; color: #cde;
-  }
-  /* Фіксована висота (вьюпорт мінус тулбар і зона заголовка), щоб розмір
-     контейнера не залежав від канваса — інакше Scale.FIT масштабує ривками */
-  #game-container {
-    width: 100%; max-width: 800px;
-    height: calc(100vh - 56px - var(--safe-top)); flex: none;
-    -webkit-app-region: no-drag;
+    font-size: 14px; color: #cde;
   }
   #stats-modal, #newgame-modal {
     display: none; position: fixed; inset: 0; z-index: 10;
@@ -109,10 +122,6 @@
   }
   #stats-modal .level-block.current h3 { color: #fff; }
   #stats-modal .level-block.current h3::after { content: ' ← поточний'; font-size: 12px; color: #9bb; }
-  #difficulty-label {
-    display: inline-flex; align-items: center; margin-left: 4px;
-    font-size: 14px; color: #cde;
-  }
   @keyframes stats-overlay-in {
     from { opacity: 0; }
     to { opacity: 1; }
@@ -132,11 +141,13 @@
   <button id="btn-hint">💡 Підказка</button>
   <button id="btn-undo">↩️ Скасувати</button>
   <button id="btn-stats">📊 Статистика</button>
+</div>
+<div id="game-container"></div>
+<div id="status-bar">
   <span id="status"></span>
   <span id="difficulty-label"></span>
   <span id="stats-summary"></span>
 </div>
-<div id="game-container"></div>
 <div id="newgame-modal">
   <div class="panel">
     <h2>🆕 Нова гра</h2>

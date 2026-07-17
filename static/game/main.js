@@ -1,33 +1,14 @@
-import { WIDTH, HEIGHT, LAYERS, Board } from './board.js';
+import { WIDTH, LAYERS, Board } from './board.js';
 import { generateForDifficulty, KINDS } from './generator.js';
 import {
   load as loadStats, save as saveStats, applyWin, applyLoss, winRate, fmtTime, LEVELS,
 } from './stats.js';
-
-const TILE_W = 70; // крок сітки
-const TILE_H = 90;
-const DEPTH_X = 6; // товщина боковинок (справжній 3D-корпус, не зсунута копія)
-const DEPTH_Y = 8; // кістка — плоска плитка, тож товщина скромна
-const CORNER_R = 3; // радіус заокруглення кутів корпусу — узгоджений з Front.png
-// GAP — гарантований проміжок саме між ЛИЦЯМИ сусідніх кісток (тому FACE_W
-// рахується від TILE_W напряму, без DEPTH_X). Боковина (корпус) ширша за
-// лице на DEPTH_X і тому природно "заходить" на боковину сусідки на
-// (DEPTH_X − GAP) px — це і дає бажаний ефект: боковини перекриваються,
-// а лиця — ніколи не торкаються.
-const GAP = 3;
-const FACE_W = TILE_W - GAP;
-const FACE_H = TILE_H - GAP;
-const LAYER_DX = 8; // зсув шару вгору-вправо для псевдо-3D
-const LAYER_DY = 10;
-const MARGIN = 30;
-const GAME_W = WIDTH * TILE_W + 2 * MARGIN + LAYERS * LAYER_DX;
-const GAME_H = HEIGHT * TILE_H + 2 * MARGIN + LAYERS * LAYER_DY;
-const SELECT_TINT = 0x77bbff;
-// Затемнення нижніх шарів, щоб шари читалися окремо
-const LAYER_TINTS = [0xb0b0b0, 0xd8d8d8, 0xffffff];
-const SIDE_COLOR = 0xd9b878; // кремова ліва стінка
-const SIDE_SHADOW = 0xa9814a; // темніша нижня стінка (у тіні) — вищий контраст
-const SIDE_EDGE_COLOR = 0x7a5c33; // темніший край для чіткішого силуету
+import {
+  TILE_W, TILE_H, DEPTH_X, DEPTH_Y, CORNER_R, FACE_W, FACE_H, LAYER_DX, LAYER_DY, MARGIN,
+  GAME_W, GAME_H, SELECT_TINT, LAYER_TINTS, SIDE_COLOR, SIDE_SHADOW, SIDE_EDGE_COLOR,
+  GLOW_COLOR, GLOW_STRENGTH, GLOW_PULSE_DELTA, SELECT_TILT_DEG, HINT_GLOW_COLOR, SPARK_COLORS,
+  POOF_COUNT, END_EFFECT_MS, CRUMBLE_FALL, POOF_FALL, UNDO_DROP, FALLING_DEPTH,
+} from './render-constants.js';
 
 const DIFFICULTY_KEY = 'mahjong.difficulty';
 const DEFAULT_DIFFICULTY = 'normal';
@@ -169,8 +150,22 @@ class MainScene extends Phaser.Scene {
     g.generateTexture('tileBody', bodyW, bodyH);
     g.destroy();
 
+    // Текстура частинки для салюту/пуфу/підказки — маленьке заповнене коло,
+    // тон задається через tint при спавні емітера, тож саме зображення біле.
+    const spark = this.make.graphics({}, false);
+    spark.fillStyle(0xffffff);
+    spark.fillCircle(4, 4, 4);
+    spark.generateTexture('spark', 8, 8);
+    spark.destroy();
+
     this.sprites = new Map(); // tile -> Phaser container
     this.selected = null;
+
+    // Системне «зменшити рух» — вимикає важкі ефекти (салют/осипання/пуф),
+    // лишаючи лише статичне виділення. glow FX (postFX) працює тільки на
+    // WebGL-рендерері — на Canvas-фолбеку виділення повертається до тінту.
+    this.reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    this.webgl = this.renderer.type === Phaser.WEBGL;
 
     const allStats = loadStats();
     this.registry.set('allStats', allStats);
@@ -259,7 +254,7 @@ class MainScene extends Phaser.Scene {
   // Знімає виділення з поточної плитки, якщо вона є.
   deselect() {
     if (this.selected) {
-      this.resetTileTint(this.selected);
+      this.removeGlow(this.selected);
       this.selected = null;
     }
   }
@@ -338,13 +333,61 @@ class MainScene extends Phaser.Scene {
       ? applyWin(this.lifetimeStats(), elapsed)
       : applyLoss(this.lifetimeStats());
     this.updateLifetimeStats(updated);
-    this.openStatsModal(won ? '🎉 Перемога!' : '🚫 Глухий кут — немає ходів');
+    this.playEndEffect(won, () => {
+      this.openStatsModal(won ? '🎉 Перемога!' : '🚫 Глухий кут — немає ходів');
+    });
+  }
+
+  // Салют (перемога) чи осипання кісток (поразка) на повному полі, тоді
+  // callback (відкриття модалки статистики). За reduced-motion — одразу
+  // callback, без важких ефектів.
+  playEndEffect(won, done) {
+    if (this.reducedMotion) {
+      this.time.delayedCall(150, done);
+      return;
+    }
+    if (won) {
+      const shots = 5;
+      for (let i = 0; i < shots; i += 1) {
+        this.time.delayedCall((END_EFFECT_MS / shots) * i, () => {
+          const x = Phaser.Math.Between(MARGIN, GAME_W - MARGIN);
+          const y = Phaser.Math.Between(MARGIN, GAME_H * 0.5);
+          this.spawnBurst(x, y, {
+            count: 26, speed: 260, lifespan: 700, gravityY: 220, scale: 0.9,
+          });
+        });
+      }
+    } else {
+      let maxDelay = 0;
+      for (const container of this.sprites.values()) {
+        const delay = Phaser.Math.Between(0, 400);
+        maxDelay = Math.max(maxDelay, delay);
+        this.tweens.add({
+          targets: container,
+          y: container.y + CRUMBLE_FALL,
+          angle: Phaser.Math.Between(-70, 70),
+          alpha: 0,
+          delay,
+          duration: 500,
+          ease: 'Quad.easeIn',
+        });
+      }
+    }
+    this.time.delayedCall(END_EFFECT_MS, done);
+  }
+
+  // Екранна (world) позиція центру кістки — та сама формула, що й для
+  // спавну спрайта, перевикористовується для позиціонування ефектів
+  // (glow-таргетів, частинок), щоб не дублювати математику.
+  tileScreenPos(tile) {
+    const x = MARGIN + tile.x * TILE_W + TILE_W / 2 + tile.z * LAYER_DX;
+    const y = MARGIN + LAYERS * LAYER_DY
+      + tile.y * TILE_H + TILE_H / 2 - tile.z * LAYER_DY;
+    return { x, y };
   }
 
   addTileSprite(tile) {
-    const px = MARGIN + tile.x * TILE_W + TILE_W / 2 + tile.z * LAYER_DX;
-    const py = MARGIN + LAYERS * LAYER_DY
-      + tile.y * TILE_H + TILE_H / 2 - tile.z * LAYER_DY;
+    const { x: px, y: py } = this.tileScreenPos(tile);
     // Корпус (верхня грань + бокові стінки) центрований так, щоб його верхня
     // грань точно збіглася з Front — стінки при цьому природно стирчать
     // вниз-вліво, у бік зсуву шарів угору-вправо.
@@ -373,6 +416,55 @@ class MainScene extends Phaser.Scene {
     if (this.sprites.has(tile)) this.setTileTint(tile, LAYER_TINTS[tile.z]);
   }
 
+  // Пульсуюче glow-виділення (WebGL-only postFX, на Canvas-фолбеку — суцільний
+  // тінт) + легкий tilt (гойдання по куту) — той самий tilt працює незалежно
+  // від рендерера, тож вибрана кістка завжди помітно «жива», навіть без glow.
+  applyGlow(tile, color = GLOW_COLOR, strength = GLOW_STRENGTH) {
+    const container = this.sprites.get(tile);
+    if (!container) return;
+    if (!this.webgl) {
+      this.setTileTint(tile, color);
+    } else {
+      const fx = container.postFX.addGlow(color, 0, 0, false, 0.15, 12);
+      container._glow = fx;
+      container._glowTween = this.tweens.add({
+        targets: fx,
+        outerStrength: strength + GLOW_PULSE_DELTA,
+        duration: 450,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
+    container._tiltTween = this.tweens.add({
+      targets: container,
+      angle: SELECT_TILT_DEG,
+      duration: 500,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+  }
+
+  removeGlow(tile) {
+    const container = this.sprites.get(tile);
+    if (!container) return;
+    if (container._glowTween) {
+      container._glowTween.stop();
+      container._glowTween = null;
+    }
+    if (container._glow) {
+      container.postFX.remove(container._glow);
+      container._glow = null;
+    }
+    if (container._tiltTween) {
+      container._tiltTween.stop();
+      container._tiltTween = null;
+    }
+    container.angle = 0;
+    this.resetTileTint(tile);
+  }
+
   handleTileClick(tile) {
     if (!this.board.isFree(tile)) return;
     if (this.selected === tile) {
@@ -385,14 +477,53 @@ class MainScene extends Phaser.Scene {
     }
     this.deselect();
     this.selected = tile;
-    this.setTileTint(tile, SELECT_TINT);
+    this.applyGlow(tile, GLOW_COLOR);
+  }
+
+  // Короткий сплеск частинок у точці (px, py) — використовується і для
+  // «пуфу» при знятті пари, і для залпів салюту при перемозі. Емітер сам
+  // знищується (`stopAfter`), тож викликач не мусить прибирати за собою.
+  spawnBurst(px, py, {
+    count = POOF_COUNT, speed = 160, lifespan = 400, gravityY = 0, scale = 0.6,
+  } = {}) {
+    const emitter = this.add.particles(px, py, 'spark', {
+      speed: { min: speed * 0.4, max: speed },
+      angle: { min: 0, max: 360 },
+      lifespan,
+      gravityY,
+      scale: { start: scale, end: 0 },
+      tint: SPARK_COLORS,
+      quantity: count,
+    });
+    emitter.explode(count);
+    this.time.delayedCall(lifespan + 50, () => emitter.destroy());
   }
 
   removePair(a, b) {
     if (!this.board.removePair(a, b)) return;
     for (const tile of [a, b]) {
-      this.sprites.get(tile).destroy();
+      const container = this.sprites.get(tile);
+      container._glowTween?.stop();
+      container._tiltTween?.stop();
       this.sprites.delete(tile);
+      if (this.reducedMotion) {
+        container.destroy();
+        continue;
+      }
+      const { x, y } = container;
+      // Піднімаємо над усіма іншими кістками на час падіння — інакше
+      // знята пара пролітає позаду сусідніх кісток з вищим depth.
+      container.setDepth(FALLING_DEPTH);
+      this.spawnBurst(x, y, { count: POOF_COUNT, speed: 120, lifespan: 250, scale: 0.45 });
+      this.tweens.add({
+        targets: container,
+        y: container.y + POOF_FALL,
+        angle: Phaser.Math.Between(-40, 40),
+        alpha: 0,
+        duration: 700,
+        ease: 'Quad.easeIn',
+        onComplete: () => container.destroy(),
+      });
     }
     this.selected = null;
     this.bumpCounter('gamePairs', 'pairsTotal');
@@ -403,22 +534,59 @@ class MainScene extends Phaser.Scene {
     const pair = this.board.undo();
     if (!pair) return;
     this.deselect();
-    for (const tile of pair) this.addTileSprite(tile);
+    for (const tile of pair) this.animateUndoTile(tile);
     this.bumpCounter('gameUndos', 'undosTotal');
     this.updateStatus();
+  }
+
+  // Кістка, що повертається через undo, «падає» на своє місце зверху з
+  // невеликим відскоком + fade-in, замість миттєвої появи. Піднімаємо depth
+  // на час падіння (як у removePair) — інакше вона під час польоту опиниться
+  // позаду сусідніх кісток з вищим природним depth.
+  animateUndoTile(tile) {
+    this.addTileSprite(tile);
+    if (this.reducedMotion) return;
+    const container = this.sprites.get(tile);
+    const finalY = container.y;
+    const finalDepth = container.depth;
+    container.setDepth(FALLING_DEPTH);
+    container.y = finalY - UNDO_DROP;
+    container.alpha = 0;
+    this.tweens.add({
+      targets: container, alpha: 1, duration: 150, ease: 'Quad.easeOut',
+    });
+    this.tweens.add({
+      targets: container,
+      y: finalY,
+      duration: 400,
+      ease: 'Bounce.easeOut',
+      onComplete: () => {
+        container.setDepth(finalDepth);
+        this.spawnBurst(container.x, finalY, { count: 6, speed: 80, lifespan: 200, scale: 0.35 });
+      },
+    });
   }
 
   hint() {
     const pair = this.board.findMatchingPair();
     if (!pair) return;
+    const pulseMs = 180 * (1 + 2 * 3); // duration * (1 initial + 2 * repeat) yoyo-циклів
     for (const tile of pair) {
+      const container = this.sprites.get(tile);
       this.tweens.add({
-        targets: this.sprites.get(tile),
+        targets: container,
         alpha: 0.3,
         duration: 180,
         yoyo: true,
         repeat: 3,
       });
+      // Додатковий glow (окремий від виділення-selected) — WebGL-only,
+      // самознищується разом з alpha-пульсом; на Canvas лишається лише
+      // alpha-пульс вище.
+      if (this.webgl) {
+        const fx = container.postFX.addGlow(HINT_GLOW_COLOR, GLOW_STRENGTH, 0, false, 0.15, 12);
+        this.time.delayedCall(pulseMs, () => container.postFX?.remove(fx));
+      }
     }
     this.bumpCounter('gameHints', 'hintsTotal');
   }
