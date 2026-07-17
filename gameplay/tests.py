@@ -1,5 +1,8 @@
-from django.test import TestCase
+import uuid
 
+from django.test import Client, TestCase
+
+from .api import api as gameplay_api  # noqa: F401 (реєструє роутер при імпорті тестового модуля)
 from .board import Board, Tile, is_free_position, target_positions
 from .generator import DIFFICULTIES, generate_for_difficulty
 
@@ -77,3 +80,100 @@ class GeneratorTests(TestCase):
         a = generate_for_difficulty('hard', seed=42)
         b = generate_for_difficulty('hard', seed=42)
         self.assertEqual(a, b)
+
+
+class GameApiTests(TestCase):
+    def _start(self, level='easy'):
+        response = self.client.post(
+            '/api/game/start', data={'level': level}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def _win_moves(self, layout):
+        """Легальний повний розв'язок для заданого layout — жадібним
+        солвером; повертає лог пар індексів у форматі, який очікує finish."""
+        tiles = [Tile(i, t['x'], t['y'], t['z'], t['kind']) for i, t in enumerate(layout)]
+        board = Board(tiles)
+        moves = []
+        while board.remaining > 0:
+            a, b = board.find_matching_pair()
+            moves.append([a.idx, b.idx])
+            board.remove_pair(a, b)
+        return moves
+
+    def test_start_returns_136_tile_layout_and_valid_token(self):
+        data = self._start()
+        self.assertEqual(len(data['layout']), 136)
+        uuid.UUID(data['token'])  # не кидає ValueError
+
+    def test_start_rejects_unknown_level(self):
+        response = self.client.post(
+            '/api/game/start', data={'level': 'impossible'}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_finish_accepts_valid_full_solution(self):
+        data = self._start()
+        moves = self._win_moves(data['layout'])
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        body = response.json()
+        self.assertTrue(body['valid'], body)
+        self.assertTrue(body['won'])
+        self.assertIsInstance(body['elapsed_ms'], int)
+
+    def test_finish_rejects_illegal_move(self):
+        data = self._start()
+        layout = data['layout']
+        # Свідомо нелегальна пара: дві кістки різного виду (якщо випадково
+        # збіглися видом — беремо іншу другу кістку). Детерміновано нелегальна
+        # незалежно від згенерованого layout, на відміну від довільних [0,1].
+        second_idx = next(
+            i for i in range(1, len(layout)) if layout[i]['kind'] != layout[0]['kind']
+        )
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': [[0, second_idx]], 'outcome': 'win'},
+            content_type='application/json',
+        )
+        self.assertFalse(response.json()['valid'])
+
+    def test_finish_rejects_fake_win_without_clearing_board(self):
+        data = self._start()
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': [], 'outcome': 'win'},
+            content_type='application/json',
+        )
+        self.assertFalse(response.json()['valid'])
+
+    def test_finish_rejects_replay_of_claimed_session(self):
+        data = self._start()
+        moves = self._win_moves(data['layout'])
+        payload = {'token': data['token'], 'moves': moves, 'outcome': 'win'}
+        first = self.client.post('/api/game/finish', data=payload, content_type='application/json')
+        self.assertTrue(first.json()['valid'])
+        second = self.client.post('/api/game/finish', data=payload, content_type='application/json')
+        self.assertFalse(second.json()['valid'])
+
+    def test_finish_rejects_unknown_token(self):
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': str(uuid.uuid4()), 'moves': [], 'outcome': 'deadlock'},
+            content_type='application/json',
+        )
+        self.assertFalse(response.json()['valid'])
+
+    def test_missing_csrf_token_is_rejected_when_enforced(self):
+        # Django-тестовий Client за замовчуванням вимикає CSRF-перевірку —
+        # тут вмикаємо її явно, щоб довести, що NinjaAPI(csrf=True) реально
+        # захищає ендпоінт, а не просто присутній у конфігу.
+        strict_client = Client(enforce_csrf_checks=True)
+        response = strict_client.post(
+            '/api/game/start', data={'level': 'easy'}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
