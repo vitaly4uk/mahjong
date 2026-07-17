@@ -40,9 +40,20 @@ RATE_LIMIT_MAX_FINISHES = 60
 
 
 def _client_ip(request):
-    return request.META.get('REMOTE_ADDR', 'unknown')
+    """Реальна IP клієнта: продакшен йде через Cloudflare Tunnel (див.
+    CLAUDE.md), тож REMOTE_ADDR — адреса самого проксі, однакова для всіх
+    гравців. CF-Connecting-IP — заголовок, який ставить сам Cloudflare з
+    реальною IP клієнта; локально (без Cloudflare) його нема, тож fallback
+    на REMOTE_ADDR лишається коректним для dev-сервера.
+    """
+    return request.META.get('HTTP_CF_CONNECTING_IP') or request.META.get('REMOTE_ADDR', 'unknown')
 
 
+# Примітка: без окремого CACHES-бекенду (config/settings.py) Django
+# використовує LocMemCache — лічильник per-процес, тож ефективний ліміт
+# ≈ RATE_LIMIT_MAX_STARTS × кількість gunicorn-воркерів, не точний глобальний
+# ліміт. Прийнятно для цього масштабу проєкту; якщо колись знадобиться точний
+# ліміт — потрібен спільний кеш-бекенд (Redis/Memcached).
 def _rate_limited(request, action, limit):
     """Проста фіксовано-вікнова лічильна квота на IP через Django cache."""
     key = f'gameplay:ratelimit:{action}:{_client_ip(request)}'
