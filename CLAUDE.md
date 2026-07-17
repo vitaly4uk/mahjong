@@ -15,10 +15,10 @@
 
 ## Структура гри
 
-- `static/game/board.js` — модель поля: правило вільності (ніхто зверху + вільний лівий/правий бік), матчинг пар, undo-стек, детекція глухого кута. Чистий модуль, без Phaser/DOM.
-- `static/game/generator.js` — генерація розкладу симуляцією зворотної гри (з повної форми знімаються випадкові вільні пари; записаний порядок = розв'язок), пресети складності `DIFFICULTIES` (easy/normal/hard: placement surface/uniform/layered + pairScheduling + winRateBand) — див. `docs/superpowers/specs/2026-07-16-kmahjongg-generator-design.md`. Чистий модуль.
+- `gameplay/` — Django-застосунок серверної генерації поля й антирід-валідації партії: `board.py` — Python-порт `static/game/board.js` (правило вільності, матчинг пар, зняття); `generator.py` — Python-порт `static/game/generator.js` (генерація розв'язного поля за складністю); `models.py: GameSession` — модель токен-сесії без прив'язки до користувача; `api.py` — django-ninja API (`POST /api/game/start`, `POST /api/game/finish`): старт з генерацією розкладки, фініш із реплеєм логу ходів і валідацією результату, CSRF через `CsrfOnly(APIKeyCookie)` auth-клас (публічні анонімні ендпоїнти, але з обов'язковою CSRF-перевіркою). Див. `docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md`.
+- `static/game/board.js` — модель поля для клієнтського інтерактиву: рендер кісток, кліки, undo-стек, детекція глухого кута; авторитетна перевірка (правило вільності, матчинг) — на сервері (`gameplay/board.py`). Чистий модуль, без Phaser/DOM.
 - `static/game/stats.js` — довічна статистика **по рівнях складності** (easy/normal/hard, кожен зі своєю повною структурою: зіграно/перемоги/серії/рекорд часу/тотали підказок-скасувань-пар): чисті трансформери `applyWin`/`applyLoss` + `load`/`save` у `localStorage` (ключ `mahjong.stats.v2`; старий єдиний `mahjong.stats.v1` мігрується в рівень `hard` при першому `load()`). Чистий модуль, без Phaser/DOM.
-- `static/game/main.js` — Phaser-сцена: рендер кісток-паралелепіпедів, кліки, кнопки (нова гра / підказка / undo / статистика), модалка вибору складності при старті/новій грі, статуси. Довічні (по рівню) й поточні (за партію) числа статистики живуть у `this.registry`, DOM (мітки кнопок, зведення в тулбарі, модалки) перемальовується на подію `registry.events.on('changedata', ...)`. `window.mahjongGame` — доступ до гри для дебагу/тестів.
+- `static/game/main.js` — Phaser-сцена: рендер кісток-паралелепіпедів, кліки, кнопки (нова гра / підказка / undo / статистика), модалка вибору складності при старті/новій грі, статуси. Старт і фініш партії йдуть через `static/game/sync.js` (HTTP POST до `gameplay/api.py`); без мережи гра не починається. Довічні (по рівню) й поточні (за партію) числа статистики живуть у `this.registry`, DOM (мітки кнопок, зведення в тулбарі, модалки) перемальовується на подію `registry.events.on('changedata', ...)`. `window.mahjongGame` — доступ до гри для дебагу/тестів.
 - `templates/game.html` — сторінка гри (корінь `/`), DOM-тулбар над канвасом, модалка вибору складності `#newgame-modal` (без кнопки закриття при першому запуску) і модалка статистики `#stats-modal` (розбивка по рівнях).
 - `static/game/tiles/*.png` — 35 CC0-тайлів з [FluffyStuff/riichi-mahjong-tiles](https://github.com/FluffyStuff/riichi-mahjong-tiles) (Export/Regular). Імена видів у коді = імена PNG.
 - `static/icons/*` — favicon + PWA/Apple-іконки (метод «крупного плану»: кремовий `Front.png` + червоний `Chun.png` по центру на діагональному градієнті зелений→смарагдовий), підключені в `templates/game.html` (`<link rel="icon"/apple-touch-icon>`) і `static/manifest.webmanifest` (`icons`). Генеруються скриптом `scripts/gen_icons.py` з тайлів у `static/game/tiles/` — Pillow тягнеться ефемерно, у проєктні залежності не додається: `uv run --with pillow python scripts/gen_icons.py`.
@@ -47,13 +47,19 @@ uv run manage.py runserver
 
 ## Тести
 
-Логіка гри тестується без браузера і без npm — вбудованим test runner Node:
+Клієнтська логіка гри тестується без браузера й без npm — вбудованим test runner Node:
 
 ```
 node --test 'tests/*.test.js'
 ```
 
 (Форма `node --test tests/` не працює — node трактує каталог як модуль.) Покрито: правило вільності, матчинг/undo, глухий кут, розв'язність генерації на 30 сідів, трансформери й localStorage-обгортку статистики (`stats.js`). `main.js` (Phaser) юніт-тестами не покривається — перевіряти в браузері.
+
+Серверна логіка (`gameplay/`: генерація поля, правило вільності, валідація партії через django-ninja API):
+
+```
+uv run manage.py test gameplay
+```
 
 ## Конфігурація через env
 
