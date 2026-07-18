@@ -52,6 +52,7 @@ const newgameCloseBtn = document.getElementById('btn-newgame-close');
 const BG_VEIL_ALPHA = 0.45;
 const BG_DEPTH = -2;
 const BG_VEIL_DEPTH = -1;
+const BG_FADE_MS = 900;
 // Кредит фотографа — у правому нижньому куті ігрового поля (над фото, над
 // плашкою статусу), над усім, включно з кістками, що летять.
 const BG_CREDIT_DEPTH = FALLING_DEPTH + 1;
@@ -243,6 +244,17 @@ class MainScene extends Phaser.Scene {
     this.registry.set('allStats', allStats);
     this.registry.events.on('changedata', () => this.renderStats());
 
+    // Publisher/Subscriber для модалок: гра лише публікує *бажаний* стан
+    // (registry.set('modal', ...)) — ніколи не викликає методів на кшталт
+    // "openXModal"/"closeAllModals" (вони б уже інтерпретували поведінку).
+    // renderModal() — єдиний підписник, єдине місце, що чіпає DOM модалок і
+    // вирішує текст заголовків. registry.set замінює попереднє значення
+    // цілком (single-slot стан, не черга подій) — тому взаємовиключність
+    // модалок структурна: два типи одночасно в одному ключі не існують,
+    // і "закрити інші" не окремий крок, а природний наслідок заміни.
+    this.registry.set('modal', null);
+    this.registry.events.on('changedata-modal', (parent, value) => this.renderModal(value));
+
     this.currentLevel = loadDifficultyPref(allStats);
     saveDifficultyPref(this.currentLevel);
     // Гри ще немає — таймерна петля нижче не повинна тікати, поки гравець
@@ -258,14 +270,16 @@ class MainScene extends Phaser.Scene {
       },
     });
 
-    document.getElementById('btn-stats-close').addEventListener('click', () => this.closeAllModals());
-    document.getElementById('btn-stats-new').addEventListener('click', () => this.openNewGameModal());
-    newgameCloseBtn.addEventListener('click', () => this.closeAllModals());
+    document.getElementById('btn-stats-close').addEventListener('click', () => this.registry.set('modal', null));
+    document.getElementById('btn-stats-new').addEventListener('click', () => {
+      this.registry.set('modal', { type: 'newgame', canClose: true });
+    });
+    newgameCloseBtn.addEventListener('click', () => this.registry.set('modal', null));
     for (const btn of newgameLevelButtons) {
       btn.addEventListener('click', () => {
         const level = btn.dataset.level;
         saveDifficultyPref(level);
-        this.closeAllModals();
+        this.registry.set('modal', null);
         this.startGame(level);
       });
     }
@@ -277,6 +291,13 @@ class MainScene extends Phaser.Scene {
     // інтерактивні й мають власні pointerdown-обробники, тож без фільтра тут
     // прилітав би виклик із tile===undefined і падав у Board.isFree.
     this.input.on('gameobjectdown', (pointer, obj) => {
+      // DOM-модалка візуально накриває канвас, але НЕ блокує Phaser-events —
+      // Phaser слухає mouse/pointer на рівні window/document і сам робить
+      // hit-test по координатах, повністю в обхід реального DOM z-index
+      // (перевірено: dispatchEvent прямо на document.body теж долітає до
+      // цього обробника). Тому поки відкрита будь-яка модалка — ігноруємо
+      // кожен клік по кістці, дивлячись лише на єдине джерело істини.
+      if (this.registry.get('modal')) return;
       const tile = obj.getData('tile');
       if (tile) this.handleTileClick(tile);
     });
@@ -294,7 +315,7 @@ class MainScene extends Phaser.Scene {
     // Фон вантажимо тут один раз (початкова заставка) — далі він лишається
     // незмінним між партіями й міняється лише на перемогу (finishGame()).
     this.loadBackground();
-    this.openNewGameModal(false);
+    this.registry.set('modal', { type: 'newgame', canClose: false });
   }
 
   // Смуга статусу — велика напівпрозора плашка-оверлей у власній зоні знизу
@@ -302,9 +323,11 @@ class MainScene extends Phaser.Scene {
   // фонового фото (воно розтягнуте на весь канвас, включно з цією зоною) —
   // тому плашка виглядає "поверх картинки", а не окремою смугою іншого
   // кольору, і при цьому не перекриває жодну кістку. Три текстові об'єкти
-  // замінюють колишній DOM-рядок #status-bar: статус партії (ліворуч),
-  // рівень складності (по центру), довічна статистика (праворуч) —
-  // оновлюються в updateStatus()/renderStats().
+  // замінюють колишній DOM-рядок #status-bar: статус партії (ліворуч, з
+  // registry.get('status') — пишуть updateStatus()/startGame()/finishGame(),
+  // а малює лише renderStats(), той самий Publisher/Subscriber, що й для
+  // модалок), рівень складності (по центру), довічна статистика (праворуч) —
+  // усі три перемальовуються разом у renderStats().
   createStatusBar() {
     const y = BOARD_TOP + BOARD_H + STATUS_BAR_H / 2;
     this.add.rectangle(GAME_W / 2, y, GAME_W, STATUS_BAR_H, STATUS_BAR_BG, STATUS_BAR_BG_ALPHA)
@@ -334,10 +357,17 @@ class MainScene extends Phaser.Scene {
       .setDepth(TOOLBAR_PLATE_DEPTH);
 
     const labels = [
-      { key: 'new', text: '🆕 Нова гра', onClick: () => this.openNewGameModal() },
+      { key: 'new', text: '🆕 Нова гра', onClick: () => this.registry.set('modal', { type: 'newgame', canClose: true }) },
       { key: 'hint', text: '💡 Підказка', onClick: () => this.hint() },
       { key: 'undo', text: '↩️ Скасувати', onClick: () => this.undo() },
-      { key: 'stats', text: '📊 Статистика', onClick: () => this.toggleStatsModal() },
+      {
+        key: 'stats',
+        text: '📊 Статистика',
+        onClick: () => {
+          const open = this.registry.get('modal')?.type === 'stats';
+          this.registry.set('modal', open ? null : { type: 'stats' });
+        },
+      },
     ];
     const btnW = this.toolbarBtnW;
     this.toolbarTexts = {};
@@ -373,6 +403,12 @@ class MainScene extends Phaser.Scene {
         });
       });
       container.on('pointerdown', () => {
+        // Той самий guard, що й у сценовому gameobjectdown (create()) —
+        // кнопки тулбару мають власний pointerdown, окремий від того
+        // обробника, тож без цієї перевірки тут вони й далі клікались би
+        // крізь відкриту DOM-модалку. Ніякої анімації натискання теж не
+        // показуємо — клік справді нічого не робить.
+        if (this.registry.get('modal')) return;
         container._hoverTween?.stop();
         this.tweens.add({
           targets: container,
@@ -408,17 +444,45 @@ class MainScene extends Phaser.Scene {
     const key = `bg-${this.bgCounter}`;
     this.load.image(key, data.url);
     this.load.once(`filecomplete-image-${key}`, () => {
-      this.bgImage?.destroy();
-      this.bgVeil?.destroy();
-      this.bgImage = this.add.image(GAME_W / 2, GAME_H / 2, key)
+      const prevImage = this.bgImage;
+      const prevTextureKey = this.bgTextureKey;
+
+      // Нова картинка додається ПОВЕРХ старої (той самий BG_DEPTH — при
+      // однаковому depth Phaser малює об'єкти в порядку додавання, тож нова
+      // й так лягає зверху) і кросфейдиться з прозорого в непрозоре; стара
+      // лишається на місці й проступає крізь, поки не завершиться tween —
+      // так фон плавно перетікає в новий, а не миготить різкою підміною.
+      const newImage = this.add.image(GAME_W / 2, GAME_H / 2, key)
         .setDisplaySize(GAME_W, GAME_H)
-        .setDepth(BG_DEPTH);
-      this.bgVeil = this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x000000, BG_VEIL_ALPHA)
-        .setDepth(BG_VEIL_DEPTH);
-      // Стара текстура більше не потрібна — прибираємо, щоб не текла пам'ять
-      // при частій зміні фону («нова гра»).
-      if (this.bgTextureKey) this.textures.remove(this.bgTextureKey);
+        .setDepth(BG_DEPTH)
+        .setAlpha(this.reducedMotion ? 1 : 0);
+      this.bgImage = newImage;
       this.bgTextureKey = key;
+
+      // Вуаль для читаємості — той самий колір/прозорість для будь-якого
+      // фото, тож досить одного персистентного об'єкта: не перестворюємо
+      // його на кожну зміну фото (раніше тут теж було destroy+recreate).
+      if (!this.bgVeil) {
+        this.bgVeil = this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x000000, BG_VEIL_ALPHA)
+          .setDepth(BG_VEIL_DEPTH);
+      }
+
+      const cleanupPrev = () => {
+        // На першому завантаженні prevImage/prevTextureKey відсутні —
+        // обидва виклики тоді просто no-op.
+        prevImage?.destroy();
+        // Стара текстура більше не потрібна — прибираємо, щоб не текла
+        // пам'ять при частій зміні фону («перемога»); лише ПІСЛЯ фейду,
+        // інакше зображення зникло б передчасно під час кросфейду.
+        if (prevTextureKey) this.textures.remove(prevTextureKey);
+      };
+      if (this.reducedMotion) {
+        cleanupPrev();
+      } else {
+        this.tweens.add({
+          targets: newImage, alpha: 1, duration: BG_FADE_MS, ease: 'Sine.easeInOut', onComplete: cleanupPrev,
+        });
+      }
 
       this.setBgCredit(data.photographer, data.photographer_url);
     });
@@ -459,14 +523,14 @@ class MainScene extends Phaser.Scene {
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
     this.selected = null;
-    this.statusText.setText('⏳ Генерую розклад…');
-    this.closeAllModals();
+    this.registry.set('status', '⏳ Генерую розклад…');
+    this.registry.set('modal', null);
 
     let data;
     try {
       data = await apiStartGame(level);
     } catch {
-      this.statusText.setText('⚠️ Не вдалося почати гру — перевірте з\'єднання');
+      this.registry.set('status', '⚠️ Не вдалося почати гру — перевірте з\'єднання');
       return;
     }
 
@@ -517,37 +581,43 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  // Модалки взаємовиключні — перш ніж відкрити одну, завжди закриваємо решту,
-  // щоб ніколи не було двох відкритих одночасно (однаковий z-index, інакше
-  // одна ховає іншу непомітно для гравця).
-  closeAllModals() {
-    statsModal.classList.remove('open');
-    newgameModal.classList.remove('open');
-  }
+  // Єдиний підписник на registry.get('modal') (див. підписку в create()) —
+  // єдине місце в усьому файлі, що чіпає DOM модалок. Значення modal:
+  //   null                            — нічого не показувати
+  //   { type: 'newgame', canClose }   — вибір складності
+  //   { type: 'stats' }               — загальна статистика (кнопка тулбару)
+  //   { type: 'result', won, error }  — підсумок партії (з finishGame)
+  // Взаємовиключність структурна (один запис у registry — одна відкрита
+  // модалка), тому "закрити інші" тут не окремий крок, а сам собою наслідок
+  // виведення classList з єдиного поточного значення.
+  renderModal(modal) {
+    const showStats = modal?.type === 'stats' || modal?.type === 'result';
+    statsModal.classList.toggle('open', showStats);
+    newgameModal.classList.toggle('open', modal?.type === 'newgame');
 
-  openStatsModal(title) {
-    this.closeAllModals();
-    statsTitleEl.textContent = title || '📊 Статистика';
-    statsModal.classList.add('open');
-  }
-
-  toggleStatsModal() {
-    if (statsModal.classList.contains('open')) this.closeAllModals();
-    else this.openStatsModal('📊 Статистика');
-  }
-
-  // canClose=false — для стартової модалки при першому завантаженні: гри ще
-  // немає, тож ховаємо «✖ Закрити», щоб гравець не лишився без поля.
-  openNewGameModal(canClose = true) {
-    this.closeAllModals();
-    for (const btn of newgameLevelButtons) {
-      btn.classList.toggle('selected', btn.dataset.level === this.currentLevel);
+    if (showStats) {
+      statsTitleEl.textContent = modal.type === 'result'
+        ? (modal.error
+          ? '⚠️ Партія не підтверджена сервером'
+          : (modal.won ? '🎉 Перемога!' : '🚫 Глухий кут — немає ходів'))
+        : '📊 Статистика';
     }
-    newgameCloseBtn.style.display = canClose ? '' : 'none';
-    newgameModal.classList.add('open');
+    // canClose=false — для стартової модалки при першому завантаженні: гри
+    // ще немає, тож ховаємо «✖ Закрити», щоб гравець не лишився без поля.
+    if (modal?.type === 'newgame') {
+      for (const btn of newgameLevelButtons) {
+        btn.classList.toggle('selected', btn.dataset.level === this.currentLevel);
+      }
+      newgameCloseBtn.style.display = modal.canClose ? '' : 'none';
+    }
   }
 
   renderStats() {
+    // Той самий Publisher/Subscriber, що й для модалок: statusText теж не
+    // пишеться напряму з бізнес-логіки (updateStatus/startGame/finishGame),
+    // а лише через registry.set('status', ...) — тут єдине місце, що читає.
+    this.statusText.setText(this.registry.get('status') || '');
+
     const hints = this.registry.get('gameHints') || 0;
     const undos = this.registry.get('gameUndos') || 0;
     this.toolbarTexts.hint.setText(hints > 0 ? `💡 Підказка (${hints})` : '💡 Підказка');
@@ -595,14 +665,14 @@ class MainScene extends Phaser.Scene {
     try {
       result = await apiFinishGame(this.sessionToken, this.movesLog, outcome);
     } catch {
-      this.statusText.setText('⚠️ Не вдалося підтвердити результат партії');
-      this.openStatsModal('⚠️ Партія не підтверджена сервером');
+      this.registry.set('status', '⚠️ Не вдалося підтвердити результат партії');
+      this.registry.set('modal', { type: 'result', error: true });
       return;
     }
 
     if (!result.valid) {
-      this.statusText.setText('⚠️ Партія не підтверджена сервером');
-      this.openStatsModal('⚠️ Партія не підтверджена сервером');
+      this.registry.set('status', '⚠️ Партія не підтверджена сервером');
+      this.registry.set('modal', { type: 'result', error: true });
       return;
     }
 
@@ -614,7 +684,7 @@ class MainScene extends Phaser.Scene {
     // Фон міняється лише на перемогу — програш/нова гра лишають поточний.
     if (result.won) this.loadBackground();
     this.playEndEffect(result.won, () => {
-      this.openStatsModal(result.won ? '🎉 Перемога!' : '🚫 Глухий кут — немає ходів');
+      this.registry.set('modal', { type: 'result', won: result.won });
     });
   }
 
@@ -1049,6 +1119,9 @@ class MainScene extends Phaser.Scene {
   }
 
   undo() {
+    // Гра ще не встигла прогрузитись (startGame() уже закрив модалку, поки
+    // чекає на мережеву відповідь) — просто ігноруємо клік, без падіння.
+    if (!this.board) return;
     const pair = this.board.undo();
     if (!pair) return;
     this.movesLog.pop();
@@ -1087,6 +1160,8 @@ class MainScene extends Phaser.Scene {
   }
 
   hint() {
+    // Той самий guard, що й у undo() — клік до того, як this.board з'явився.
+    if (!this.board) return;
     const pair = this.board.findMatchingPair();
     if (!pair) return;
     const pulseMs = 180 * (1 + 2 * 3); // duration * (1 initial + 2 * repeat) yoyo-циклів
@@ -1112,13 +1187,13 @@ class MainScene extends Phaser.Scene {
 
   updateStatus() {
     if (this.board.isWon()) {
-      this.statusText.setText('🎉 Перемога!');
+      this.registry.set('status', '🎉 Перемога!');
       this.finishGame(true);
     } else if (this.board.isDeadlocked()) {
-      this.statusText.setText('🚫 Немає ходів — почніть нову гру');
+      this.registry.set('status', '🚫 Немає ходів — почніть нову гру');
       this.finishGame(false);
     } else {
-      this.statusText.setText(`🀄 Залишилось: ${this.board.remaining}`);
+      this.registry.set('status', `🀄 Залишилось: ${this.board.remaining}`);
     }
   }
 }
