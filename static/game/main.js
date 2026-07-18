@@ -14,6 +14,7 @@ import {
   ERROR_SHAKE_PX, ERROR_SHAKE_MS, ERROR_SHAKE_REPEAT, ERROR_TINT, ERROR_TINT_MS,
   FLIGHT_TO_CENTER_MS, FLIGHT_MERGE_SCALE, FLIGHT_DOWN_MS, FLIGHT_ARC_LIFT,
   FLIGHT_CENTER_X, FLIGHT_CENTER_Y, FLIGHT_TARGET_X, FLIGHT_TARGET_Y,
+  DEAL_TILE_MS, DEAL_LAYER_STAGGER, DEAL_TILE_STAGGER, DEAL_START_SCALE, DEAL_OFFSCREEN_PAD,
 } from './render-constants.js';
 
 const DIFFICULTY_KEY = 'mahjong.difficulty';
@@ -220,6 +221,7 @@ class MainScene extends Phaser.Scene {
 
     this.sprites = new Map(); // tile -> Phaser container
     this.selected = null;
+    this.dealing = false; // true поки триває анімація роздачі на старті партії
     this.bgCounter = 0; // унікальний суфікс текстурного ключа для кожного фону, що вантажиться
     this.bgImage = null;
     this.bgVeil = null;
@@ -458,6 +460,7 @@ class MainScene extends Phaser.Scene {
     const tiles = data.layout.map((t, idx) => ({ ...t, idx }));
     this.board = new Board(tiles);
     for (const tile of this.board.tiles()) this.addTileSprite(tile);
+    this.playDealIn();
 
     this.registry.set('gameHints', 0);
     this.registry.set('gameUndos', 0);
@@ -668,6 +671,81 @@ class MainScene extends Phaser.Scene {
     this.resetTileTint(tile);
   }
 
+  // Анімація роздачі на старті партії: кожна кістка стартує за випадковим
+  // краєм екрана (менша, прозора) і летить на своє фінальне місце з
+  // відскоком, без обертання. Шари сідають послідовно (нижній першим) — піраміда
+  // фізично "росте" ярус за ярусом; усередині шару кістки впорядковані від
+  // центру поля до країв (за відстанню до FLIGHT_CENTER_X/Y), інакше порядок
+  // кісток у this.sprites — це порядок серверного layout, ніяк не пов'язаний
+  // з їхньою позицією на екрані, і сусідні на вигляд кістки сідали б у
+  // випадковому порядку — хаотично, а не хвилею. depth не чіпаємо, бо
+  // природний порядок (z*10000 + ...) уже малює вищі шари поверх нижчих.
+  // Кліки заблоковані прапорцем this.dealing, поки триває.
+  playDealIn() {
+    if (this.reducedMotion) return;
+
+    const order = [...this.sprites.entries()]
+      .map(([tile, container]) => ({
+        tile,
+        container,
+        dist: Phaser.Math.Distance.Between(container.x, container.y, FLIGHT_CENTER_X, FLIGHT_CENTER_Y),
+      }))
+      .sort((a, b) => (a.tile.z - b.tile.z) || (a.dist - b.dist));
+
+    this.dealing = true;
+    let maxEnd = 0;
+    let layerIndex = -1;
+    let prevZ = null;
+
+    for (const { tile, container } of order) {
+      if (tile.z !== prevZ) {
+        prevZ = tile.z;
+        layerIndex = 0;
+      } else {
+        layerIndex += 1;
+      }
+
+      const finalX = container.x;
+      const finalY = container.y;
+      const { x: startX, y: startY } = this.dealStartPos();
+
+      container.x = startX;
+      container.y = startY;
+      container.setScale(DEAL_START_SCALE);
+      container.alpha = 0;
+      container._flying = true;
+
+      const delay = tile.z * DEAL_LAYER_STAGGER + layerIndex * DEAL_TILE_STAGGER;
+      maxEnd = Math.max(maxEnd, delay + DEAL_TILE_MS);
+
+      this.tweens.add({
+        targets: container,
+        x: finalX,
+        y: finalY,
+        scale: 1,
+        alpha: 1,
+        delay,
+        duration: DEAL_TILE_MS,
+        ease: 'Back.easeOut',
+        onComplete: () => { container._flying = false; },
+      });
+    }
+
+    this.time.delayedCall(maxEnd, () => { this.dealing = false; });
+  }
+
+  // Випадкова точка за одним з чотирьох країв канваса (з відступом
+  // DEAL_OFFSCREEN_PAD), звідки стартує польот кістки при роздачі.
+  dealStartPos() {
+    const pad = DEAL_OFFSCREEN_PAD;
+    switch (Phaser.Math.Between(0, 3)) {
+      case 0: return { x: -pad, y: Phaser.Math.Between(0, GAME_H) }; // ліворуч
+      case 1: return { x: GAME_W + pad, y: Phaser.Math.Between(0, GAME_H) }; // праворуч
+      case 2: return { x: Phaser.Math.Between(0, GAME_W), y: -pad }; // згори
+      default: return { x: Phaser.Math.Between(0, GAME_W), y: GAME_H + pad }; // знизу
+    }
+  }
+
   setTileTint(tile, color) {
     Phaser.Actions.SetTint(this.sprites.get(tile).list, color);
   }
@@ -823,6 +901,7 @@ class MainScene extends Phaser.Scene {
   }
 
   handleTileClick(tile) {
+    if (this.dealing) return;
     if (!this.board.isFree(tile)) {
       this.playError(tile);
       return;

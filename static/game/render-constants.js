@@ -90,3 +90,13 @@ export const FLIGHT_CENTER_Y = BOARD_TOP + BOARD_H / 2; // центр саме �
 // польоту — та сама точка, а не центр канваса.
 export const FLIGHT_TARGET_X = MARGIN + 60;
 export const FLIGHT_TARGET_Y = BOARD_TOP + BOARD_H + STATUS_BAR_H / 2;
+
+// --- Роздача кісток на старті партії («злітаються з різних сторін і
+// вибудовуються в піраміду знизу вгору»). Кожна кістка стартує за випадковим
+// краєм екрана меншою, сідає на місце з відскоком; шари сідають послідовно
+// (нижній першим), тож піраміда «росте» ярус за ярусом.
+export const DEAL_TILE_MS = 520; // тривалість польоту однієї кістки
+export const DEAL_LAYER_STAGGER = 240; // затримка між початком шарів (z)
+export const DEAL_TILE_STAGGER = 7; // додаткова затримка між кістками одного шару
+export const DEAL_START_SCALE = 0.5; // масштаб на старті (росте до 1 при посадці)
+export const DEAL_OFFSCREEN_PAD = 140; // наскільки за край екрана виноситься старт
