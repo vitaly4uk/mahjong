@@ -1,4 +1,4 @@
-import { WIDTH, LAYERS, Board, KINDS } from './board.js';
+import { WIDTH, LAYERS, Board } from './board.js';
 import { startGame as apiStartGame, finishGame as apiFinishGame } from './sync.js';
 import {
   load as loadStats, save as saveStats, applyWin, applyLoss, winRate, fmtTime, LEVELS,
@@ -42,7 +42,6 @@ function saveDifficultyPref(level) {
   }
 }
 
-const tileUrl = (name) => `/static/game/tiles/${name}.png`;
 const statsModal = document.getElementById('stats-modal');
 const statsTitleEl = document.getElementById('stats-title');
 const statsLevelsEl = document.getElementById('stats-levels');
@@ -103,8 +102,10 @@ class MainScene extends Phaser.Scene {
     // теж використовуватимуть цей crossOrigin — потрібен для WebGL-текстур із
     // зовнішнього хоста.
     this.load.crossOrigin = 'anonymous';
-    this.load.image('Front', tileUrl('Front'));
-    for (const kind of KINDS) this.load.image(kind, tileUrl(kind));
+    // Усі 35 тайлів (Front + 34 виду) — один WebP-атлас замість 35 окремих
+    // PNG-запитів (scripts/gen_tile_atlas.py генерує tiles.webp/tiles.json
+    // із static/game/tiles/*.png).
+    this.load.atlas('tiles', '/static/game/tiles.webp', '/static/game/tiles.json');
   }
 
   create() {
@@ -270,16 +271,29 @@ class MainScene extends Phaser.Scene {
     }
 
     // Один сценовий обробник на всі плитки (замість замикання на кожну):
-    // спрацьовує і для плиток, доданих пізніше (undo, нова гра).
-    this.input.on('gameobjectdown', (pointer, obj) => this.handleTileClick(obj.getData('tile')));
-    this.input.on('gameobjectover', (pointer, obj) => this.handleTileOver(obj.getData('tile')));
-    this.input.on('gameobjectout', (pointer, obj) => this.handleTileOut(obj.getData('tile')));
+    // спрацьовує і для плиток, доданих пізніше (undo, нова гра). Phaser емітить
+    // ці події для КОЖНОГО інтерактивного об'єкта на сцені, не лише плиток —
+    // кнопки тулбару (createToolbar) і кредит фотографа (setBgCredit) також
+    // інтерактивні й мають власні pointerdown-обробники, тож без фільтра тут
+    // прилітав би виклик із tile===undefined і падав у Board.isFree.
+    this.input.on('gameobjectdown', (pointer, obj) => {
+      const tile = obj.getData('tile');
+      if (tile) this.handleTileClick(tile);
+    });
+    this.input.on('gameobjectover', (pointer, obj) => {
+      const tile = obj.getData('tile');
+      if (tile) this.handleTileOver(tile);
+    });
+    this.input.on('gameobjectout', (pointer, obj) => {
+      const tile = obj.getData('tile');
+      if (tile) this.handleTileOut(tile);
+    });
 
     // Перший запуск сторінки: показуємо стартову модалку — гравець сам
     // обирає рівень і час; без кнопки закриття, бо грати ще нема в що.
-    // Фон тут НЕ вантажимо: перша ж startGame() (одразу після вибору рівня)
-    // і так викличе loadBackground() — окремий виклик тут дублював запит
-    // (двічі: при запуску сторінки й одразу ж при старті першої партії).
+    // Фон вантажимо тут один раз (початкова заставка) — далі він лишається
+    // незмінним між партіями й міняється лише на перемогу (finishGame()).
+    this.loadBackground();
     this.openNewGameModal(false);
   }
 
@@ -377,7 +391,9 @@ class MainScene extends Phaser.Scene {
   // config/views.py — ключ живе тільки на сервері) і кладе його за кістками з
   // темною вуаллю поверх для читаемості. Якщо фону нема (немає ключа, мережева
   // помилка, ліміт) — тихо лишає поточний фон (за замовчуванням просто
-  // backgroundColor гри), нічого не ламаючи.
+  // backgroundColor гри), нічого не ламаючи. Викликається лише двічі:
+  // один раз при запуску сторінки (create()) і на кожну підтверджену
+  // перемогу (finishGame()) — нова гра/поразка фон НЕ міняють.
   async loadBackground() {
     let data;
     try {
@@ -444,7 +460,6 @@ class MainScene extends Phaser.Scene {
     this.sprites.clear();
     this.selected = null;
     this.statusText.setText('⏳ Генерую розклад…');
-    this.loadBackground();
     this.closeAllModals();
 
     let data;
@@ -596,6 +611,8 @@ class MainScene extends Phaser.Scene {
       ? applyWin(this.lifetimeStats(), result.elapsedMs)
       : applyLoss(this.lifetimeStats());
     this.updateLifetimeStats(updated);
+    // Фон міняється лише на перемогу — програш/нова гра лишають поточний.
+    if (result.won) this.loadBackground();
     this.playEndEffect(result.won, () => {
       this.openStatsModal(result.won ? '🎉 Перемога!' : '🚫 Глухий кут — немає ходів');
     });
@@ -655,8 +672,8 @@ class MainScene extends Phaser.Scene {
     // грань точно збіглася з Front — стінки при цьому природно стирчать
     // вниз-вліво, у бік зсуву шарів угору-вправо.
     const body = this.add.image(-DEPTH_X / 2, DEPTH_Y / 2, 'tileBody');
-    const front = this.add.image(0, 0, 'Front').setDisplaySize(FACE_W, FACE_H);
-    const face = this.add.image(0, -3, tile.kind)
+    const front = this.add.image(0, 0, 'tiles', 'Front').setDisplaySize(FACE_W, FACE_H);
+    const face = this.add.image(0, -3, 'tiles', tile.kind)
       .setDisplaySize(FACE_W * 0.78, FACE_H * 0.78);
     const container = this.add.container(px, py, [body, front, face]);
     container.setSize(TILE_W, TILE_H);
