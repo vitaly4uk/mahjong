@@ -1,7 +1,7 @@
 import { WIDTH, LAYERS, Board } from './board.js';
 import {
   startGame as apiStartGame, finishGame as apiFinishGame, bumpStat as apiBumpStat,
-  fetchStats, importLegacyStats,
+  fetchStats, importLegacyStats, fetchVersion,
 } from './sync.js';
 import {
   load as loadLegacyStats, clearLegacy, emptyAllStats, winRate, fmtTime, LEVELS,
@@ -544,6 +544,19 @@ class MainScene extends Phaser.Scene {
   }
 
   async startGame(level) {
+    // Застаріла версія клієнта (довго відкритий standalone-застосунок, що
+    // пропустив деплой) — перезавантажуємо сторінку замість старту партії,
+    // щоб підхопити свіжі main.js/render-constants.js разом.
+    try {
+      const serverVersion = await fetchVersion();
+      if (serverVersion !== window.MAHJONG_VERSION) {
+        location.reload();
+        return;
+      }
+    } catch {
+      // Мережа недоступна — не блокуємо гру перевіркою версії.
+    }
+
     this.currentLevel = level;
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();

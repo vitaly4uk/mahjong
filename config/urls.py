@@ -16,12 +16,20 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
+from django.views.decorators.cache import cache_control
 from django.views.generic import TemplateView
 
-from config.api import api
+from config.api import api, get_build_version
+
+# no-cache (не «без кешу», а «завжди ревалідуй через ETag/Last-Modified») —
+# щоб довго відкритий standalone-застосунок на iOS/macOS отримував свіжий
+# HTML щоразу, коли він таки перезавантажується (див. config/api.py: /version/).
+home_view = cache_control(no_cache=True, must_revalidate=True)(
+    TemplateView.as_view(template_name='game.html', extra_context={'version': get_build_version()})
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', api.urls),
-    path('', TemplateView.as_view(template_name='game.html'), name='home'),
+    path('', home_view, name='home'),
 ]

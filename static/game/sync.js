@@ -70,3 +70,10 @@ export async function importLegacyStats(stats) {
   const data = await postJson('/api/game/stats/import', { stats });
   return { imported: data.imported, reason: data.reason ?? null, stats: data.stats ?? null };
 }
+
+// Поточна версія білда (хеш маніфесту collectstatic) — звіряється з
+// window.MAHJONG_VERSION перед стартом нової партії.
+export async function fetchVersion() {
+  const data = await requestJson('/api/version/');
+  return data.version;
+}
