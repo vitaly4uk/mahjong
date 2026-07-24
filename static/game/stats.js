@@ -1,8 +1,14 @@
 // Статистика гри: чистий модуль, без Phaser/DOM.
-// Довічні показники (persist у localStorage), незалежні від поточної партії.
-// v2: статистика розбита по рівнях складності (easy/normal/hard), кожен рівень
-// має свою повну структуру. v1 (єдина статистика, без рівнів) мігрується в
-// рівень hard при першому load() — див. міграцію нижче.
+// Довічні показники живуть на сервері (gameplay/models.py: Profile.stats) —
+// цей модуль лишає лише презентаційні хелпери (winRate/fmtTime), порожню
+// форму (emptyStats/emptyAllStats, для плейсхолдера до першого мережевого
+// запиту) і load() — тепер використовується ЛИШЕ як одноразовий "зчитувач
+// legacy-блоба" для переносу старого localStorage на сервер (main.js:
+// create()). applyWin/applyLoss/save() видалені — логіка порахунку win/loss
+// живе тільки на сервері (gameplay/stats.py), клієнт більше нічого не пише
+// в localStorage. v1 (єдина статистика, без рівнів) і далі мігрується в
+// рівень hard усередині load() — той самий формат payload, що очікує
+// POST /api/game/stats/import (gameplay/api.py: import_stats).
 
 export const STORAGE_KEY = 'mahjong.stats.v2';
 export const STORAGE_KEY_V1 = 'mahjong.stats.v1';
@@ -10,6 +16,7 @@ export const LEVELS = ['easy', 'normal', 'hard'];
 
 export function emptyStats() {
   return {
+    gamesStarted: 0,
     gamesPlayed: 0,
     gamesWon: 0,
     hintsTotal: 0,
@@ -23,28 +30,6 @@ export function emptyStats() {
 
 export function emptyAllStats() {
   return Object.fromEntries(LEVELS.map((level) => [level, emptyStats()]));
-}
-
-// Перемога: гра зіграна, серія росте, рекорд часу — мінімум серед перемог.
-export function applyWin(stats, timeMs) {
-  const currentStreak = stats.currentStreak + 1;
-  return {
-    ...stats,
-    gamesPlayed: stats.gamesPlayed + 1,
-    gamesWon: stats.gamesWon + 1,
-    currentStreak,
-    bestStreak: Math.max(stats.bestStreak, currentStreak),
-    bestTimeMs: stats.bestTimeMs === null ? timeMs : Math.min(stats.bestTimeMs, timeMs),
-  };
-}
-
-// Поразка (глухий кут): гра зіграна, серія перемог обривається.
-export function applyLoss(stats) {
-  return {
-    ...stats,
-    gamesPlayed: stats.gamesPlayed + 1,
-    currentStreak: 0,
-  };
 }
 
 export function winRate(stats) {
@@ -93,10 +78,26 @@ export function load(storage = globalThis.localStorage) {
   }
 }
 
-export function save(allStats, storage = globalThis.localStorage) {
+// Лишається лише для внутрішнього використання load() (запис уже
+// змігрованого v1->v2 блоба назад у localStorage перед видаленням v1-ключа) —
+// більше НЕ джерело істини для живої гри, ніхто інший цю функцію не викликає.
+function save(allStats, storage = globalThis.localStorage) {
   try {
     storage?.setItem(STORAGE_KEY, JSON.stringify(allStats));
   } catch {
     // ignore (приватний режим, квота, тощо)
+  }
+}
+
+// Клієнтська підстраховка після успішного серверного імпорту (gameplay/api.py:
+// import_stats) — реальний гард від повторного переносу є на сервері
+// (Profile.legacy_imported), це лише прибирання вже неактуальних локальних
+// даних.
+export function clearLegacy(storage = globalThis.localStorage) {
+  try {
+    storage?.removeItem(STORAGE_KEY);
+    storage?.removeItem(STORAGE_KEY_V1);
+  } catch {
+    // ignore
   }
 }

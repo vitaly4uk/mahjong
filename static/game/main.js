@@ -1,7 +1,10 @@
 import { WIDTH, LAYERS, Board } from './board.js';
-import { startGame as apiStartGame, finishGame as apiFinishGame } from './sync.js';
 import {
-  load as loadStats, save as saveStats, applyWin, applyLoss, winRate, fmtTime, LEVELS,
+  startGame as apiStartGame, finishGame as apiFinishGame, bumpStat as apiBumpStat,
+  fetchStats, importLegacyStats,
+} from './sync.js';
+import {
+  load as loadLegacyStats, clearLegacy, emptyAllStats, winRate, fmtTime, LEVELS,
 } from './stats.js';
 import {
   TILE_W, TILE_H, DEPTH_X, DEPTH_Y, CORNER_R, FACE_W, FACE_H, LAYER_DX, LAYER_DY, MARGIN,
@@ -109,7 +112,7 @@ class MainScene extends Phaser.Scene {
     this.load.atlas('tiles', '/static/game/tiles.webp', '/static/game/tiles.json');
   }
 
-  create() {
+  async create() {
     // Текстура корпусу кістки: справжній паралелепіпед — верхня грань (під
     // Front) + дві скошені бокові стінки, що йдуть униз-вліво (товщина
     // DEPTH_X/DEPTH_Y). Одна текстура на всі 136 кісток.
@@ -240,7 +243,29 @@ class MainScene extends Phaser.Scene {
     this.reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     this.webgl = this.renderer.type === Phaser.WEBGL;
 
-    const allStats = loadStats();
+    let bootstrapped;
+    try {
+      bootstrapped = await fetchStats();
+    } catch {
+      bootstrapped = { stats: emptyAllStats(), legacyImportAvailable: false };
+      this.registry.set('status', '⚠️ Не вдалося завантажити статистику');
+    }
+    let allStats = bootstrapped.stats;
+    if (bootstrapped.legacyImportAvailable) {
+      const legacy = loadLegacyStats();
+      if (LEVELS.some((level) => legacy[level].gamesPlayed > 0)) {
+        try {
+          const result = await importLegacyStats(legacy);
+          if (result.imported) {
+            allStats = result.stats;
+            clearLegacy();
+          }
+        } catch {
+          // мережева помилка — наступний запуск побачить legacyImportAvailable
+          // знову true й повторить спробу.
+        }
+      }
+    }
     this.registry.set('allStats', allStats);
     this.registry.events.on('changedata', () => this.renderStats());
 
@@ -547,6 +572,9 @@ class MainScene extends Phaser.Scene {
     this.registry.set('gameStartMs', Date.now());
     this.registry.set('gameElapsedMs', 0);
     this.registry.set('gameFinished', false);
+    // Сервер уже інкрементував gamesStarted для цього рівня — одразу
+    // показуємо оновлений блоб без окремого запиту.
+    this.registry.set('allStats', data.stats);
     this.renderStats();
 
     this.updateStatus();
@@ -557,20 +585,17 @@ class MainScene extends Phaser.Scene {
     return this.registry.get('allStats')[this.currentLevel];
   }
 
-  // Оновлює зріз статистики поточного рівня в registry-allStats (новий
-  // об'єкт, щоб Phaser registry розпізнав зміну й розіслав 'changedata').
-  updateLifetimeStats(updated) {
-    const allStats = { ...this.registry.get('allStats'), [this.currentLevel]: updated };
-    this.registry.set('allStats', allStats);
-    saveStats(allStats);
-  }
-
-  // Інкремент лічильника поточної партії (registry) і парного довічного
-  // тоталу (allStats) — спільний хвіст для removePair/undo/hint.
-  bumpCounter(gameKey, totalKey) {
+  // Інкремент ефемерного лічильника поточної партії (registry, для смуги
+  // статусу) + живий запит на сервер (gameplay/api.py: bump_stat), який
+  // персистить парний довічний тотал і повертає оновлений блоб. Fire-and-
+  // forget: мережева помилка не блокує гру, лише лишає лічильник неоновленим
+  // до наступної вдалої дії — той самий best-effort дух, що й колишній
+  // localStorage-запис у try/catch.
+  bumpCounter(gameKey, counter) {
     this.registry.set(gameKey, this.registry.get(gameKey) + 1);
-    const stats = this.lifetimeStats();
-    this.updateLifetimeStats({ ...stats, [totalKey]: stats[totalKey] + 1 });
+    apiBumpStat(this.sessionToken, counter)
+      .then((stats) => this.registry.set('allStats', stats))
+      .catch(() => {});
   }
 
   // Знімає виділення з поточної плитки, якщо вона є.
@@ -636,6 +661,7 @@ class MainScene extends Phaser.Scene {
         <div class="level-block${current}">
           <h3>${LEVEL_LABELS[level]}</h3>
           <dl>
+            <dt>🎲 Розпочато партій</dt><dd>${s.gamesStarted}</dd>
             <dt>📋 Зіграно партій</dt><dd>${s.gamesPlayed}</dd>
             <dt>🏆 Перемог</dt><dd>${s.gamesWon}</dd>
             <dt>📈 % перемог</dt><dd>${winRate(s)}%</dd>
@@ -654,8 +680,9 @@ class MainScene extends Phaser.Scene {
   // Зараховує завершену партію (перемога чи глухий кут) рівно один раз —
   // лише після того, як сервер підтвердив лог ходів реплеєм (анти-чит,
   // docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md).
-  // Локальна lifetime-статистика оновлюється тільки за підтвердженим
-  // результатом; серверний час (elapsedMs) — джерело істини, не клієнтський.
+  // Довічна статистика оновлюється тільки на сервері (gameplay/stats.py) і
+  // приймається тут як є; серверний час (elapsedMs) — джерело істини, не
+  // клієнтський.
   async finishGame(won) {
     if (this.registry.get('gameFinished')) return;
     this.registry.set('gameFinished', true);
@@ -677,10 +704,10 @@ class MainScene extends Phaser.Scene {
     }
 
     this.registry.set('gameElapsedMs', result.elapsedMs);
-    const updated = result.won
-      ? applyWin(this.lifetimeStats(), result.elapsedMs)
-      : applyLoss(this.lifetimeStats());
-    this.updateLifetimeStats(updated);
+    // Сервер уже порахував win/loss/стрік/найкращий час — просто приймаємо
+    // повернутий блоб (hints/undos/pairs уже актуальні з живих bump-викликів
+    // під час гри).
+    this.registry.set('allStats', result.stats);
     // Фон міняється лише на перемогу — програш/нова гра лишають поточний.
     if (result.won) this.loadBackground();
     this.playEndEffect(result.won, () => {
@@ -1031,7 +1058,7 @@ class MainScene extends Phaser.Scene {
     if (!this.board.removePair(a, b)) return;
     this.movesLog.push([a.idx, b.idx]);
     this.selected = null;
-    this.bumpCounter('gamePairs', 'pairsTotal');
+    this.bumpCounter('gamePairs', 'pair');
 
     // Лічильник «Залишилось: N» (updateStatus) оновлюється лише тоді, коли
     // обидві кістки долетіли до кута й зникли — інакше цифра змінюється
@@ -1127,7 +1154,7 @@ class MainScene extends Phaser.Scene {
     this.movesLog.pop();
     this.deselect();
     for (const tile of pair) this.animateUndoTile(tile);
-    this.bumpCounter('gameUndos', 'undosTotal');
+    this.bumpCounter('gameUndos', 'undo');
     this.updateStatus();
   }
 
@@ -1182,7 +1209,7 @@ class MainScene extends Phaser.Scene {
         this.time.delayedCall(pulseMs, () => container.postFX?.remove(fx));
       }
     }
-    this.bumpCounter('gameHints', 'hintsTotal');
+    this.bumpCounter('gameHints', 'hint');
   }
 
   updateStatus() {

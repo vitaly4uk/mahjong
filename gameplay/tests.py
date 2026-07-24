@@ -1,11 +1,15 @@
 import uuid
 
+from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
 from .api import router as gameplay_router  # noqa: F401 (реєструє роутер при імпорті тестового модуля)
 from .board import Board, Tile, is_free_position, target_positions
 from .generator import DIFFICULTIES, generate_for_difficulty
-from .models import GameSession
+from .middleware import PLAYER_COOKIE_NAME
+from .models import GameSession, Profile
+from .schemas import AllStats, LevelStats
+from .stats import apply_loss, apply_win, merge_imported
 
 
 class BoardRuleTests(TestCase):
@@ -198,3 +202,240 @@ class GameApiTests(TestCase):
             '/api/game/start', data={'level': 'easy'}, content_type='application/json',
         )
         self.assertEqual(response.status_code, 403)
+
+
+class StatsTransformerTests(TestCase):
+    """Паритет із tests/stats.test.js (applyWin/applyLoss) + кейси, специфічні
+    для pydantic-шару (клемпінг/мердж), яких у JS-версії нема."""
+
+    def test_apply_win_increments_played_won_streak_tracks_best_time(self):
+        stats = LevelStats()
+        stats = apply_win(stats, 5000)
+        self.assertEqual(stats.games_played, 1)
+        self.assertEqual(stats.games_won, 1)
+        self.assertEqual(stats.current_streak, 1)
+        self.assertEqual(stats.best_streak, 1)
+        self.assertEqual(stats.best_time_ms, 5000)
+
+        stats = apply_win(stats, 3000)
+        self.assertEqual(stats.current_streak, 2)
+        self.assertEqual(stats.best_streak, 2)
+        self.assertEqual(stats.best_time_ms, 3000)  # швидша перемога стає рекордом
+
+        stats = apply_win(stats, 9000)
+        self.assertEqual(stats.best_time_ms, 3000)  # повільніша не перезаписує рекорд
+        self.assertEqual(stats.best_streak, 3)
+
+    def test_apply_loss_increments_played_resets_streak_keeps_best(self):
+        stats = LevelStats()
+        stats = apply_win(stats, 1000)
+        stats = apply_win(stats, 1000)
+        stats = apply_loss(stats)
+        self.assertEqual(stats.games_played, 3)
+        self.assertEqual(stats.games_won, 2)
+        self.assertEqual(stats.current_streak, 0)
+        self.assertEqual(stats.best_streak, 2)
+
+    def test_negative_field_rejected_by_validation(self):
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            LevelStats.model_validate({'gamesPlayed': -1})
+
+    def test_best_streak_clamped_up_to_current_streak(self):
+        stats = LevelStats.model_validate({'currentStreak': 5, 'bestStreak': 1})
+        self.assertEqual(stats.best_streak, 5)
+
+    def test_merge_imported_sums_counters_min_time_max_streak(self):
+        server = AllStats()
+        imported = AllStats()
+        imported.normal = LevelStats.model_validate({
+            'gamesPlayed': 4, 'gamesWon': 2, 'hintsTotal': 3, 'undosTotal': 1, 'pairsTotal': 20,
+            'bestTimeMs': 9000, 'currentStreak': 2, 'bestStreak': 2,
+        })
+        merged = merge_imported(server, imported)
+        self.assertEqual(merged.normal.games_played, 4)
+        self.assertEqual(merged.normal.games_won, 2)
+        self.assertEqual(merged.normal.hints_total, 3)
+        self.assertEqual(merged.normal.best_time_ms, 9000)
+        self.assertEqual(merged.normal.best_streak, 2)
+        # server ще не грав на цьому рівні — currentStreak береться з імпорту
+        self.assertEqual(merged.normal.current_streak, 2)
+        # Легасі-блоб не мав лічильника стартів — gamesStarted підтягується
+        # до gamesPlayed з імпорту, інакше вийшло б started < played.
+        self.assertEqual(merged.normal.games_started, 4)
+
+    def test_merge_imported_keeps_games_started_at_least_games_played(self):
+        server = AllStats()
+        server.normal = LevelStats.model_validate({'gamesStarted': 1, 'gamesPlayed': 0})
+        imported = AllStats()
+        imported.normal = LevelStats.model_validate({'gamesPlayed': 5, 'gamesWon': 3})
+        merged = merge_imported(server, imported)
+        self.assertEqual(merged.normal.games_played, 5)
+        self.assertGreaterEqual(merged.normal.games_started, merged.normal.games_played)
+        self.assertEqual(merged.normal.games_started, 6)
+
+    def test_merge_imported_keeps_server_current_streak_when_server_has_played(self):
+        server = AllStats()
+        server.normal = apply_win(server.normal, 1000)  # server.games_played == 1
+        imported = AllStats()
+        imported.normal = LevelStats.model_validate({'gamesPlayed': 3, 'currentStreak': 3})
+        merged = merge_imported(server, imported)
+        self.assertEqual(merged.normal.games_played, 4)
+        self.assertEqual(merged.normal.current_streak, 1)  # server-side стрік важливіший
+
+
+class PlayerIdentityMiddlewareTests(TestCase):
+    def test_start_without_cookie_creates_user_profile_and_cookie_binds_session(self):
+        response = self.client.post(
+            '/api/game/start', data={'level': 'easy'}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIn(PLAYER_COOKIE_NAME, response.cookies)
+        self.assertEqual(User.objects.count(), 1)
+        self.assertEqual(Profile.objects.count(), 1)
+
+        token = response.json()['token']
+        session = GameSession.objects.get(token=token)
+        self.assertIsNotNone(session.user_id)
+        self.assertEqual(session.user.profile, Profile.objects.get())
+
+    def test_repeated_requests_with_same_cookie_reuse_profile(self):
+        self.client.post('/api/game/start', data={'level': 'easy'}, content_type='application/json')
+        self.assertEqual(Profile.objects.count(), 1)
+        self.client.post('/api/game/start', data={'level': 'normal'}, content_type='application/json')
+        self.assertEqual(Profile.objects.count(), 1)
+        self.assertEqual(GameSession.objects.count(), 2)
+        self.assertEqual(GameSession.objects.first().user_id, GameSession.objects.last().user_id)
+
+    def test_paths_outside_prefix_do_not_create_profile(self):
+        self.client.get('/api/background/')
+        self.assertEqual(Profile.objects.count(), 0)
+
+
+class StatsEndpointTests(TestCase):
+    def _start(self, level='easy'):
+        response = self.client.post(
+            '/api/game/start', data={'level': level}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def _win_moves(self, layout):
+        tiles = [Tile(i, t['x'], t['y'], t['z'], t['kind']) for i, t in enumerate(layout)]
+        board = Board(tiles)
+        moves = []
+        while board.remaining > 0:
+            a, b = board.find_matching_pair()
+            moves.append([a.idx, b.idx])
+            board.remove_pair(a, b)
+        return moves
+
+    def test_get_stats_bootstraps_empty_profile(self):
+        response = self.client.get('/api/game/stats')
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertTrue(body['legacy_import_available'])
+        self.assertEqual(body['stats']['easy']['gamesPlayed'], 0)
+
+    def test_start_increments_games_started_and_returns_stats(self):
+        data = self._start('normal')
+        self.assertEqual(data['stats']['normal']['gamesStarted'], 1)
+        data2 = self._start('normal')
+        self.assertEqual(data2['stats']['normal']['gamesStarted'], 2)
+
+    def test_bump_increments_matching_counter_and_accumulates(self):
+        data = self._start('easy')
+        token = data['token']
+        for counter, field in (('hint', 'hintsTotal'), ('undo', 'undosTotal'), ('pair', 'pairsTotal')):
+            response = self.client.post(
+                f'/api/game/{token}/bump', data={'counter': counter}, content_type='application/json',
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(response.json()['stats']['easy'][field], 1)
+
+        response = self.client.post(
+            f'/api/game/{token}/bump', data={'counter': 'hint'}, content_type='application/json',
+        )
+        self.assertEqual(response.json()['stats']['easy']['hintsTotal'], 2)
+
+    def test_bump_rejects_unknown_token(self):
+        response = self.client.post(
+            f'/api/game/{uuid.uuid4()}/bump', data={'counter': 'hint'}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_bump_rejects_already_claimed_session(self):
+        data = self._start('easy')
+        moves = self._win_moves(data['layout'])
+        self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        response = self.client.post(
+            f'/api/game/{data["token"]}/bump', data={'counter': 'hint'}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_finish_updates_only_win_loss_fields_not_bump_totals(self):
+        data = self._start('easy')
+        token = data['token']
+        self.client.post(f'/api/game/{token}/bump', data={'counter': 'pair'}, content_type='application/json')
+        moves = self._win_moves(data['layout'])
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': token, 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        body = response.json()
+        self.assertTrue(body['valid'])
+        self.assertEqual(body['stats']['easy']['gamesPlayed'], 1)
+        self.assertEqual(body['stats']['easy']['gamesWon'], 1)
+        self.assertEqual(body['stats']['easy']['pairsTotal'], 1)  # з bump, не з finish
+
+    def test_full_playthrough_totals_add_up_without_double_counting(self):
+        data = self._start('easy')
+        token = data['token']
+        for _ in range(3):
+            self.client.post(f'/api/game/{token}/bump', data={'counter': 'pair'}, content_type='application/json')
+        self.client.post(f'/api/game/{token}/bump', data={'counter': 'hint'}, content_type='application/json')
+        moves = self._win_moves(data['layout'])
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': token, 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        stats = response.json()['stats']['easy']
+        self.assertEqual(stats['pairsTotal'], 3)
+        self.assertEqual(stats['hintsTotal'], 1)
+        self.assertEqual(stats['gamesPlayed'], 1)
+        self.assertEqual(stats['gamesWon'], 1)
+        self.assertEqual(stats['gamesStarted'], 1)
+
+    def test_import_accepted_once_then_rejected(self):
+        legacy = {
+            'easy': {'gamesPlayed': 2, 'gamesWon': 1, 'bestTimeMs': 4000, 'currentStreak': 1, 'bestStreak': 1},
+        }
+        first = self.client.post(
+            '/api/game/stats/import', data={'stats': legacy}, content_type='application/json',
+        )
+        self.assertEqual(first.status_code, 200, first.content)
+        body = first.json()
+        self.assertTrue(body['imported'])
+        self.assertEqual(body['stats']['easy']['gamesPlayed'], 2)
+
+        second = self.client.post(
+            '/api/game/stats/import', data={'stats': legacy}, content_type='application/json',
+        )
+        second_body = second.json()
+        self.assertFalse(second_body['imported'])
+        self.assertEqual(second_body['reason'], 'already imported')
+
+    def test_import_sanitizes_malformed_payload(self):
+        response = self.client.post(
+            '/api/game/stats/import',
+            data={'stats': {'easy': {'gamesPlayed': -5}}},
+            content_type='application/json',
+        )
+        # Field(ge=0) відхиляє від'ємні значення на рівні ninja-валідації запиту.
+        self.assertEqual(response.status_code, 422)

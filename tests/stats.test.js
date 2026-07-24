@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  emptyStats, emptyAllStats, applyWin, applyLoss, winRate, fmtTime, load, save,
+  emptyStats, emptyAllStats, winRate, fmtTime, load,
   STORAGE_KEY, STORAGE_KEY_V1, LEVELS,
 } from '../static/game/stats.js';
 
 test('emptyStats: zeros and null best time', () => {
   const stats = emptyStats();
+  assert.equal(stats.gamesStarted, 0);
   assert.equal(stats.gamesPlayed, 0);
   assert.equal(stats.gamesWon, 0);
   assert.equal(stats.hintsTotal, 0);
@@ -17,43 +18,9 @@ test('emptyStats: zeros and null best time', () => {
   assert.equal(stats.bestStreak, 0);
 });
 
-test('applyWin: increments played/won/streak, tracks best streak and best time', () => {
-  let stats = emptyStats();
-  stats = applyWin(stats, 5000);
-  assert.equal(stats.gamesPlayed, 1);
-  assert.equal(stats.gamesWon, 1);
-  assert.equal(stats.currentStreak, 1);
-  assert.equal(stats.bestStreak, 1);
-  assert.equal(stats.bestTimeMs, 5000);
-
-  stats = applyWin(stats, 3000);
-  assert.equal(stats.gamesPlayed, 2);
-  assert.equal(stats.currentStreak, 2);
-  assert.equal(stats.bestStreak, 2);
-  assert.equal(stats.bestTimeMs, 3000); // faster win becomes the record
-
-  stats = applyWin(stats, 9000);
-  assert.equal(stats.bestTimeMs, 3000); // slower win doesn't overwrite record
-  assert.equal(stats.bestStreak, 3);
-});
-
-test('applyLoss: increments played, resets current streak, keeps best streak', () => {
-  let stats = emptyStats();
-  stats = applyWin(stats, 1000);
-  stats = applyWin(stats, 1000);
-  assert.equal(stats.currentStreak, 2);
-  stats = applyLoss(stats);
-  assert.equal(stats.gamesPlayed, 3);
-  assert.equal(stats.gamesWon, 2);
-  assert.equal(stats.currentStreak, 0);
-  assert.equal(stats.bestStreak, 2);
-});
-
 test('winRate: 0 when no games played, rounds otherwise', () => {
   assert.equal(winRate(emptyStats()), 0);
-  let stats = emptyStats();
-  stats = applyWin(stats, 1000);
-  stats = applyLoss(stats);
+  const stats = { ...emptyStats(), gamesPlayed: 2, gamesWon: 1 };
   assert.equal(winRate(stats), 50);
 });
 
@@ -80,15 +47,6 @@ test('emptyAllStats: one empty level per difficulty', () => {
   for (const level of LEVELS) assert.deepEqual(all[level], emptyStats());
 });
 
-test('load/save: round-trips a per-level stats object through storage', () => {
-  const storage = fakeStorage();
-  const all = emptyAllStats();
-  all.hard = applyWin(all.hard, 1234);
-  save(all, storage);
-  const loaded = load(storage);
-  assert.deepEqual(loaded, all);
-});
-
 test('load: merges partial stored data with defaults, per level', () => {
   const storage = fakeStorage({
     [STORAGE_KEY]: JSON.stringify({ normal: { gamesPlayed: 7 } }),
@@ -106,7 +64,7 @@ test('load: returns empty per-level defaults when storage is empty', () => {
 });
 
 test('load: migrates v1 (single-level) stats into the hard level, drops v1 key', () => {
-  const oldStats = applyWin(applyWin(emptyStats(), 5000), 6000);
+  const oldStats = { ...emptyStats(), gamesPlayed: 2, gamesWon: 2, bestTimeMs: 5000 };
   const storage = fakeStorage({ [STORAGE_KEY_V1]: JSON.stringify(oldStats) });
   const loaded = load(storage);
   assert.deepEqual(loaded.hard, oldStats);
@@ -123,11 +81,4 @@ test('load: does not throw when storage throws', () => {
     getItem: () => { throw new Error('nope'); },
   };
   assert.deepEqual(load(badStorage), emptyAllStats());
-});
-
-test('save: does not throw when storage throws', () => {
-  const badStorage = {
-    setItem: () => { throw new Error('nope'); },
-  };
-  assert.doesNotThrow(() => save(emptyAllStats(), badStorage));
 });
