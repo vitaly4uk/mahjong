@@ -1,9 +1,11 @@
 import uuid
+from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
+from django.utils import timezone
 
-from .api import router as gameplay_router  # noqa: F401 (реєструє роутер при імпорті тестового модуля)
+from .api import SESSION_TTL, router as gameplay_router  # noqa: F401 (реєструє роутер при імпорті тестового модуля)
 from .board import Board, Tile, is_free_position, target_positions
 from .generator import DIFFICULTIES, generate_for_difficulty
 from .middleware import PLAYER_COOKIE_NAME
@@ -192,6 +194,44 @@ class GameApiTests(TestCase):
             content_type='application/json',
         )
         self.assertFalse(response.json()['valid'])
+
+    def test_session_state_active_returns_elapsed(self):
+        data = self._start()
+        response = self.client.get(f"/api/game/{data['token']}")
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(body['status'], 'active')
+        self.assertIsInstance(body['elapsed_ms'], int)
+        self.assertGreaterEqual(body['elapsed_ms'], 0)
+
+    def test_session_state_claimed_after_finish(self):
+        data = self._start()
+        moves = self._win_moves(data['layout'])
+        self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        body = self.client.get(f"/api/game/{data['token']}").json()
+        self.assertEqual(body['status'], 'claimed')
+        self.assertIsNone(body['elapsed_ms'])
+
+    def test_session_state_reports_expired_past_ttl_without_db_write(self):
+        data = self._start()
+        GameSession.objects.filter(token=data['token']).update(
+            created_at=timezone.now() - SESSION_TTL - timedelta(minutes=1),
+        )
+        body = self.client.get(f"/api/game/{data['token']}").json()
+        self.assertEqual(body['status'], 'expired')
+        self.assertIsNone(body['elapsed_ms'])
+        # Ліниве маркування лишається за finish — GET нічого не пише.
+        session = GameSession.objects.get(token=data['token'])
+        self.assertEqual(session.status, GameSession.Status.ACTIVE)
+
+    def test_session_state_unknown_token(self):
+        body = self.client.get(f'/api/game/{uuid.uuid4()}').json()
+        self.assertEqual(body['status'], 'unknown')
+        self.assertIsNone(body['elapsed_ms'])
 
     def test_missing_csrf_token_is_rejected_when_enforced(self):
         # Django-тестовий Client за замовчуванням вимикає CSRF-перевірку —

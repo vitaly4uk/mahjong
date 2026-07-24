@@ -56,6 +56,21 @@ export function isFreePosition(occupied, x, y, z) {
   return !occupied.has(posKey(x - 1, y, z)) || !occupied.has(posKey(x + 1, y, z));
 }
 
+// Відновлення партії з збереженого лога ходів (main.js: localStorage-блоб
+// mahjong.activeGame.v1): tiles — масив, де індекс = idx кістки в серверному
+// layout; moves — пари індексів у порядку зняття. Повертає Board зі знятими
+// парами й природно відновленим undo-стеком, або null, якщо будь-який хід
+// нелегальний (битий/підроблений блоб — сигнал відкинути збереження).
+export function replayMoves(tiles, moves) {
+  const board = new Board(tiles);
+  for (const [a, b] of moves) {
+    const tileA = tiles[a];
+    const tileB = tiles[b];
+    if (!tileA || !tileB || !board.removePair(tileA, tileB)) return null;
+  }
+  return board;
+}
+
 export class Board {
   constructor(tiles) {
     this.byPos = new Map();

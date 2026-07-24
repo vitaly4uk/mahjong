@@ -1,7 +1,7 @@
-import { WIDTH, LAYERS, Board } from './board.js';
+import { WIDTH, LAYERS, Board, replayMoves } from './board.js';
 import {
   startGame as apiStartGame, finishGame as apiFinishGame, bumpStat as apiBumpStat,
-  fetchStats, importLegacyStats, fetchVersion,
+  fetchStats, importLegacyStats, fetchVersion, fetchSessionState,
 } from './sync.js';
 import {
   load as loadLegacyStats, clearLegacy, emptyAllStats, winRate, fmtTime, LEVELS,
@@ -42,6 +42,38 @@ function saveDifficultyPref(level) {
     globalThis.localStorage?.setItem(DIFFICULTY_KEY, level);
   } catch {
     // ignore (приватний режим, квота, тощо)
+  }
+}
+
+// Знімок активної партії для відновлення після перезавантаження сторінки
+// (закрите/забуте standalone-вікно на iOS тощо) — token+layout+лог ходів
+// досить, щоб реплеєм (board.js: replayMoves) детерміновано відтворити
+// поточний стан дошки. '.v1' — версія саме цієї схеми блоба, не пов'язана з
+// mahjong.stats.v1/v2 (та лінія версій — окремий legacy-блоб статистики).
+const ACTIVE_GAME_KEY = 'mahjong.activeGame.v1';
+
+function saveActiveGame(state) {
+  try {
+    globalThis.localStorage?.setItem(ACTIVE_GAME_KEY, JSON.stringify(state));
+  } catch {
+    // ignore (приватний режим, квота, тощо)
+  }
+}
+
+function loadActiveGame() {
+  try {
+    const raw = globalThis.localStorage?.getItem(ACTIVE_GAME_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearActiveGame() {
+  try {
+    globalThis.localStorage?.removeItem(ACTIVE_GAME_KEY);
+  } catch {
+    // ignore
   }
 }
 
@@ -232,6 +264,7 @@ class MainScene extends Phaser.Scene {
     this.bgVeil = null;
     this.bgCredit = null;
     this.sessionToken = null;
+    this.layout = null; // повний серверний layout (не лише кістки, що лишились) — потрібен для persistGame/replayMoves
     this.movesLog = [];
 
     this.createStatusBar();
@@ -335,12 +368,79 @@ class MainScene extends Phaser.Scene {
       if (tile) this.handleTileOut(tile);
     });
 
-    // Перший запуск сторінки: показуємо стартову модалку — гравець сам
-    // обирає рівень і час; без кнопки закриття, бо грати ще нема в що.
     // Фон вантажимо тут один раз (початкова заставка) — далі він лишається
     // незмінним між партіями й міняється лише на перемогу (finishGame()).
     this.loadBackground();
-    this.registry.set('modal', { type: 'newgame', canClose: false });
+    // Незавершена партія з попереднього завантаження сторінки (localStorage)
+    // — мовчки продовжуємо ту саму серверну сесію, без стартової модалки.
+    // Інакше — перший запуск: гравець сам обирає рівень і час; без кнопки
+    // закриття, бо грати ще нема в що.
+    if (!(await this.tryResumeGame())) {
+      this.registry.set('modal', { type: 'newgame', canClose: false });
+    }
+  }
+
+  // Знімок поточної партії в localStorage (mahjong.activeGame.v1) — точки
+  // виклику: startGame() (свіжий старт) і bumpCounter() (рахує pair/undo/hint,
+  // тобто спрацьовує на кожну зміну movesLog чи лічильників).
+  persistGame() {
+    saveActiveGame({
+      token: this.sessionToken,
+      level: this.currentLevel,
+      layout: this.layout,
+      movesLog: this.movesLog,
+      hints: this.registry.get('gameHints'),
+      undos: this.registry.get('gameUndos'),
+    });
+  }
+
+  // Відновлення партії, збереженої в localStorage, після перезавантаження
+  // сторінки. Повертає true, якщо гру справді продовжено (виклик у create()
+  // тоді не показує стартову модалку). Будь-яка невідповідність — мережева
+  // помилка, сесія вже не active (claimed/expired/unknown), чи битий/
+  // підроблений лог ходів (replayMoves поверне null) — тихо відкидає
+  // збереження й повертає false, після чого викликач іде звичайним шляхом.
+  async tryResumeGame() {
+    const saved = loadActiveGame();
+    if (!saved) return false;
+
+    let state;
+    try {
+      state = await fetchSessionState(saved.token);
+    } catch {
+      state = null;
+    }
+    if (!state || state.status !== 'active') {
+      clearActiveGame();
+      return false;
+    }
+
+    const tiles = saved.layout.map((t, idx) => ({ ...t, idx }));
+    const board = replayMoves(tiles, saved.movesLog);
+    if (!board) {
+      clearActiveGame();
+      return false;
+    }
+
+    this.currentLevel = saved.level;
+    this.sessionToken = saved.token;
+    this.layout = saved.layout;
+    this.movesLog = saved.movesLog.map((pair) => [...pair]);
+    this.board = board;
+    for (const tile of this.board.tiles()) this.addTileSprite(tile);
+    this.playDealIn();
+
+    this.registry.set('gameHints', saved.hints);
+    this.registry.set('gameUndos', saved.undos);
+    this.registry.set('gamePairs', saved.movesLog.length);
+    // Серверний час — джерело істини (now − created_at, gameplay/api.py):
+    // зсуваємо локальний "старт" так, щоб живий таймер (this.time.addEvent
+    // вище) продовжив тікати з правильної відмітки, а не з нуля.
+    this.registry.set('gameStartMs', Date.now() - state.elapsedMs);
+    this.registry.set('gameElapsedMs', state.elapsedMs);
+    this.registry.set('gameFinished', false);
+    this.updateStatus();
+    return true;
   }
 
   // Смуга статусу — велика напівпрозора плашка-оверлей у власній зоні знизу
@@ -573,6 +673,7 @@ class MainScene extends Phaser.Scene {
     }
 
     this.sessionToken = data.token;
+    this.layout = data.layout;
     this.movesLog = [];
     const tiles = data.layout.map((t, idx) => ({ ...t, idx }));
     this.board = new Board(tiles);
@@ -589,6 +690,7 @@ class MainScene extends Phaser.Scene {
     // показуємо оновлений блоб без окремого запиту.
     this.registry.set('allStats', data.stats);
     this.renderStats();
+    this.persistGame();
 
     this.updateStatus();
   }
@@ -606,6 +708,9 @@ class MainScene extends Phaser.Scene {
   // localStorage-запис у try/catch.
   bumpCounter(gameKey, counter) {
     this.registry.set(gameKey, this.registry.get(gameKey) + 1);
+    // movesLog (pair) чи hints/undos-лічильник уже оновлені викликачем
+    // (removePair/undo/hint) до цього виклику — знімок ловить актуальний стан.
+    this.persistGame();
     apiBumpStat(this.sessionToken, counter)
       .then((stats) => this.registry.set('allStats', stats))
       .catch(() => {});
@@ -713,9 +818,11 @@ class MainScene extends Phaser.Scene {
     if (!result.valid) {
       this.registry.set('status', '⚠️ Партія не підтверджена сервером');
       this.registry.set('modal', { type: 'result', error: true });
+      clearActiveGame();
       return;
     }
 
+    clearActiveGame();
     this.registry.set('gameElapsedMs', result.elapsedMs);
     // Сервер уже порахував win/loss/стрік/найкращий час — просто приймаємо
     // повернутий блоб (hints/undos/pairs уже актуальні з живих bump-викликів

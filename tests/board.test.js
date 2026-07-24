@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  WIDTH, HEIGHT, LAYERS, posKey, targetPositions, isFreePosition, Board,
+  WIDTH, HEIGHT, LAYERS, posKey, targetPositions, isFreePosition, Board, replayMoves,
 } from '../static/game/board.js';
 
 const t = (x, y, z, kind) => ({ x, y, z, kind });
@@ -104,6 +104,33 @@ test('findMatchingPair, isDeadlocked, isWon', () => {
   const board2 = new Board([c, d]);
   assert.deepEqual(new Set(board2.findMatchingPair()), new Set([c, d]));
   assert.equal(board2.isDeadlocked(), false);
+});
+
+test('replayMoves: valid log rebuilds board with undo stack', () => {
+  const tiles = [
+    t(0, 0, 0, 'Man1'), t(3, 0, 0, 'Man1'), t(0, 2, 0, 'Pin1'), t(3, 2, 0, 'Pin1'),
+  ];
+  const board = replayMoves(tiles, [[0, 1], [2, 3]]);
+  assert.ok(board);
+  assert.equal(board.remaining, 0);
+  // undo-стек відновлено реплеєм: останньою знято пару Pin1.
+  const pair = board.undo();
+  assert.deepEqual(new Set(pair), new Set([tiles[2], tiles[3]]));
+  assert.equal(board.remaining, 2);
+});
+
+test('replayMoves: illegal move (blocked/non-matching) returns null', () => {
+  const tiles = [
+    t(0, 0, 0, 'Man1'), t(1, 0, 0, 'Pin1'), t(2, 0, 0, 'Man1'),
+  ];
+  // Man1 (idx 0) і Man1 (idx 2): другий затиснутий сусідами? idx 2 вільний
+  // праворуч, а от нелегальна саме пара різних видів [0, 1].
+  assert.equal(replayMoves(tiles, [[0, 1]]), null);
+});
+
+test('replayMoves: out-of-range index returns null', () => {
+  const tiles = [t(0, 0, 0, 'Man1'), t(3, 0, 0, 'Man1')];
+  assert.equal(replayMoves(tiles, [[0, 99]]), null);
 });
 
 test('tiles() returns remaining tiles', () => {

@@ -21,7 +21,7 @@ from .generator import DIFFICULTIES, generate_for_difficulty
 from .models import GameSession
 from .schemas import (
     AllStats, BumpRequest, BumpResponse, FinishRequest, FinishResponse, ImportRequest,
-    ImportResponse, StartRequest, StartResponse, StatsResponse,
+    ImportResponse, SessionStateResponse, StartRequest, StartResponse, StatsResponse,
 )
 from .stats import apply_loss, apply_win, bump_counter, bump_started, merge_imported
 
@@ -92,6 +92,29 @@ def start_game(request, payload: StartRequest):
     profile.save(update_fields=['stats', 'updated_at'])
 
     return {'token': session.token, 'layout': layout, 'stats': all_stats}
+
+
+@router.get('/{uuid:token}', response=SessionStateResponse)
+def session_state(request, token: uuid.UUID):
+    """Стан сесії для відновлення партії після перезавантаження сторінки
+    (клієнт тримає token+layout+лог ходів у localStorage — main.js). Токен-UUID
+    сам є секретом сесії (той самий принцип, що в bump), додаткової
+    авторизації не треба; GET не проходить CSRF-перевірку CsrfOnly. Завжди
+    200 з полем status — клієнту потрібне ветвлення, не виключення."""
+    try:
+        session = GameSession.objects.get(token=token)
+    except GameSession.DoesNotExist:
+        return {'status': 'unknown'}
+
+    if session.status != GameSession.Status.ACTIVE:
+        return {'status': session.status}
+
+    elapsed = timezone.now() - session.created_at
+    if elapsed > SESSION_TTL:
+        # Не пишемо в БД — ліниве маркування EXPIRED лишається за finish.
+        return {'status': 'expired'}
+
+    return {'status': 'active', 'elapsed_ms': int(elapsed.total_seconds() * 1000)}
 
 
 @router.post('/{uuid:token}/bump', response=BumpResponse)

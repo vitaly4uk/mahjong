@@ -47,6 +47,14 @@ export async function finishGame(token, moves, outcome) {
   };
 }
 
+// Стан сесії для відновлення партії після перезавантаження сторінки:
+// status — 'active' | 'claimed' | 'expired' | 'unknown' (завжди 200,
+// ветвлення за полем), elapsedMs — серверний час партії, лише для 'active'.
+export async function fetchSessionState(token) {
+  const data = await requestJson(`/api/game/${token}`);
+  return { status: data.status, elapsedMs: data.elapsed_ms };
+}
+
 // Живий інкремент лічильника hint/undo/pair під час активної партії (не
 // чекає фінішу). counter — 'hint' | 'undo' | 'pair'. Повертає оновлений
 // довічний блоб.

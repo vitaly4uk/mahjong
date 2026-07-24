@@ -69,6 +69,14 @@ class FinishResponse(Schema):
     stats: AllStats | None = None
 
 
+class SessionStateResponse(Schema):
+    # 'unknown' — токена немає в БД; 'expired' — і для рядків зі статусом
+    # expired, і для active-сесій, що пережили SESSION_TTL (ліниве маркування
+    # в БД лишається за finish). elapsed_ms — лише для живої active-сесії.
+    status: Literal['active', 'claimed', 'expired', 'unknown']
+    elapsed_ms: int | None = None
+
+
 class BumpRequest(Schema):
     counter: Literal['hint', 'undo', 'pair']
 
