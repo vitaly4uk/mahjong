@@ -150,6 +150,12 @@
   window.MAHJONG_VERSION = '{{ version }}';
 </script>
 <script src="{% static 'vendor/phaser.min.js' %}"></script>
+{% if debug %}
+{# Локально: сирі ES-модулі напряму, без білда — редагуй .js і онови сторінку. #}
 <script type="module" src="{% static 'game/main.js' %}"></script>
+{% else %}
+{# Прод: єдиний мініфікований bundle.js (esbuild, Dockerfile jsbuild-стейдж). #}
+<script type="module" src="{% static 'game/bundle.js' %}"></script>
+{% endif %}
 </body>
 </html>

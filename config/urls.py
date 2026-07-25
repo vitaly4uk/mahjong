@@ -14,6 +14,7 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+from django.conf import settings
 from django.contrib import admin
 from django.urls import path
 from django.views.decorators.cache import cache_control
@@ -25,7 +26,12 @@ from config.api import api, get_build_version
 # щоб довго відкритий standalone-застосунок на iOS/macOS отримував свіжий
 # HTML щоразу, коли він таки перезавантажується (див. config/api.py: /version/).
 home_view = cache_control(no_cache=True, must_revalidate=True)(
-    TemplateView.as_view(template_name='game.html', extra_context={'version': get_build_version()})
+    TemplateView.as_view(
+        template_name='game.html',
+        # debug — щоб шаблон обрав сирі ES-модулі (dev) чи мініфікований bundle.js
+        # (prod). Явно, бо context_processors.debug дає debug лише для INTERNAL_IPS.
+        extra_context={'version': get_build_version(), 'debug': settings.DEBUG},
+    )
 )
 
 urlpatterns = [

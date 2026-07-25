@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "brotli>=1.2.0",
     "dj-database-url>=3.1.2",
     "django>=6.0.7",
     "django-ninja>=1.6.2",

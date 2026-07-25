@@ -5,6 +5,7 @@ db.sqlite3
 .env
 *.log
 staticfiles/
+static/game/bundle.js
 .playwright-mcp/
 .DS_Store
 .claude/

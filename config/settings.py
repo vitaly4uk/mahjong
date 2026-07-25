@@ -150,6 +150,9 @@ STORAGES = {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
     },
     'staticfiles': {
-        'BACKEND': 'config.storage.GameStaticFilesStorage',
+        # Штатний whitenoise-storage: стиснення + маніфест-хешування (хеш в імені
+        # файлу = кешбастинг). Переписування ES-import'ів більше не потрібне — увесь
+        # JS склеєний esbuild'ом в один bundle.js (Dockerfile jsbuild-стейдж).
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
