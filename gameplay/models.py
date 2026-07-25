@@ -7,15 +7,15 @@ from .stats import empty_all_stats
 
 
 class Profile(models.Model):
-    """Ігрові поля поверх стандартного django.contrib.auth.User — і для
-    анонімних гравців (unusable password, автогенерований username,
-    gameplay/middleware.py: PlayerIdentityMiddleware), і в майбутньому для
-    Google-акаунтів через django-allauth (allauth приєднує SocialAccount до
-    вже існуючого User замість зливання окремої моделі-ідентичності).
+    """Game fields on top of the standard django.contrib.auth.User — both for
+    anonymous players (unusable password, auto-generated username,
+    gameplay/middleware.py: PlayerIdentityMiddleware) and, in the future, for
+    Google accounts via django-allauth (allauth attaches a SocialAccount to an
+    existing User rather than merging in a separate identity model).
     """
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
-    # Значення кукі mahjong_player, не User.pk — без розкриття послідовного ID.
+    # Value of the mahjong_player cookie, not User.pk — avoids exposing a sequential ID.
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     stats = models.JSONField(default=empty_all_stats)  # AllStats.model_dump(by_alias=True)
     legacy_imported = models.BooleanField(default=False)
@@ -27,10 +27,11 @@ class Profile(models.Model):
 
 
 class GameSession(models.Model):
-    """Серверне поле активної партії. Токен — секрет сесії, живе лише у
-    відповіді /api/game/start. `user` — nullable заради безболісної міграції
-    існуючої таблиці без бекфілу (сесії живуть 2 години й швидко перетікають);
-    новий код завжди проставляє це поле при старті партії.
+    """Server-side state of an active game. The token is the session secret,
+    only ever present in the /api/game/start response. `user` is nullable for
+    a painless migration of the existing table with no backfill (sessions
+    live 2 hours and turn over quickly); new code always sets this field when
+    a game starts.
     """
 
     class Status(models.TextChoices):

@@ -1,14 +1,14 @@
-// Статистика гри: чистий модуль, без Phaser/DOM.
-// Довічні показники живуть на сервері (gameplay/models.py: Profile.stats) —
-// цей модуль лишає лише презентаційні хелпери (winRate/fmtTime), порожню
-// форму (emptyStats/emptyAllStats, для плейсхолдера до першого мережевого
-// запиту) і load() — тепер використовується ЛИШЕ як одноразовий "зчитувач
-// legacy-блоба" для переносу старого localStorage на сервер (main.js:
-// create()). applyWin/applyLoss/save() видалені — логіка порахунку win/loss
-// живе тільки на сервері (gameplay/stats.py), клієнт більше нічого не пише
-// в localStorage. v1 (єдина статистика, без рівнів) і далі мігрується в
-// рівень hard усередині load() — той самий формат payload, що очікує
-// POST /api/game/stats/import (gameplay/api.py: import_stats).
+// Game stats: a pure module, no Phaser/DOM.
+// Lifetime numbers live on the server (gameplay/models.py: Profile.stats) —
+// this module only keeps presentation helpers (winRate/fmtTime), an empty
+// shape (emptyStats/emptyAllStats, a placeholder before the first network
+// request) and load() — now used ONLY as a one-time "legacy blob reader" for
+// transferring the old localStorage data to the server (main.js: create()).
+// applyWin/applyLoss/save() were removed — the win/loss counting logic lives
+// only on the server (gameplay/stats.py), the client no longer writes
+// anything to localStorage. v1 (a single stats blob, no levels) is still
+// migrated into the hard level inside load() — the same payload shape
+// POST /api/game/stats/import (gameplay/api.py: import_stats) expects.
 
 export const STORAGE_KEY = 'mahjong.stats.v2';
 export const STORAGE_KEY_V1 = 'mahjong.stats.v1';
@@ -44,15 +44,16 @@ export function fmtTime(ms) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-// storage — будь-що з .getItem/.setItem/.removeItem (типово localStorage).
-// Приймається параметром, щоб тести могли підсунути фейк, а приватний
-// режим/вимкнене сховище не ламали гру (усе в try/catch).
+// storage — anything with .getItem/.setItem/.removeItem (typically
+// localStorage). Passed as a parameter so tests can supply a fake, and so
+// private mode/a disabled store doesn't break the game (everything is in
+// try/catch).
 //
-// Повертає { easy, normal, hard }, кожен рівень — повна структура emptyStats().
-// Міграція: якщо v2-ключа нема, а є старий mahjong.stats.v1 (єдина статистика
-// без рівнів) — старі числа цілком стають статистикою рівня hard, easy/normal
-// лишаються порожніми; результат одразу зберігається як v2, а v1-ключ
-// видаляється.
+// Returns { easy, normal, hard }, each level a full emptyStats() structure.
+// Migration: if the v2 key is absent but the old mahjong.stats.v1 (a single
+// stats blob, no levels) exists — the old numbers become the hard level's
+// stats wholesale, easy/normal stay empty; the result is immediately saved
+// as v2, and the v1 key is removed.
 export function load(storage = globalThis.localStorage) {
   const defaults = emptyAllStats();
   try {
@@ -78,21 +79,21 @@ export function load(storage = globalThis.localStorage) {
   }
 }
 
-// Лишається лише для внутрішнього використання load() (запис уже
-// змігрованого v1->v2 блоба назад у localStorage перед видаленням v1-ключа) —
-// більше НЕ джерело істини для живої гри, ніхто інший цю функцію не викликає.
+// Kept only for load()'s internal use (writing the already-migrated v1->v2
+// blob back to localStorage before removing the v1 key) — no longer a source
+// of truth for the live game, nothing else calls this function.
 function save(allStats, storage = globalThis.localStorage) {
   try {
     storage?.setItem(STORAGE_KEY, JSON.stringify(allStats));
   } catch {
-    // ignore (приватний режим, квота, тощо)
+    // ignore (private mode, quota, etc.)
   }
 }
 
-// Клієнтська підстраховка після успішного серверного імпорту (gameplay/api.py:
-// import_stats) — реальний гард від повторного переносу є на сервері
-// (Profile.legacy_imported), це лише прибирання вже неактуальних локальних
-// даних.
+// A client-side safety net after a successful server-side import
+// (gameplay/api.py: import_stats) — the real guard against a repeat transfer
+// lives on the server (Profile.legacy_imported), this is just cleaning up
+// now-stale local data.
 export function clearLegacy(storage = globalThis.localStorage) {
   try {
     storage?.removeItem(STORAGE_KEY);

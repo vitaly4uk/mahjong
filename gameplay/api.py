@@ -1,12 +1,13 @@
-"""JSON API для server-authoritative партії — Router, що монтується в
-`config.api.api` під `/game` (кінцеві URL лишаються `/api/game/start`,
-`/api/game/finish`, ...). Публічний — працює й для анонімних гравців:
-ідентичність гравця (Profile/User) резолвиться в `gameplay/middleware.py`
-(PlayerIdentityMiddleware) і доступна тут як `request.profile`. Auth (і
-CSRF-захист) успадковується від батьківського `NinjaAPI(auth=CsrfOnly())`
-(`config/api.py`) — Router без власного `auth=` нічого не перевизначає.
-`Router(by_alias=True)` — усі response-схеми серіалізуються camelCase-псевдо-
-німами полів (`gamesPlayed`, не `games_played`), як і очікує клієнт.
+"""JSON API for server-authoritative games — a Router mounted into
+`config.api.api` under `/game` (the final URLs remain `/api/game/start`,
+`/api/game/finish`, ...). Public — works for anonymous players too: player
+identity (Profile/User) is resolved in `gameplay/middleware.py`
+(PlayerIdentityMiddleware) and available here as `request.profile`. Auth (and
+CSRF protection) is inherited from the parent `NinjaAPI(auth=CsrfOnly())`
+(`config/api.py`) — a Router without its own `auth=` doesn't override
+anything. `Router(by_alias=True)` — all response schemas are serialized with
+camelCase field aliases (`gamesPlayed`, not `games_played`), as the client
+expects.
 """
 import uuid
 from datetime import timedelta
@@ -35,22 +36,22 @@ RATE_LIMIT_MAX_IMPORTS = 10
 
 
 def _client_ip(request):
-    """Реальна IP клієнта: продакшен йде через Cloudflare Tunnel (див.
-    CLAUDE.md), тож REMOTE_ADDR — адреса самого проксі, однакова для всіх
-    гравців. CF-Connecting-IP — заголовок, який ставить сам Cloudflare з
-    реальною IP клієнта; локально (без Cloudflare) його нема, тож fallback
-    на REMOTE_ADDR лишається коректним для dev-сервера.
+    """The client's real IP: production goes through Cloudflare Tunnel (see
+    CLAUDE.md), so REMOTE_ADDR is the proxy's own address, the same for every
+    player. CF-Connecting-IP is the header Cloudflare itself sets with the
+    real client IP; locally (without Cloudflare) it's absent, so falling back
+    to REMOTE_ADDR remains correct for the dev server.
     """
     return request.META.get('HTTP_CF_CONNECTING_IP') or request.META.get('REMOTE_ADDR', 'unknown')
 
 
-# Примітка: без окремого CACHES-бекенду (config/settings.py) Django
-# використовує LocMemCache — лічильник per-процес, тож ефективний ліміт
-# ≈ RATE_LIMIT_MAX_STARTS × кількість gunicorn-воркерів, не точний глобальний
-# ліміт. Прийнятно для цього масштабу проєкту; якщо колись знадобиться точний
-# ліміт — потрібен спільний кеш-бекенд (Redis/Memcached).
+# Note: without a dedicated CACHES backend (config/settings.py), Django uses
+# LocMemCache — a per-process counter, so the effective limit is
+# ≈ RATE_LIMIT_MAX_STARTS × the number of gunicorn workers, not an exact
+# global limit. Acceptable at this project's scale; if an exact limit is ever
+# needed, a shared cache backend (Redis/Memcached) is required.
 def _rate_limited(request, action, limit):
-    """Проста фіксовано-вікнова лічильна квота на IP через Django cache."""
+    """A simple fixed-window per-IP rate quota via Django cache."""
     key = f'gameplay:ratelimit:{action}:{_client_ip(request)}'
     count = cache.get(key, 0)
     if count >= limit:
@@ -60,10 +61,11 @@ def _rate_limited(request, action, limit):
 
 
 def _session_profile(request, session):
-    """Гравець, що СТАРТУВАВ цю партію (session.user), не обов'язково той,
-    хто робить поточний запит — семантично правильна атрибуція статистики.
-    Fallback на request.profile лише для перехідного періоду (активні
-    сесії, створені до цього релізу, ще без прив'язаного user)."""
+    """The player who STARTED this game (session.user), not necessarily the
+    one making the current request — the semantically correct attribution
+    for stats. Falls back to request.profile only for the transitional
+    period (active sessions created before this release, still without a
+    linked user)."""
     if session.user_id:
         return session.user.profile
     return request.profile
@@ -96,11 +98,12 @@ def start_game(request, payload: StartRequest):
 
 @router.get('/{uuid:token}', response=SessionStateResponse)
 def session_state(request, token: uuid.UUID):
-    """Стан сесії для відновлення партії після перезавантаження сторінки
-    (клієнт тримає token+layout+лог ходів у localStorage — main.js). Токен-UUID
-    сам є секретом сесії (той самий принцип, що в bump), додаткової
-    авторизації не треба; GET не проходить CSRF-перевірку CsrfOnly. Завжди
-    200 з полем status — клієнту потрібне ветвлення, не виключення."""
+    """Session state for resuming a game after a page reload (the client
+    keeps token+layout+move log in localStorage — main.js). The token-UUID
+    itself is the session secret (the same principle as in bump), no extra
+    authorization needed; GET doesn't go through CsrfOnly's CSRF check.
+    Always 200 with a status field — the client needs a branch, not an
+    exception."""
     try:
         session = GameSession.objects.get(token=token)
     except GameSession.DoesNotExist:
@@ -111,7 +114,7 @@ def session_state(request, token: uuid.UUID):
 
     elapsed = timezone.now() - session.created_at
     if elapsed > SESSION_TTL:
-        # Не пишемо в БД — ліниве маркування EXPIRED лишається за finish.
+        # Don't write to the DB — lazy EXPIRED marking is left to finish.
         return {'status': 'expired'}
 
     return {'status': 'active', 'elapsed_ms': int(elapsed.total_seconds() * 1000)}
@@ -176,10 +179,10 @@ def finish_game(request, payload: FinishRequest):
 
     elapsed_ms = int((timezone.now() - session.created_at).total_seconds() * 1000)
 
-    # Атомарний conditional UPDATE замикає claim-гонку: якщо два finish-запити
-    # обидва прочитали status=ACTIVE до того, як хтось встиг записати CLAIMED,
-    # у БД реально виконається лише один UPDATE (WHERE status='active'), другий
-    # зматчить 0 рядків — ACTIVE->CLAIMED відбувається рівно один раз.
+    # An atomic conditional UPDATE closes the claim race: if two finish
+    # requests both read status=ACTIVE before either managed to write
+    # CLAIMED, only one UPDATE (WHERE status='active') actually takes effect
+    # in the DB — the other matches 0 rows. ACTIVE->CLAIMED happens exactly once.
     claimed_count = GameSession.objects.filter(
         token=session.token, status=GameSession.Status.ACTIVE,
     ).update(

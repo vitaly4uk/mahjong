@@ -1,7 +1,7 @@
-"""Pydantic/ninja-схеми запитів і відповідей для `gameplay/api.py`. Уся
-типізація (включно з довічною статистикою) живе тут — `gameplay/stats.py`
-лишає собі лише бізнес-логіку (apply_win/apply_loss/merge_imported тощо), яка
-оперує цими схемами, а не dict."""
+"""Pydantic/ninja request/response schemas for `gameplay/api.py`. All typing
+(including lifetime stats) lives here — `gameplay/stats.py` keeps only the
+business logic (apply_win/apply_loss/merge_imported etc.) that operates on
+these schemas, not on dicts."""
 import uuid
 from typing import Literal
 
@@ -24,9 +24,9 @@ class LevelStats(Schema):
 
     @model_validator(mode='after')
     def _clamp_best_streak(self):
-        # bestStreak ніколи не має бути меншим за currentStreak — гарантія
-        # інваріанта (перевизначає значення), а не просто відхилення
-        # бутафорського payload.
+        # bestStreak must never be smaller than currentStreak — this enforces
+        # the invariant (overrides the value) rather than just rejecting a
+        # bogus payload.
         if self.best_streak < self.current_streak:
             self.best_streak = self.current_streak
         return self
@@ -70,9 +70,9 @@ class FinishResponse(Schema):
 
 
 class SessionStateResponse(Schema):
-    # 'unknown' — токена немає в БД; 'expired' — і для рядків зі статусом
-    # expired, і для active-сесій, що пережили SESSION_TTL (ліниве маркування
-    # в БД лишається за finish). elapsed_ms — лише для живої active-сесії.
+    # 'unknown' — the token isn't in the DB; 'expired' — both for rows with
+    # status expired and for active sessions that outlived SESSION_TTL (lazy
+    # marking in the DB is left to finish). elapsed_ms — only for a live active session.
     status: Literal['active', 'claimed', 'expired', 'unknown']
     elapsed_ms: int | None = None
 

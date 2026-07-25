@@ -5,8 +5,8 @@ from django.contrib.auth.models import User
 from django.test import Client, TestCase
 from django.utils import timezone
 
-from .api import SESSION_TTL, router as gameplay_router  # noqa: F401 (реєструє роутер при імпорті тестового модуля)
-from .board import Board, Tile, is_free_position, target_positions
+from .api import SESSION_TTL, router as gameplay_router  # noqa: F401 (registers the router when the test module is imported)
+from .board import Board, Tile, is_free_position, match_key, target_positions
 from .generator import DIFFICULTIES, generate_for_difficulty
 from .middleware import PLAYER_COOKIE_NAME
 from .models import GameSession, Profile
@@ -15,23 +15,59 @@ from .stats import apply_loss, apply_win, merge_imported
 
 
 class BoardRuleTests(TestCase):
-    def test_target_positions_is_136(self):
-        self.assertEqual(len(target_positions()), 136)
+    def test_target_positions_is_144(self):
+        self.assertEqual(len(target_positions()), 144)
+
+    def test_target_positions_layer_split(self):
+        by_layer = [0, 0, 0, 0, 0]
+        for _, _, z in target_positions():
+            by_layer[z] += 1
+        self.assertEqual(by_layer, [87, 36, 16, 4, 1])
+
+    def test_wildcard_flowers_and_seasons_match_within_group(self):
+        # Two DIFFERENT flowers match (same group); a flower and a season don't.
+        plum = Tile(0, 0, 0, 0, 'Plum')
+        orchid = Tile(1, 1, 0, 0, 'Orchid')
+        spring = Tile(2, 3, 0, 0, 'Spring')
+        board = Board([plum, orchid, spring])
+        self.assertEqual(match_key('Plum'), match_key('Orchid'))
+        self.assertNotEqual(match_key('Plum'), match_key('Spring'))
+        self.assertTrue(board.can_match(plum, orchid))
+        self.assertFalse(board.can_match(plum, spring))
 
     def test_is_free_position_blocked_by_tile_above(self):
         occupied = {(0, 0, 0), (0, 0, 1)}
         self.assertFalse(is_free_position(occupied, 0, 0, 0))
 
+    def test_is_free_position_above_tolerates_half_tile_offset(self):
+        """kmahjongg's rule: the 3×3 window on the layer above catches overlap
+        even if the tile above it is offset to an odd (half-tile) coordinate —
+        this is exactly how the peak apex (13,7) covers all four base tiles
+        (12/14,6/8)."""
+        occupied = {
+            (12, 6, 0), (12, 8, 0), (14, 6, 0), (14, 8, 0),
+            (13, 7, 1),
+        }
+        for x, y in ((12, 6), (12, 8), (14, 6), (14, 8)):
+            self.assertFalse(is_free_position(occupied, x, y, 0), f'{(x, y)} should be covered')
+
     def test_is_free_position_blocked_both_sides(self):
-        occupied = {(1, 0, 0), (0, 0, 0), (2, 0, 0)}
-        self.assertFalse(is_free_position(occupied, 1, 0, 0))
+        occupied = {(2, 0, 0), (0, 0, 0), (4, 0, 0)}
+        self.assertFalse(is_free_position(occupied, 2, 0, 0))
 
     def test_is_free_position_free_with_one_open_side(self):
-        occupied = {(1, 0, 0), (0, 0, 0)}
-        self.assertTrue(is_free_position(occupied, 1, 0, 0))
+        occupied = {(2, 0, 0), (0, 0, 0)}
+        self.assertTrue(is_free_position(occupied, 2, 0, 0))
+
+    def test_is_free_position_side_check_tolerates_half_row_offset(self):
+        """The head (0,7) is on an odd y; the only real neighbours in column 2
+        stand at y=6 and y=8 (even) — both should block the right side."""
+        occupied = {(0, 7, 0), (2, 6, 0), (2, 8, 0)}
+        # Right side is occupied by both; left side (x=-2) is off the board — always free.
+        self.assertTrue(is_free_position(occupied, 0, 7, 0))
 
     def test_remove_pair_and_find_matching_pair(self):
-        tiles = [Tile(0, 0, 0, 0, 'Man1'), Tile(1, 1, 0, 0, 'Man1')]
+        tiles = [Tile(0, 0, 0, 0, 'Man1'), Tile(1, 2, 0, 0, 'Man1')]
         board = Board(tiles)
         pair = board.find_matching_pair()
         self.assertIsNotNone(pair)
@@ -42,14 +78,14 @@ class BoardRuleTests(TestCase):
         bottom = Tile(0, 0, 0, 0, 'Man1')
         top = Tile(1, 0, 0, 1, 'Pin1')
         board = Board([bottom, top])
-        self.assertFalse(board.remove_pair(bottom, top))  # різний вид
-        self.assertFalse(board.is_free(bottom))  # накрита зверху
+        self.assertFalse(board.remove_pair(bottom, top))  # different kind
+        self.assertFalse(board.is_free(bottom))  # covered from above
 
     def test_is_deadlocked_when_no_free_pair_exists(self):
-        blocked_man = Tile(0, 1, 0, 0, 'Man1')
+        blocked_man = Tile(0, 2, 0, 0, 'Man1')
         pin1 = Tile(1, 0, 0, 0, 'Pin1')
-        pin2 = Tile(2, 2, 0, 0, 'Pin2')
-        free_man = Tile(3, 4, 4, 0, 'Man1')
+        pin2 = Tile(2, 4, 0, 0, 'Pin2')
+        free_man = Tile(3, 8, 8, 0, 'Man1')
         board = Board([pin1, blocked_man, pin2, free_man])
         self.assertIsNone(board.find_matching_pair())
         self.assertTrue(board.is_deadlocked())
@@ -57,8 +93,8 @@ class BoardRuleTests(TestCase):
 
 
 def _solve(tiles):
-    """Жадібний солвер: знімає будь-яку легальну пару, поки можливо.
-    True, якщо дошка повністю розібрана — доводить розв'язність поля."""
+    """A greedy solver: removes any legal pair for as long as possible.
+    True if the board is fully cleared — proves the field is solvable."""
     board = Board([Tile(i, x, y, z, kind) for i, (x, y, z, kind) in enumerate(tiles)])
     while board.remaining > 0:
         pair = board.find_matching_pair()
@@ -73,15 +109,23 @@ class GeneratorTests(TestCase):
         for level in DIFFICULTIES:
             for seed in range(30):
                 tiles = generate_for_difficulty(level, seed=seed)
-                self.assertEqual(len(tiles), 136, f'{level} seed={seed}: очікувано 136 кісток')
-                self.assertTrue(_solve(tiles), f'{level} seed={seed}: поле нерозв\'язне')
+                self.assertEqual(len(tiles), 144, f'{level} seed={seed}: expected 144 tiles')
+                self.assertTrue(_solve(tiles), f'{level} seed={seed}: board is unsolvable')
 
     def test_generated_layout_is_authentic_deck(self):
+        """A full mahjong deck: 34 regular kinds × 4 copies + 8 bonus
+        (flowers/seasons) × 1 copy = 144 tiles."""
         tiles = generate_for_difficulty('normal', seed=1)
         kinds = [kind for _, _, _, kind in tiles]
-        self.assertEqual(len(kinds), 136)
-        for kind in set(kinds):
-            self.assertEqual(kinds.count(kind), 4, f'{kind}: очікувано 4 копії')
+        self.assertEqual(len(kinds), 144)
+        regular = {k for k in kinds if match_key(k) == k}
+        bonus = {k for k in kinds if match_key(k) != k}
+        self.assertEqual(len(regular), 34)
+        self.assertEqual(len(bonus), 8)
+        for kind in regular:
+            self.assertEqual(kinds.count(kind), 4, f'{kind}: expected 4 copies')
+        for kind in bonus:
+            self.assertEqual(kinds.count(kind), 1, f'{kind}: expected 1 copy')
 
     def test_generate_for_difficulty_deterministic_by_seed(self):
         a = generate_for_difficulty('hard', seed=42)
@@ -98,8 +142,8 @@ class GameApiTests(TestCase):
         return response.json()
 
     def _win_moves(self, layout):
-        """Легальний повний розв'язок для заданого layout — жадібним
-        солвером; повертає лог пар індексів у форматі, який очікує finish."""
+        """A legal full solution for the given layout via the greedy solver —
+        returns the move log as pairs of indices, in the format finish expects."""
         tiles = [Tile(i, t['x'], t['y'], t['z'], t['kind']) for i, t in enumerate(layout)]
         board = Board(tiles)
         moves = []
@@ -109,10 +153,10 @@ class GameApiTests(TestCase):
             board.remove_pair(a, b)
         return moves
 
-    def test_start_returns_136_tile_layout_and_valid_token(self):
+    def test_start_returns_144_tile_layout_and_valid_token(self):
         data = self._start()
-        self.assertEqual(len(data['layout']), 136)
-        uuid.UUID(data['token'])  # не кидає ValueError
+        self.assertEqual(len(data['layout']), 144)
+        uuid.UUID(data['token'])  # doesn't raise ValueError
 
     def test_start_rejects_unknown_level(self):
         response = self.client.post(
@@ -136,9 +180,10 @@ class GameApiTests(TestCase):
     def test_finish_rejects_illegal_move(self):
         data = self._start()
         layout = data['layout']
-        # Свідомо нелегальна пара: дві кістки різного виду (якщо випадково
-        # збіглися видом — беремо іншу другу кістку). Детерміновано нелегальна
-        # незалежно від згенерованого layout, на відміну від довільних [0,1].
+        # Deliberately illegal pair: two tiles of different kinds (if they
+        # happen to match by kind, pick a different second tile).
+        # Deterministically illegal regardless of the generated layout,
+        # unlike an arbitrary [0,1].
         second_idx = next(
             i for i in range(1, len(layout)) if layout[i]['kind'] != layout[0]['kind']
         )
@@ -168,8 +213,8 @@ class GameApiTests(TestCase):
         self.assertFalse(second.json()['valid'])
 
     def test_finish_double_claim_race_is_atomic(self):
-        """Симулює гонку: обидва запити читають ACTIVE, але лише один атомарний
-        UPDATE справді змінює статус — другий отримує 0 оновлених рядків."""
+        """Simulates a race: both requests read ACTIVE, but only one atomic
+        UPDATE actually changes the status — the other gets 0 updated rows."""
         data = self._start()
         moves = self._win_moves(data['layout'])
         payload = {'token': data['token'], 'moves': moves, 'outcome': 'win'}
@@ -177,12 +222,13 @@ class GameApiTests(TestCase):
         session = GameSession.objects.get(token=data['token'])
         self.assertEqual(session.status, GameSession.Status.ACTIVE)
 
-        # Перший finish виконує атомарний UPDATE ACTIVE->CLAIMED.
+        # The first finish performs the atomic ACTIVE->CLAIMED UPDATE.
         first = self.client.post('/api/game/finish', data=payload, content_type='application/json')
         self.assertTrue(first.json()['valid'])
 
-        # Другий, навіть якби прочитав status=ACTIVE до першого запису (гонка),
-        # усе одно провалить conditional UPDATE, бо рядок уже CLAIMED.
+        # The second, even if it had read status=ACTIVE before the first
+        # write (a race), still fails the conditional UPDATE because the row
+        # is already CLAIMED.
         second = self.client.post('/api/game/finish', data=payload, content_type='application/json')
         self.assertFalse(second.json()['valid'])
         self.assertEqual(second.json()['reason'], 'session already claimed')
@@ -224,7 +270,7 @@ class GameApiTests(TestCase):
         body = self.client.get(f"/api/game/{data['token']}").json()
         self.assertEqual(body['status'], 'expired')
         self.assertIsNone(body['elapsed_ms'])
-        # Ліниве маркування лишається за finish — GET нічого не пише.
+        # Lazy marking is left to finish — GET writes nothing.
         session = GameSession.objects.get(token=data['token'])
         self.assertEqual(session.status, GameSession.Status.ACTIVE)
 
@@ -234,9 +280,9 @@ class GameApiTests(TestCase):
         self.assertIsNone(body['elapsed_ms'])
 
     def test_missing_csrf_token_is_rejected_when_enforced(self):
-        # Django-тестовий Client за замовчуванням вимикає CSRF-перевірку —
-        # тут вмикаємо її явно, щоб довести, що NinjaAPI(csrf=True) реально
-        # захищає ендпоінт, а не просто присутній у конфігу.
+        # The Django test Client disables CSRF checking by default — here we
+        # enable it explicitly, to prove that NinjaAPI(csrf=True) actually
+        # protects the endpoint, not just present in config.
         strict_client = Client(enforce_csrf_checks=True)
         response = strict_client.post(
             '/api/game/start', data={'level': 'easy'}, content_type='application/json',
@@ -245,8 +291,8 @@ class GameApiTests(TestCase):
 
 
 class StatsTransformerTests(TestCase):
-    """Паритет із tests/stats.test.js (applyWin/applyLoss) + кейси, специфічні
-    для pydantic-шару (клемпінг/мердж), яких у JS-версії нема."""
+    """Parity with tests/stats.test.js (applyWin/applyLoss) + cases specific
+    to the pydantic layer (clamping/merging) that don't exist in the JS version."""
 
     def test_apply_win_increments_played_won_streak_tracks_best_time(self):
         stats = LevelStats()
@@ -260,10 +306,10 @@ class StatsTransformerTests(TestCase):
         stats = apply_win(stats, 3000)
         self.assertEqual(stats.current_streak, 2)
         self.assertEqual(stats.best_streak, 2)
-        self.assertEqual(stats.best_time_ms, 3000)  # швидша перемога стає рекордом
+        self.assertEqual(stats.best_time_ms, 3000)  # a faster win becomes the record
 
         stats = apply_win(stats, 9000)
-        self.assertEqual(stats.best_time_ms, 3000)  # повільніша не перезаписує рекорд
+        self.assertEqual(stats.best_time_ms, 3000)  # a slower one doesn't overwrite the record
         self.assertEqual(stats.best_streak, 3)
 
     def test_apply_loss_increments_played_resets_streak_keeps_best(self):
@@ -298,10 +344,10 @@ class StatsTransformerTests(TestCase):
         self.assertEqual(merged.normal.hints_total, 3)
         self.assertEqual(merged.normal.best_time_ms, 9000)
         self.assertEqual(merged.normal.best_streak, 2)
-        # server ще не грав на цьому рівні — currentStreak береться з імпорту
+        # server hasn't played this level yet — currentStreak is taken from the import
         self.assertEqual(merged.normal.current_streak, 2)
-        # Легасі-блоб не мав лічильника стартів — gamesStarted підтягується
-        # до gamesPlayed з імпорту, інакше вийшло б started < played.
+        # The legacy blob had no "started" counter — gamesStarted is pulled up
+        # to gamesPlayed from the import, otherwise started < played would result.
         self.assertEqual(merged.normal.games_started, 4)
 
     def test_merge_imported_keeps_games_started_at_least_games_played(self):
@@ -321,7 +367,7 @@ class StatsTransformerTests(TestCase):
         imported.normal = LevelStats.model_validate({'gamesPlayed': 3, 'currentStreak': 3})
         merged = merge_imported(server, imported)
         self.assertEqual(merged.normal.games_played, 4)
-        self.assertEqual(merged.normal.current_streak, 1)  # server-side стрік важливіший
+        self.assertEqual(merged.normal.current_streak, 1)  # the server-side streak takes precedence
 
 
 class PlayerIdentityMiddlewareTests(TestCase):
@@ -431,7 +477,7 @@ class StatsEndpointTests(TestCase):
         self.assertTrue(body['valid'])
         self.assertEqual(body['stats']['easy']['gamesPlayed'], 1)
         self.assertEqual(body['stats']['easy']['gamesWon'], 1)
-        self.assertEqual(body['stats']['easy']['pairsTotal'], 1)  # з bump, не з finish
+        self.assertEqual(body['stats']['easy']['pairsTotal'], 1)  # from bump, not from finish
 
     def test_full_playthrough_totals_add_up_without_double_counting(self):
         data = self._start('easy')
@@ -477,5 +523,5 @@ class StatsEndpointTests(TestCase):
             data={'stats': {'easy': {'gamesPlayed': -5}}},
             content_type='application/json',
         )
-        # Field(ge=0) відхиляє від'ємні значення на рівні ninja-валідації запиту.
+        # Field(ge=0) rejects negative values at the ninja request-validation layer.
         self.assertEqual(response.status_code, 422)

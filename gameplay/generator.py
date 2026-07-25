@@ -1,16 +1,18 @@
-"""Python-порт логіки static/game/generator.js: генерація гарантовано
-розв'язного поля симуляцією зворотної гри (з повної форми знімаються
-випадкові вільні пари; записаний порядок = розв'язок). Бітовий паритет із
-JS-генератором НЕ потрібен — сервер є єдиним джерелом поля, клієнт лише
-рендерить його; тому нема потреби в ідентичному PRNG. Так само свідомо не
-портується winRateBand-калібрування (static/game/simulate.js): для
-антирід-обстеження на цьому етапі достатньо гарантії розв'язності —
-складність рівнів емулюється лише через placement/pair_scheduling.
+"""Server-side generation of a guaranteed-solvable field by simulating the
+game in reverse (random free pairs are removed from the full layout; the
+recorded order is the solution). Bit-for-bit parity with any client generator
+is NOT required — the server is the sole source of the field, the client only
+renders it — so there's no need for an identical PRNG. Likewise winRateBand
+calibration is deliberately not implemented: at this stage, a solvability
+guarantee is enough for anti-cheat purposes — difficulty levels are emulated
+only through placement/pair_scheduling.
 """
 import random
 
-from .board import is_free_position, target_positions
+from .board import FLOWERS, SEASONS, is_free_position, target_positions
 
+# 34 regular riichi kinds (4 copies each = 2 pairs each). Flowers/seasons (1
+# copy each, wildcard groups) are added separately — see _bonus_pairs.
 KINDS = [
     f'{suit}{i}'
     for suit in ('Man', 'Pin', 'Sou')
@@ -39,33 +41,47 @@ def _pick(items, rng):
     return items[int(rng.random() * len(items))]
 
 
-def _expand(kind_pairs):
+def _bonus_pairs(rng):
+    """4 flowers → 2 pairs of DIFFERENT flowers; 4 seasons → 2 pairs of
+    DIFFERENT seasons. Thanks to wildcard matching, any pair from the same
+    group can be removed together, so it's enough to deal each bonus kind
+    exactly once."""
     out = []
-    for kind, pairs in kind_pairs:
-        out.extend([kind] * pairs)
+    for group in (FLOWERS, SEASONS):
+        g = _shuffle(group, rng)
+        out.append((g[0], g[1]))
+        out.append((g[2], g[3]))
     return out
 
 
 def _build_pair_kinds(rng, pair_scheduling='random'):
+    """A list of 72 (kindA, kindB) pairs — one per pair of tiles on the board:
+    34 regular kinds × 2 identical pairs (kind, kind) = 68 + 4 bonus pairs."""
     kinds = _shuffle(KINDS, rng)
-    kind_pairs = [(k, 2) for k in kinds]
+    bonus = _bonus_pairs(rng)
 
     if pair_scheduling == 'grouped':
-        return _expand(kind_pairs)
+        # Both copy-pairs of a kind next to each other; bonus pairs at the end.
+        pairs = [(k, k) for k in kinds for _ in range(2)]
+        return pairs + bonus
 
     if pair_scheduling == 'split':
-        bottom, top = [], []
-        for kind, pairs in kind_pairs:
-            half = pairs // 2
-            bottom.extend([kind] * half)
-            top.extend([kind] * (pairs - half))
+        # One pair of each kind at the bottom and one at the top; bonuses scattered.
+        bottom = [(k, k) for k in kinds] + [bonus[0], bonus[2]]
+        top = [(k, k) for k in kinds] + [bonus[1], bonus[3]]
         return _shuffle(bottom, rng) + _shuffle(top, rng)
 
-    return _shuffle(_expand(kind_pairs), rng)
+    pairs = [(k, k) for k in kinds for _ in range(2)] + bonus
+    return _shuffle(pairs, rng)
 
 
 def is_adjacent(a, b):
-    return a[2] == b[2] and abs(a[0] - b[0]) + abs(a[1] - b[1]) == 1
+    """Adjacency on board.py's half-tile grid (a regular tile = a step of 2 in
+    x or y, not 1 — see gameplay/board.py: WIDTH/HEIGHT and TURTLE_CELLS)."""
+    if a[2] != b[2]:
+        return False
+    dx, dy = abs(a[0] - b[0]), abs(a[1] - b[1])
+    return (dx == 2 and dy == 0) or (dx == 0 and dy == 2)
 
 
 def _pick_surface_pair(free, rng):
@@ -106,17 +122,17 @@ def _try_generate(rng, placement='uniform', pair_scheduling='random'):
     tiles = []
     while occupied:
         free = [p for p in occupied if is_free_position(occupied, *p)]
-        # Глухий кут: лишилися кості, але вільних менше двох — сигналізуємо
-        # перегенерацію (та сама умова, що в generator.js).
+        # Dead end: tiles remain but fewer than two are free — signal a retry
+        # (the same condition as in the old JS generator).
         if len(free) < 2:
             return None
         if placement == 'surface':
             a, b = _pick_surface_pair(free, rng)
         else:
             a, b = _pick_spread_pair(free, rng, placement == 'layered')
-        kind = pair_kinds.pop()
-        tiles.append((a[0], a[1], a[2], kind))
-        tiles.append((b[0], b[1], b[2], kind))
+        kind_a, kind_b = pair_kinds.pop()
+        tiles.append((a[0], a[1], a[2], kind_a))
+        tiles.append((b[0], b[1], b[2], kind_b))
         occupied.discard(a)
         occupied.discard(b)
     return tiles
@@ -127,12 +143,12 @@ def generate_layout(rng, placement='uniform', pair_scheduling='random'):
         tiles = _try_generate(rng, placement, pair_scheduling)
         if tiles is not None:
             return tiles
-    raise RuntimeError('generate_layout: не вдалося уникнути глухого кута за 100 спроб')
+    raise RuntimeError('generate_layout: failed to avoid a dead end in 100 attempts')
 
 
 def generate_for_difficulty(level, seed=None):
-    """Повертає розв'язне поле для рівня складності: список зі 136 кортежів
-    (x, y, z, kind)."""
+    """Returns a solvable field for the given difficulty level: a list of 144
+    (x, y, z, kind) tuples."""
     preset = DIFFICULTIES[level]
     rng = random.Random(seed)
     return generate_layout(rng, **preset)

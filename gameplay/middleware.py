@@ -1,8 +1,8 @@
-"""Ідентичність анонімного гравця — один Django User+Profile на клієнта,
-резолвиться/створюється до виклику view й доступний як request.profile (той
-самий конвеншн, що й вбудований request.user). Обмежено префіксом
-/api/game/ — щоб не плодити анонімних User-рядків на кожен хіт по /admin/,
-/api/background/ чи статиці.
+"""Anonymous player identity — one Django User+Profile per client, resolved/
+created before the view is called and available as request.profile (the same
+convention as the built-in request.user). Scoped to the /api/game/ prefix —
+so we don't spawn anonymous User rows on every hit to /admin/,
+/api/background/, or static files.
 """
 import uuid
 
@@ -11,8 +11,8 @@ from django.contrib.auth.models import User
 from .models import Profile
 
 PLAYER_COOKIE_NAME = 'mahjong_player'
-PLAYER_COOKIE_SALT = 'mahjong.player'  # окремий namespace для django.core.signing
-PLAYER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 2  # 2 роки
+PLAYER_COOKIE_SALT = 'mahjong.player'  # separate namespace for django.core.signing
+PLAYER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 2  # 2 years
 PLAYER_IDENTITY_PATH_PREFIX = '/api/game/'
 
 
@@ -45,8 +45,8 @@ class PlayerIdentityMiddleware:
             if public_id else None
         )
         if profile is None:
-            # create_user(password=None) вже виставляє make_password(None) —
-            # unusable password, окремий set_unusable_password() не потрібен.
+            # create_user(password=None) already sets make_password(None) —
+            # an unusable password, no separate set_unusable_password() needed.
             user = User.objects.create_user(username=f'anon-{uuid.uuid4().hex[:12]}')
             profile = Profile.objects.create(user=user)
         return profile

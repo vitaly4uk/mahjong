@@ -1,4 +1,4 @@
-"""Pydantic/ninja-схеми запитів і відповідей для `config/api.py`."""
+"""Pydantic/ninja request/response schemas for `config/api.py`."""
 from ninja import Schema
 
 

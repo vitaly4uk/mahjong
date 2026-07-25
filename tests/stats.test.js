@@ -72,7 +72,7 @@ test('load: migrates v1 (single-level) stats into the hard level, drops v1 key',
   assert.deepEqual(loaded.normal, emptyStats());
   assert.equal(storage.has(STORAGE_KEY_V1), false);
   assert.equal(storage.has(STORAGE_KEY), true);
-  // Наступний load читає вже змігрований v2, без v1.
+  // The next load reads the already-migrated v2, without v1.
   assert.deepEqual(load(storage), loaded);
 });
 

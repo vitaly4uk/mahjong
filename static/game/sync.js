@@ -1,10 +1,12 @@
-// Клієнт до серверного API гри (gameplay/api.py): старт партії (сервер
-// генерує поле й веде облік), фініш (сервер реплеїть лог ходів і сам рахує
-// час), живі лічильники hint/undo/pair-знять і довічна статистика —
-// див. docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md.
-// CSRF-токен береться з window.MAHJONG_CSRF (інжектиться в templates/game.html).
-// Ідентичність гравця — кукі mahjong_player (HttpOnly, підписана сервером),
-// їде автоматично з кожним fetch (credentials: 'same-origin').
+// Client for the game's server API (gameplay/api.py): starting a game (the
+// server generates the field and tracks it), finishing (the server replays
+// the move log and computes the time itself), live hint/undo/pair-removal
+// counters, and lifetime stats — see
+// docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md.
+// The CSRF token comes from window.MAHJONG_CSRF (injected in
+// templates/game.html). Player identity is the mahjong_player cookie
+// (HttpOnly, signed by the server), sent automatically with every fetch
+// (credentials: 'same-origin').
 
 async function requestJson(url, { method = 'GET', body } = {}) {
   const response = await fetch(url, {
@@ -26,16 +28,16 @@ async function postJson(url, body) {
   return requestJson(url, { method: 'POST', body });
 }
 
-// Повертає { token, layout: [{x,y,z,kind}, ...], stats } — рендер бере
-// позиції з layout, а індекс кістки в цьому масиві — її ідентифікатор для
-// moves-логу. stats — оновлений довічний блоб (сервер уже інкрементував
-// gamesStarted для цього рівня).
+// Returns { token, layout: [{x,y,z,kind}, ...], stats } — the renderer takes
+// positions from layout, and a tile's index in this array is its identifier
+// for the moves log. stats — the updated lifetime blob (the server already
+// incremented gamesStarted for this level).
 export async function startGame(level) {
   return postJson('/api/game/start', { level });
 }
 
-// moves — масив пар [idxA, idxB] (індекси в масиві layout зі startGame,
-// у порядку зняття пар). outcome — 'win' або 'deadlock'.
+// moves — an array of [idxA, idxB] pairs (indices into the layout array from
+// startGame, in pair-removal order). outcome — 'win' or 'deadlock'.
 export async function finishGame(token, moves, outcome) {
   const data = await postJson('/api/game/finish', { token, moves, outcome });
   return {
@@ -47,40 +49,40 @@ export async function finishGame(token, moves, outcome) {
   };
 }
 
-// Стан сесії для відновлення партії після перезавантаження сторінки:
-// status — 'active' | 'claimed' | 'expired' | 'unknown' (завжди 200,
-// ветвлення за полем), elapsedMs — серверний час партії, лише для 'active'.
+// Session state for resuming a game after a page reload: status — 'active' |
+// 'claimed' | 'expired' | 'unknown' (always 200, branch on the field),
+// elapsedMs — the server-side game time, only for 'active'.
 export async function fetchSessionState(token) {
   const data = await requestJson(`/api/game/${token}`);
   return { status: data.status, elapsedMs: data.elapsed_ms };
 }
 
-// Живий інкремент лічильника hint/undo/pair під час активної партії (не
-// чекає фінішу). counter — 'hint' | 'undo' | 'pair'. Повертає оновлений
-// довічний блоб.
+// A live increment of the hint/undo/pair counter during an active game
+// (doesn't wait for finish). counter — 'hint' | 'undo' | 'pair'. Returns the
+// updated lifetime blob.
 export async function bumpStat(token, counter) {
   const data = await postJson(`/api/game/${token}/bump`, { counter });
   return data.stats;
 }
 
-// Читає поточну довічну статистику гравця (бутстрапить кукі mahjong_player
-// на сервері, якщо її ще нема). legacyImportAvailable=true — клієнт ще не
-// переносив свій localStorage-блоб на цей профіль.
+// Reads the player's current lifetime stats (bootstraps the mahjong_player
+// cookie on the server if it doesn't exist yet). legacyImportAvailable=true —
+// the client hasn't transferred its localStorage blob to this profile yet.
 export async function fetchStats() {
   const data = await requestJson('/api/game/stats');
   return { stats: data.stats, legacyImportAvailable: data.legacy_import_available };
 }
 
-// Одноразовий перенос старого localStorage-блоба на сервер. imported=false
-// (з reason='already imported') — сервер уже переносив дані для цього
-// профілю раніше, клієнт більше не повторює спробу.
+// A one-time transfer of the old localStorage blob to the server.
+// imported=false (with reason='already imported') — the server already
+// transferred data for this profile before, the client doesn't retry.
 export async function importLegacyStats(stats) {
   const data = await postJson('/api/game/stats/import', { stats });
   return { imported: data.imported, reason: data.reason ?? null, stats: data.stats ?? null };
 }
 
-// Поточна версія білда (хеш маніфесту collectstatic) — звіряється з
-// window.MAHJONG_VERSION перед стартом нової партії.
+// The current build version (the collectstatic manifest hash) — checked
+// against window.MAHJONG_VERSION before starting a new game.
 export async function fetchVersion() {
   const data = await requestJson('/api/version/');
   return data.version;

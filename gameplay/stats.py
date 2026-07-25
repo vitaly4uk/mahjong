@@ -1,8 +1,8 @@
-"""Довічна статистика гравця — Python-порт static/game/stats.js: чисті
-трансформери над схемами з `gameplay/schemas.py` (LevelStats/AllStats), той
-самий патерн порту, що вже є для board.py/generator.py. Сервер — єдине
-джерело істини для applyWin/applyLoss: клієнт більше не рахує ці зміни сам,
-лише показує те, що повернув сервер.
+"""Player lifetime stats — Python port of static/game/stats.js: pure
+transformers over the schemas in `gameplay/schemas.py` (LevelStats/AllStats),
+the same porting pattern already used for board.py/generator.py. The server
+is the sole source of truth for applyWin/applyLoss: the client no longer
+computes these changes itself, it only displays what the server returned.
 """
 from .schemas import AllStats, LevelStats
 
@@ -10,8 +10,8 @@ LEVELS = ('easy', 'normal', 'hard')
 
 
 def empty_all_stats() -> dict:
-    """Іменована функція (не lambda) — використовується як default= для
-    Profile.stats JSONField, має бути серіалізовною в міграції."""
+    """A named function (not a lambda) — used as default= for the
+    Profile.stats JSONField, must be serializable in migrations."""
     return AllStats().model_dump(by_alias=True)
 
 
@@ -43,20 +43,20 @@ def apply_loss(stats: LevelStats) -> LevelStats:
 
 
 def _merge_level(server: LevelStats, imported: LevelStats) -> LevelStats:
-    # currentStreak з імпорту береться лише якщо на сервері для цього рівня
-    # ще не було жодної реальної партії — інакше вже реальний server-side
-    # стрік важливіший за принесений з localStorage.
+    # currentStreak from the import is only used if the server has had no
+    # real games at this level yet — otherwise the real server-side streak
+    # takes precedence over the one brought in from localStorage.
     current_streak = imported.current_streak if server.games_played == 0 else server.current_streak
 
     best_times = [t for t in (server.best_time_ms, imported.best_time_ms) if t is not None]
     best_time_ms = min(best_times) if best_times else None
 
-    # Легасі-блоб з localStorage не мав лічильника стартів узагалі
-    # (imported.games_started завжди 0) — використовуємо imported.games_played
-    # як проксі, інакше зведений gamesStarted міг би вийти меншим за зведений
-    # gamesPlayed (неможливий стан: не можна зіграти більше партій, ніж
-    # почати). server.games_started і так завжди >= server.games_played, тож
-    # сума лишається коректною верхньою межею.
+    # The legacy localStorage blob had no "started" counter at all
+    # (imported.games_started is always 0) — we use imported.games_played as
+    # a proxy, otherwise the merged gamesStarted could end up smaller than
+    # the merged gamesPlayed (an impossible state: you can't play more games
+    # than you started). server.games_started is already always >=
+    # server.games_played, so the sum remains a valid upper bound.
     return LevelStats(
         games_started=server.games_started + imported.games_played,
         games_played=server.games_played + imported.games_played,
@@ -71,8 +71,8 @@ def _merge_level(server: LevelStats, imported: LevelStats) -> LevelStats:
 
 
 def merge_imported(server: AllStats, imported: AllStats) -> AllStats:
-    """Адитивний мердж по кожному рівню — застосовується один раз при
-    одноразовому перенесенні localStorage-блоба на сервер (gameplay/api.py:
+    """Additive merge per level — applied once, during the one-time transfer
+    of the localStorage blob to the server (gameplay/api.py:
     POST /api/game/stats/import)."""
     return AllStats(**{
         level: _merge_level(getattr(server, level), getattr(imported, level))

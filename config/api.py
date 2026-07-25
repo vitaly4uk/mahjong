@@ -1,10 +1,11 @@
-"""Єдиний проєктний django-ninja API (`/api/`): фонове фото (`/api/background/`)
-+ підключення `gameplay.api.router` (`/api/game/...`) під одним CSRF-захистом.
-`CsrfOnly` живе тут (не в `gameplay/`), бо це загальний, не ігровий, механізм —
-`APIKeyCookie`-заглушка, яка нікого не автентифікує (пускає й анонімів), але
-успадкований `_get_key` примусово ганяє звичайну Django CSRF-перевірку перед
-кожним unsafe-запитом (GET CSRF не чіпає). Django-сесія/CSRF-кука видається
-кожному відвідувачу автоматично через SessionMiddleware/CsrfViewMiddleware.
+"""The project's single django-ninja API (`/api/`): background photo
+(`/api/background/`) + mounting `gameplay.api.router` (`/api/game/...`) under
+one CSRF guard. `CsrfOnly` lives here (not in `gameplay/`) because it's a
+general, non-game-specific mechanism — an `APIKeyCookie` stub that
+authenticates no one (lets anonymous requests through too), but the inherited
+`_get_key` forces the regular Django CSRF check on every unsafe request (GET
+is left untouched by CSRF). The Django session/CSRF cookie is issued to every
+visitor automatically via SessionMiddleware/CsrfViewMiddleware.
 """
 import random
 
@@ -19,7 +20,7 @@ from gameplay.api import router as gameplay_router
 
 from .schemas import BackgroundResponse, VersionResponse
 
-# Дзен/східні теми для релаксуючого фону гри — узгоджено в дизайні фону.
+# Zen/Eastern themes for a relaxing game background — agreed as part of the background design.
 PEXELS_QUERIES = [
     'zen garden',
     'bamboo',
@@ -29,7 +30,7 @@ PEXELS_QUERIES = [
 ]
 
 PEXELS_POOL_CACHE_KEY = 'pexels_pool'
-PEXELS_POOL_TTL = 60 * 60  # 1 година — щадить ліміт Pexels (200 запитів/год)
+PEXELS_POOL_TTL = 60 * 60  # 1 hour — goes easy on the Pexels rate limit (200 requests/hour)
 
 
 class CsrfOnly(APIKeyCookie):
@@ -42,16 +43,16 @@ api.add_router('/game', gameplay_router)
 
 
 def get_build_version():
-    """Хеш маніфесту `collectstatic` (`staticfiles.json`) — вже унікальний на
-    кожен деплой (WhiteNoise/Django перегенеровує його щоразу, коли міняється
-    вміст хоч одного статичного файлу), тож придатний як дешевий індикатор
-    "клієнт тримає застарілу версію". Порожній рядок у локальній розробці,
-    якщо collectstatic ще не запускали."""
+    """Hash of the `collectstatic` manifest (`staticfiles.json`) — already
+    unique per deploy (WhiteNoise/Django regenerates it whenever the content
+    of even one static file changes), so it's a cheap indicator of "the client
+    is holding a stale version". Empty string in local dev if collectstatic
+    hasn't run yet."""
     return staticfiles_storage.manifest_hash
 
 
 def _fetch_pool():
-    """Тягне свіжий пул фото з Pexels. Повертає [] за будь-якої помилки."""
+    """Fetches a fresh pool of photos from Pexels. Returns [] on any error."""
     query = random.choice(PEXELS_QUERIES)
     try:
         response = requests.get(
@@ -82,7 +83,7 @@ def _fetch_pool():
 
 @api.get('/background/', response=BackgroundResponse)
 def background(request):
-    """Віддає випадкове фонове фото з Pexels (через кешований пул) або {"url": null}."""
+    """Returns a random background photo from Pexels (via a cached pool) or {"url": null}."""
     if not settings.PEXELS_API_KEY:
         return {'url': None}
 
@@ -100,8 +101,9 @@ def background(request):
 
 @api.get('/version/', response=VersionResponse)
 def version(request):
-    """Поточна версія білда — клієнт звіряє її з `window.MAHJONG_VERSION`
-    (інжектиться в templates/game.html тим самим значенням) перед стартом
-    нової партії й перезавантажує сторінку, якщо вони розійшлись (застарілий
-    standalone-застосунок на iOS/macOS, що довго не оновлювався)."""
+    """Current build version — the client checks it against
+    `window.MAHJONG_VERSION` (injected into templates/game.html with the same
+    value) before starting a new game and reloads the page if they've
+    diverged (a stale standalone app on iOS/macOS that hasn't updated in a
+    while)."""
     return {'version': get_build_version()}

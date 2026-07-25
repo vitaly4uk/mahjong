@@ -19,8 +19,8 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Локальна розробка: підхоплюємо .env з кореня проєкту (у .gitignore).
-# override=False (дефолт) — у проді (dokku інжектить env, .env відсутній) це no-op.
+# Local development: pick up .env from the project root (in .gitignore).
+# override=False (default) — in prod (dokku injects env, no .env present) this is a no-op.
 load_dotenv(BASE_DIR / '.env')
 
 
@@ -38,17 +38,17 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h]
 
-# Прод йде через Cloudflare Tunnel -> dokku nginx (термінує TLS) -> gunicorn
-# по звичайному HTTP. Без цього Django вважає кожен запит незахищеним
-# (request.is_secure() == False) і CSRF-перевірка Origin-заголовка (браузер
-# шле "https://...") не збігається з очікуваною "http://..." схемою -> 403
-# на кожному POST, незалежно від коректності самого CSRF-токена. dokku nginx
-# завжди проставляє X-Forwarded-Proto, тож довіряємо йому.
+# Prod goes through Cloudflare Tunnel -> dokku nginx (terminates TLS) -> gunicorn
+# over plain HTTP. Without this Django considers every request insecure
+# (request.is_secure() == False) and the CSRF Origin-header check (the browser
+# sends "https://...") doesn't match the computed "http://..." scheme -> 403
+# on every POST, regardless of whether the CSRF token itself is correct. dokku
+# nginx always sets X-Forwarded-Proto, so it's safe to trust it.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 CSRF_TRUSTED_ORIGINS = [f'https://{h}' for h in ALLOWED_HOSTS]
 
-# Ключ Pexels API для фонових фото гри (docs/superpowers/specs/... фон).
-# Порожній рядок = фон вимкнено, клієнт отримує {"url": null} і лишається дефолтний колір.
+# Pexels API key for the game's background photos (docs/superpowers/specs/... background).
+# Empty string = background disabled, client gets {"url": null} and keeps the default color.
 PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY', '')
 
 
@@ -150,9 +150,9 @@ STORAGES = {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
     },
     'staticfiles': {
-        # Штатний whitenoise-storage: стиснення + маніфест-хешування (хеш в імені
-        # файлу = кешбастинг). Переписування ES-import'ів більше не потрібне — увесь
-        # JS склеєний esbuild'ом в один bundle.js (Dockerfile jsbuild-стейдж).
+        # Stock whitenoise storage: compression + manifest hashing (hash in the
+        # filename = cache busting). Rewriting ES imports is no longer needed —
+        # all JS is bundled by esbuild into one bundle.js (Dockerfile jsbuild stage).
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }

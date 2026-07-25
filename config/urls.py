@@ -22,14 +22,15 @@ from django.views.generic import TemplateView
 
 from config.api import api, get_build_version
 
-# no-cache (не «без кешу», а «завжди ревалідуй через ETag/Last-Modified») —
-# щоб довго відкритий standalone-застосунок на iOS/macOS отримував свіжий
-# HTML щоразу, коли він таки перезавантажується (див. config/api.py: /version/).
+# no-cache (not "no caching" but "always revalidate via ETag/Last-Modified") —
+# so a long-open standalone app on iOS/macOS gets fresh HTML whenever it does
+# reload (see config/api.py: /version/).
 home_view = cache_control(no_cache=True, must_revalidate=True)(
     TemplateView.as_view(
         template_name='game.html',
-        # debug — щоб шаблон обрав сирі ES-модулі (dev) чи мініфікований bundle.js
-        # (prod). Явно, бо context_processors.debug дає debug лише для INTERNAL_IPS.
+        # debug — so the template picks raw ES modules (dev) or the minified
+        # bundle.js (prod). Explicit, since context_processors.debug only
+        # gives debug for INTERNAL_IPS.
         extra_context={'version': get_build_version(), 'debug': settings.DEBUG},
     )
 )
