@@ -281,6 +281,14 @@ class MainScene extends Phaser.Scene {
     const canvas = this.game.canvas;
     canvas.style.width = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
+    // scale.resize() computes displayScale from the canvas's CSS bounds
+    // BEFORE the two lines above override them, so it caches a stale value
+    // (one resize behind) — every pointer coordinate (tiles, toolbar
+    // buttons) is transformed through that scale, producing the left/up
+    // hitbox drift reported after resizing. refresh() is the only public
+    // method that recomputes displayScale itself (updateBounds() alone
+    // refreshes canvasBounds but leaves the stale displayScale untouched).
+    this.scale.refresh();
   }
 
   // Computes the board's metrics (device-px) from the current canvas size:
@@ -506,10 +514,26 @@ class MainScene extends Phaser.Scene {
       container.setPosition(x, y);
       container._bg.setDisplaySize(btnW, btnH);
       container.setSize(btnW, btnH);
-      container.setInteractive(
-        new Phaser.Geom.Rectangle(-btnW / 2, -btnH / 2, btnW, btnH),
-        Phaser.Geom.Rectangle.Contains,
-      );
+      // setInteractive() on an object that's ALREADY interactive silently
+      // ignores the new hit area shape passed in — it only takes effect the
+      // very first time. So on every later resize this rectangle must be
+      // mutated in place, same fix as the tile hitboxes in relayoutTiles().
+      //
+      // The rect is (0, 0, btnW, btnH), NOT centered on the container: Phaser's
+      // hit test (pointWithinHitArea) adds the object's displayOriginX/Y to the
+      // local point before checking it against hitArea — and a Container with
+      // origin 0.5 has displayOriginX/Y = (btnW/2, btnH/2). A rect centered at
+      // (-btnW/2, -btnH/2) double-applies that offset, shifting the real
+      // clickable region left/up by half a button (bleeding into the
+      // neighbour) relative to what's actually drawn.
+      if (!container.input) {
+        container.setInteractive(
+          new Phaser.Geom.Rectangle(0, 0, btnW, btnH),
+          Phaser.Geom.Rectangle.Contains,
+        );
+      } else {
+        container.input.hitArea.setTo(0, 0, btnW, btnH);
+      }
       container.input.cursor = 'pointer';
     });
   }
@@ -605,6 +629,13 @@ class MainScene extends Phaser.Scene {
       const { x, y } = this.tileScreenPos(tile);
       sprite.setDisplaySize(tileW, tileH);
       sprite.setPosition(x, y);
+      // rasterizeTiles() just resized the shared per-kind CanvasTexture's
+      // frame — but a hit area Rectangle created by setInteractive() is a
+      // snapshot, not a live reference, and doesn't follow the frame's new
+      // size on its own. Without this, the hitbox stays stuck at whatever
+      // size the tile first rendered at, drifting away from the visible
+      // sprite on every resize.
+      sprite.input?.hitArea.setTo(0, 0, sprite.width, sprite.height);
     }
   }
 
