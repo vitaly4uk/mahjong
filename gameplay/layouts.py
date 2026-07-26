@@ -27,7 +27,9 @@ _MAGIC_V11 = 'kmahjongg-layout-v1.1'
 _MAGIC_V10 = 'kmahjongg-layout-v1.0'
 
 _ANCHOR = '1'
-_QUADRANTS = {'1': (0, 0), '2': (1, 0), '3': (1, 1), '4': (0, 1)}
+# The anchor's own quadrant ('1', at (0,0)) is excluded — only the other
+# three quadrants of a tile's 2×2 footprint need verifying against the grid.
+_OTHER_QUADRANTS = {'2': (1, 0), '3': (1, 1), '4': (0, 1)}
 
 _TOTAL_TILES = 144
 
@@ -103,9 +105,7 @@ def parse_layout(text, slug):
                 # A tile's anchor is its '1' quadrant; verify the other three
                 # quadrants (2/3/4) sit exactly where a 2×2 tile footprint
                 # puts them, catching a corrupted/hand-edited grid.
-                for quad_char, (dx, dy) in _QUADRANTS.items():
-                    if quad_char == _ANCHOR:
-                        continue
+                for quad_char, (dx, dy) in _OTHER_QUADRANTS.items():
                     qx, qy = x + dx, y + dy
                     if (
                         qx >= width or qy >= height

@@ -29,18 +29,6 @@ MAX_ATTEMPTS = 100
 SURFACE_ADJACENCY_BIAS = 1
 
 
-def _shuffle(items, rng):
-    items = list(items)
-    for i in range(len(items) - 1, 0, -1):
-        j = int(rng.random() * (i + 1))
-        items[i], items[j] = items[j], items[i]
-    return items
-
-
-def _pick(items, rng):
-    return items[int(rng.random() * len(items))]
-
-
 def _bonus_pairs(rng):
     """4 flowers → 2 pairs of DIFFERENT flowers; 4 seasons → 2 pairs of
     DIFFERENT seasons. Thanks to wildcard matching, any pair from the same
@@ -48,7 +36,8 @@ def _bonus_pairs(rng):
     exactly once."""
     out = []
     for group in (FLOWERS, SEASONS):
-        g = _shuffle(group, rng)
+        g = list(group)
+        rng.shuffle(g)
         out.append((g[0], g[1]))
         out.append((g[2], g[3]))
     return out
@@ -57,27 +46,31 @@ def _bonus_pairs(rng):
 def _build_pair_kinds(rng, pair_scheduling='random'):
     """A list of 72 (kindA, kindB) pairs — one per pair of tiles on the board:
     34 regular kinds × 2 identical pairs (kind, kind) = 68 + 4 bonus pairs."""
-    kinds = _shuffle(KINDS, rng)
+    kinds = list(KINDS)
+    rng.shuffle(kinds)
     bonus = _bonus_pairs(rng)
+    doubled = [(k, k) for k in kinds for _ in range(2)]
 
     if pair_scheduling == 'grouped':
         # Both copy-pairs of a kind next to each other; bonus pairs at the end.
-        pairs = [(k, k) for k in kinds for _ in range(2)]
-        return pairs + bonus
+        return doubled + bonus
 
     if pair_scheduling == 'split':
         # One pair of each kind at the bottom and one at the top; bonuses scattered.
         bottom = [(k, k) for k in kinds] + [bonus[0], bonus[2]]
         top = [(k, k) for k in kinds] + [bonus[1], bonus[3]]
-        return _shuffle(bottom, rng) + _shuffle(top, rng)
+        rng.shuffle(bottom)
+        rng.shuffle(top)
+        return bottom + top
 
-    pairs = [(k, k) for k in kinds for _ in range(2)] + bonus
-    return _shuffle(pairs, rng)
+    pairs = doubled + bonus
+    rng.shuffle(pairs)
+    return pairs
 
 
 def is_adjacent(a, b):
     """Adjacency on board.py's half-tile grid (a regular tile = a step of 2 in
-    x or y, not 1 — see gameplay/board.py: WIDTH/HEIGHT and TURTLE_CELLS)."""
+    x or y, not 1 — see gameplay/board.py's module docstring)."""
     if a[2] != b[2]:
         return False
     dx, dy = abs(a[0] - b[0]), abs(a[1] - b[1])
@@ -90,7 +83,7 @@ def _pick_surface_pair(free, rng):
     if len(top_free) == 1:
         a = top_free[0]
         rest = [p for p in free if p != a]
-        return a, _pick(rest, rng)
+        return a, rng.choice(rest)
     if rng.random() < SURFACE_ADJACENCY_BIAS:
         adjacent_pairs = [
             (top_free[i], top_free[j])
@@ -99,13 +92,14 @@ def _pick_surface_pair(free, rng):
             if is_adjacent(top_free[i], top_free[j])
         ]
         if adjacent_pairs:
-            return _pick(adjacent_pairs, rng)
-    shuffled = _shuffle(top_free, rng)
+            return rng.choice(adjacent_pairs)
+    shuffled = list(top_free)
+    rng.shuffle(shuffled)
     return shuffled[0], shuffled[1]
 
 
 def _pick_spread_pair(free, rng, require_layer_split):
-    a = _pick(free, rng)
+    a = rng.choice(free)
     candidates = [p for p in free if p != a and not is_adjacent(p, a)]
     if require_layer_split:
         cross_layer = [p for p in candidates if p[2] != a[2]]
@@ -113,7 +107,7 @@ def _pick_spread_pair(free, rng, require_layer_split):
             candidates = cross_layer
     if not candidates:
         candidates = [p for p in free if p != a]
-    return a, _pick(candidates, rng)
+    return a, rng.choice(candidates)
 
 
 def _try_generate(rng, positions, placement='uniform', pair_scheduling='random'):

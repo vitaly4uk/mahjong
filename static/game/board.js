@@ -56,7 +56,7 @@ export function isFreePosition(occupied, x, y, z) {
   }
   let leftFree = true;
   let rightFree = true;
-  for (let j = y - 1; j <= y + 1; j++) {
+  for (let j = y - 1; j <= y + 1 && (leftFree || rightFree); j++) {
     if (occupied.has(posKey(x - 2, j, z))) leftFree = false;
     if (occupied.has(posKey(x + 2, j, z))) rightFree = false;
   }

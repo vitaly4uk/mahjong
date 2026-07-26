@@ -262,6 +262,12 @@ class MainScene extends Phaser.Scene {
     }
     this.registry.set('allStats', allStats);
     this.registry.events.on('changedata', () => this.renderStats());
+    // Narrower than the 'changedata' above on purpose: the stats-modal HTML
+    // (3 levels × 9 rows) only needs rebuilding when allStats itself
+    // changes, not on every registry write — including the 1Hz elapsed-time
+    // tick, which would otherwise rebuild it every second even while the
+    // modal is closed.
+    this.registry.events.on('changedata-allStats', () => this.renderStatsModal());
 
     this.registry.set('modal', null);
     this.registry.events.on('changedata-modal', (parent, value) => this.renderModal(value));
@@ -741,6 +747,31 @@ class MainScene extends Phaser.Scene {
 
   // --- Game persistence/resume -------------------------------------------
 
+  // The shared tail of "enter a game" — used by both startGame() (a fresh
+  // board from the server) and tryResumeGame() (a board replayed from a
+  // saved localStorage snapshot). Everything before this point differs
+  // (where the data comes from); everything from here on — board dims,
+  // sprites, deal-in, the per-game registry counters — is identical.
+  enterGame({
+    token, layout, width, height, layers, boardInstance, movesLog,
+    hints, undos, pairs, startMs, elapsedMs,
+  }) {
+    this.sessionToken = token;
+    this.layout = layout;
+    this.applyBoardDims(width, height, layers);
+    this.movesLog = movesLog;
+    this.board = boardInstance;
+    for (const tile of this.board.tiles()) this.addTileSprite(tile);
+    this.playDealIn();
+
+    this.registry.set('gameHints', hints);
+    this.registry.set('gameUndos', undos);
+    this.registry.set('gamePairs', pairs);
+    this.registry.set('gameStartMs', startMs);
+    this.registry.set('gameElapsedMs', elapsedMs);
+    this.registry.set('gameFinished', false);
+  }
+
   persistGame() {
     saveActiveGame({
       token: this.sessionToken,
@@ -782,8 +813,6 @@ class MainScene extends Phaser.Scene {
     // saved.board is absent in snapshots written before board selection
     // existed — those are all Turtle games (the only board there was).
     this.currentBoard = saved.board || DEFAULT_BOARD;
-    this.sessionToken = saved.token;
-    this.layout = saved.layout;
     // saved.boardWidth/Height/Layers are likewise absent in snapshots from
     // before this field existed — fall back to deriving them from the tile
     // coordinates themselves (boardDimsFromLayout) for those old saves only;
@@ -792,18 +821,15 @@ class MainScene extends Phaser.Scene {
     const dims = saved.boardWidth != null
       ? { width: saved.boardWidth, height: saved.boardHeight, layers: saved.boardLayers }
       : boardDimsFromLayout(saved.layout);
-    this.applyBoardDims(dims.width, dims.height, dims.layers);
-    this.movesLog = saved.movesLog.map((pair) => [...pair]);
-    this.board = board;
-    for (const tile of this.board.tiles()) this.addTileSprite(tile);
-    this.playDealIn();
-
-    this.registry.set('gameHints', saved.hints);
-    this.registry.set('gameUndos', saved.undos);
-    this.registry.set('gamePairs', saved.movesLog.length);
-    this.registry.set('gameStartMs', Date.now() - state.elapsedMs);
-    this.registry.set('gameElapsedMs', state.elapsedMs);
-    this.registry.set('gameFinished', false);
+    this.enterGame({
+      token: saved.token,
+      layout: saved.layout,
+      width: dims.width, height: dims.height, layers: dims.layers,
+      boardInstance: board,
+      movesLog: saved.movesLog.map((pair) => [...pair]),
+      hints: saved.hints, undos: saved.undos, pairs: saved.movesLog.length,
+      startMs: Date.now() - state.elapsedMs, elapsedMs: state.elapsedMs,
+    });
     this.updateStatus();
     return true;
   }
@@ -821,6 +847,10 @@ class MainScene extends Phaser.Scene {
           ? '⚠️ Партія не підтверджена сервером'
           : (modal.won ? '🎉 Перемога!' : '🚫 Глухий кут — немає ходів'))
         : '📊 Статистика';
+      // Not just relying on the changedata-allStats listener: currentLevel
+      // (which controls the "current" highlight) can change without a fresh
+      // allStats push, so refresh the content on every open too.
+      this.renderStatsModal();
     }
     if (modal?.type === 'newgame') {
       for (const btn of newgameLevelButtons) {
@@ -849,7 +879,13 @@ class MainScene extends Phaser.Scene {
     const stats = this.lifetimeStats();
     const elapsed = this.registry.get('gameElapsedMs') || 0;
     this.summaryText.setText(`🏆 ${stats.gamesWon}/${stats.gamesPlayed} · 🔥 ${stats.currentStreak} · ⏱️ ${fmtTime(elapsed)}`);
+  }
 
+  // The stats-modal HTML (3 levels × 9 rows) — split out from renderStats()
+  // since it's far more expensive to rebuild (innerHTML) and doesn't need to
+  // run on every registry tick, only when allStats changes or the modal
+  // opens (see the changedata-allStats listener and renderModal() below).
+  renderStatsModal() {
     const allStats = this.registry.get('allStats');
     statsLevelsEl.innerHTML = LEVELS.map((level) => {
       const s = allStats[level];
@@ -903,21 +939,17 @@ class MainScene extends Phaser.Scene {
       return;
     }
 
-    this.sessionToken = data.token;
-    this.layout = data.layout;
-    this.applyBoardDims(data.board_width, data.board_height, data.board_layers);
-    this.movesLog = [];
     const tiles = data.layout.map((t, idx) => ({ ...t, idx }));
-    this.board = new Board(tiles);
-    for (const tile of this.board.tiles()) this.addTileSprite(tile);
-    this.playDealIn();
+    this.enterGame({
+      token: data.token,
+      layout: data.layout,
+      width: data.board_width, height: data.board_height, layers: data.board_layers,
+      boardInstance: new Board(tiles),
+      movesLog: [],
+      hints: 0, undos: 0, pairs: 0,
+      startMs: Date.now(), elapsedMs: 0,
+    });
 
-    this.registry.set('gameHints', 0);
-    this.registry.set('gameUndos', 0);
-    this.registry.set('gamePairs', 0);
-    this.registry.set('gameStartMs', Date.now());
-    this.registry.set('gameElapsedMs', 0);
-    this.registry.set('gameFinished', false);
     this.registry.set('allStats', data.stats);
     this.renderStats();
     this.persistGame();
@@ -1179,8 +1211,6 @@ class MainScene extends Phaser.Scene {
     sprite._hoverScaleTween?.stop();
     sprite._hoverScaleTween = this.tweens.add({
       targets: sprite, angle: 0, duration: HOVER_MS, ease: 'Sine.easeOut',
-      onUpdate: () => {},
-      onComplete: () => sprite.setDisplaySize(this.LM.tileW, this.LM.tileH),
     });
     sprite.setDisplaySize(this.LM.tileW, this.LM.tileH);
   }
@@ -1389,15 +1419,20 @@ class MainScene extends Phaser.Scene {
     if (!this.board) return;
     const pair = this.board.findMatchingPair();
     if (!pair) return;
-    const pulseMs = 180 * (1 + 2 * 3);
+    // The glow removal timer below is derived from these same two values —
+    // change them together, not pulseMs on its own, or the glow will
+    // outlive (or cut off before) the alpha pulse it's paired with.
+    const pulseDuration = 180;
+    const pulseRepeat = 3;
+    const pulseMs = pulseDuration * (1 + 2 * pulseRepeat);
     for (const tile of pair) {
       const sprite = this.sprites.get(tile);
       this.tweens.add({
         targets: sprite,
         alpha: 0.3,
-        duration: 180,
+        duration: pulseDuration,
         yoyo: true,
-        repeat: 3,
+        repeat: pulseRepeat,
       });
       if (this.webgl) {
         const fx = sprite.postFX.addGlow(HINT_GLOW_COLOR, GLOW_STRENGTH, 0, false, 0.15, 12);

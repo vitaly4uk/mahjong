@@ -15,11 +15,9 @@ def empty_all_stats() -> dict:
     return AllStats().model_dump(by_alias=True)
 
 
-def bump_started(stats: LevelStats) -> LevelStats:
-    return stats.model_copy(update={'games_started': stats.games_started + 1})
-
-
-BUMP_FIELDS = {'hint': 'hints_total', 'undo': 'undos_total', 'pair': 'pairs_total'}
+BUMP_FIELDS = {
+    'start': 'games_started', 'hint': 'hints_total', 'undo': 'undos_total', 'pair': 'pairs_total',
+}
 
 
 def bump_counter(stats: LevelStats, counter: str) -> LevelStats:
@@ -78,3 +76,17 @@ def merge_imported(server: AllStats, imported: AllStats) -> AllStats:
         level: _merge_level(getattr(server, level), getattr(imported, level))
         for level in LEVELS
     })
+
+
+def update_level_stats(profile, level, mutator) -> AllStats:
+    """Reads profile.stats, applies `mutator` to the given level's
+    LevelStats, persists the updated blob, and returns the full AllStats —
+    the read/mutate/save sequence shared by every gameplay/api.py endpoint
+    that touches lifetime stats (start/bump/finish). `mutator` is one of the
+    LevelStats -> LevelStats transformers above (bump_counter partial,
+    apply_win, apply_loss, ...)."""
+    all_stats = AllStats.model_validate(profile.stats)
+    setattr(all_stats, level, mutator(getattr(all_stats, level)))
+    profile.stats = all_stats.model_dump(by_alias=True)
+    profile.save(update_fields=['stats', 'updated_at'])
+    return all_stats

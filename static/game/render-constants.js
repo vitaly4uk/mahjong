@@ -64,7 +64,6 @@ export const SPARK_COLORS = [0xffd54a, 0xff6b6b, 0x77bbff, 0x6bffb0, 0xffffff];
 export const POOF_COUNT = 10;
 export const END_EFFECT_MS = 1300; // duration of the confetti/crumble before the modal appears
 export const CRUMBLE_FALL = 260; // how many px tiles "crumble" down on a loss (base, ×dpr)
-export const POOF_FALL = 160;
 export const UNDO_DROP = 70; // the height a tile "drops" from when restored via undo (base, ×dpr)
 // Guaranteed to be above the depth of any tile on the board (max LAYERS*10000 + HEIGHT*100 + WIDTH)
 export const FALLING_DEPTH = 1000000;

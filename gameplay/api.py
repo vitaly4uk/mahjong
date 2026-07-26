@@ -25,7 +25,7 @@ from .schemas import (
     AllStats, BumpRequest, BumpResponse, FinishRequest, FinishResponse, ImportRequest,
     ImportResponse, SessionStateResponse, StartRequest, StartResponse, StatsResponse,
 )
-from .stats import apply_loss, apply_win, bump_counter, bump_started, merge_imported
+from .stats import apply_loss, apply_win, bump_counter, merge_imported, update_level_stats
 
 router = Router(by_alias=True)
 
@@ -61,6 +61,15 @@ def _rate_limited(request, action, limit):
     return False
 
 
+def _enforce_rate_limit(request, action, limit):
+    if _rate_limited(request, action, limit):
+        raise HttpError(429, 'too many requests, slow down')
+
+
+def _session_elapsed(session):
+    return timezone.now() - session.created_at
+
+
 def _session_profile(request, session):
     """The player who STARTED this game (session.user), not necessarily the
     one making the current request — the semantically correct attribution
@@ -79,8 +88,7 @@ def start_game(request, payload: StartRequest):
     board = get_layout(payload.board)
     if board is None:
         raise HttpError(400, 'unknown board')
-    if _rate_limited(request, 'start', RATE_LIMIT_MAX_STARTS):
-        raise HttpError(429, 'too many new games, slow down')
+    _enforce_rate_limit(request, 'start', RATE_LIMIT_MAX_STARTS)
 
     seed = uuid.uuid4().hex
     tiles = generate_for_difficulty(payload.level, board, seed=seed)
@@ -90,12 +98,9 @@ def start_game(request, payload: StartRequest):
         level=payload.level, layout=layout, seed=seed, user=request.profile.user,
     )
 
-    profile = request.profile
-    all_stats = AllStats.model_validate(profile.stats)
-    level_stats = bump_started(getattr(all_stats, payload.level))
-    setattr(all_stats, payload.level, level_stats)
-    profile.stats = all_stats.model_dump(by_alias=True)
-    profile.save(update_fields=['stats', 'updated_at'])
+    all_stats = update_level_stats(
+        request.profile, payload.level, lambda s: bump_counter(s, 'start'),
+    )
 
     return {
         'token': session.token, 'layout': layout, 'stats': all_stats,
@@ -119,7 +124,7 @@ def session_state(request, token: uuid.UUID):
     if session.status != GameSession.Status.ACTIVE:
         return {'status': session.status}
 
-    elapsed = timezone.now() - session.created_at
+    elapsed = _session_elapsed(session)
     if elapsed > SESSION_TTL:
         # Don't write to the DB — lazy EXPIRED marking is left to finish.
         return {'status': 'expired'}
@@ -137,19 +142,16 @@ def bump_stat(request, token: uuid.UUID, payload: BumpRequest):
         raise HttpError(400, 'session already claimed')
 
     profile = _session_profile(request, session)
-    all_stats = AllStats.model_validate(profile.stats)
-    updated = bump_counter(getattr(all_stats, session.level), payload.counter)
-    setattr(all_stats, session.level, updated)
-    profile.stats = all_stats.model_dump(by_alias=True)
-    profile.save(update_fields=['stats', 'updated_at'])
+    all_stats = update_level_stats(
+        profile, session.level, lambda s: bump_counter(s, payload.counter),
+    )
 
     return {'stats': all_stats}
 
 
 @router.post('/finish', response=FinishResponse)
 def finish_game(request, payload: FinishRequest):
-    if _rate_limited(request, 'finish', RATE_LIMIT_MAX_FINISHES):
-        raise HttpError(429, 'too many requests, slow down')
+    _enforce_rate_limit(request, 'finish', RATE_LIMIT_MAX_FINISHES)
 
     try:
         session = GameSession.objects.select_related('user__profile').get(token=payload.token)
@@ -159,7 +161,7 @@ def finish_game(request, payload: FinishRequest):
     if session.status != GameSession.Status.ACTIVE:
         return {'valid': False, 'reason': 'session already claimed'}
 
-    if timezone.now() - session.created_at > SESSION_TTL:
+    if _session_elapsed(session) > SESSION_TTL:
         session.status = GameSession.Status.EXPIRED
         session.save(update_fields=['status'])
         return {'valid': False, 'reason': 'session expired'}
@@ -184,7 +186,9 @@ def finish_game(request, payload: FinishRequest):
     if payload.outcome == 'deadlock' and not board.is_deadlocked():
         return {'valid': False, 'reason': 'board is not deadlocked'}
 
-    elapsed_ms = int((timezone.now() - session.created_at).total_seconds() * 1000)
+    # A fresh reading (not reusing the TTL check's elapsed above) — this one
+    # must reflect time up to the actual claim, after move validation.
+    elapsed_ms = int(_session_elapsed(session).total_seconds() * 1000)
 
     # An atomic conditional UPDATE closes the claim race: if two finish
     # requests both read status=ACTIVE before either managed to write
@@ -202,12 +206,8 @@ def finish_game(request, payload: FinishRequest):
         return {'valid': False, 'reason': 'session already claimed'}
 
     profile = _session_profile(request, session)
-    all_stats = AllStats.model_validate(profile.stats)
-    level_stats = getattr(all_stats, session.level)
-    updated = apply_win(level_stats, elapsed_ms) if payload.outcome == 'win' else apply_loss(level_stats)
-    setattr(all_stats, session.level, updated)
-    profile.stats = all_stats.model_dump(by_alias=True)
-    profile.save(update_fields=['stats', 'updated_at'])
+    mutator = (lambda s: apply_win(s, elapsed_ms)) if payload.outcome == 'win' else apply_loss
+    all_stats = update_level_stats(profile, session.level, mutator)
 
     return {'valid': True, 'won': payload.outcome == 'win', 'elapsed_ms': elapsed_ms, 'stats': all_stats}
 
@@ -223,8 +223,7 @@ def get_stats(request):
 
 @router.post('/stats/import', response=ImportResponse)
 def import_stats(request, payload: ImportRequest):
-    if _rate_limited(request, 'stats_import', RATE_LIMIT_MAX_IMPORTS):
-        raise HttpError(429, 'too many requests, slow down')
+    _enforce_rate_limit(request, 'stats_import', RATE_LIMIT_MAX_IMPORTS)
 
     profile = request.profile
     if profile.legacy_imported:
