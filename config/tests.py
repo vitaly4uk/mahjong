@@ -15,7 +15,9 @@ class BackgroundApiTests(TestCase):
     def test_background_without_api_key_returns_null_url(self):
         response = self.client.get('/api/background/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {'url': None, 'photographer': None, 'photographer_url': None})
+        self.assertEqual(
+            response.json(), {'url': None, 'photographer': None, 'photographer_url': None},
+        )
 
     @override_settings(PEXELS_API_KEY='test-key')
     @patch('config.api.requests.get')

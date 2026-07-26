@@ -14,7 +14,9 @@ class Profile(models.Model):
     existing User rather than merging in a separate identity model).
     """
 
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile',
+    )
     # Value of the mahjong_player cookie, not User.pk — avoids exposing a sequential ID.
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     stats = models.JSONField(default=empty_all_stats)  # AllStats.model_dump(by_alias=True)

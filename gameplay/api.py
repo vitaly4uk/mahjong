@@ -23,8 +23,17 @@ from .generator import DIFFICULTIES, generate_for_difficulty
 from .layouts import get_layout
 from .models import GameSession
 from .schemas import (
-    AllStats, BumpRequest, BumpResponse, FinishRequest, FinishResponse, ImportRequest,
-    ImportResponse, SessionStateResponse, StartRequest, StartResponse, StatsResponse,
+    AllStats,
+    BumpRequest,
+    BumpResponse,
+    FinishRequest,
+    FinishResponse,
+    ImportRequest,
+    ImportResponse,
+    SessionStateResponse,
+    StartRequest,
+    StartResponse,
+    StatsResponse,
 )
 from .stats import apply_loss, apply_win, bump_counter, merge_imported, update_level_stats
 
@@ -138,7 +147,7 @@ def bump_stat(request, token: uuid.UUID, payload: BumpRequest):
     try:
         session = GameSession.objects.select_related('user__profile').get(token=token)
     except GameSession.DoesNotExist:
-        raise HttpError(400, _('unknown session'))
+        raise HttpError(400, _('unknown session')) from None
     if session.status != GameSession.Status.ACTIVE:
         raise HttpError(400, _('session already claimed'))
 
@@ -210,7 +219,10 @@ def finish_game(request, payload: FinishRequest):
     mutator = (lambda s: apply_win(s, elapsed_ms)) if payload.outcome == 'win' else apply_loss
     all_stats = update_level_stats(profile, session.level, mutator)
 
-    return {'valid': True, 'won': payload.outcome == 'win', 'elapsed_ms': elapsed_ms, 'stats': all_stats}
+    return {
+        'valid': True, 'won': payload.outcome == 'win',
+        'elapsed_ms': elapsed_ms, 'stats': all_stats,
+    }
 
 
 @router.get('/stats', response=StatsResponse)

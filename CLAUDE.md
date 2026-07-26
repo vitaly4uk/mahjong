@@ -135,6 +135,35 @@ uv run manage.py test
 
 (без аргументу — Django-discovery знаходить `gameplay/tests.py` і `config/tests.py` автоматично; `uv run manage.py test gameplay` звузить до одного застосунку.)
 
+## Лінтинг (критерій виконання задачі)
+
+Задача НЕ вважається завершеною, поки обидва лінтери не проходять чисто —
+нарівні з тестами вище:
+
+- **Python (`ruff`)** — dev-залежність (`uv add --dev ruff`, у прод-образ не
+  тягнеться: Dockerfile робить `uv sync ... --no-dev`), конфіг —
+  `[tool.ruff]`/`[tool.ruff.lint]` у `pyproject.toml` (`select = ["E", "F",
+  "I", "UP", "B", "DJ"]`, `migrations`/`staticfiles` виключені):
+  ```
+  uv run ruff check .
+  ```
+  Автофікс безпечних (сортування імпортів, pyupgrade): `uv run ruff check --fix .`
+
+- **JS (`Biome`)** — без локального `node_modules`, гониться через `npx` з
+  піном версії (той самий підхід, що й `esbuild` у `Dockerfile: jsbuild`),
+  конфіг — `biome.json` (лінтить лише `static/game/**/*.js` і `tests/**/*.js`,
+  виключає build-артефакт `bundle.js`; `static/vendor/` не мапиться жодним
+  include-патерном, тож теж поза скоупом):
+  ```
+  npx --yes @biomejs/biome@2.5.5 lint static/game tests
+  ```
+  Автофікс: `npx --yes @biomejs/biome@2.5.5 lint --write static/game tests`
+  (частина фіксів `--unsafe` — перевіряти діфф перед застосуванням).
+
+Обидва лінтери — суто статичний аналіз, окремого CI під них немає (немає
+GitHub-remote, деплой — dokku), тож команди вище ганяються вручну перед
+комітом/завершенням задачі.
+
 ## Конфігурація через env
 
 `config/settings.py` читає:

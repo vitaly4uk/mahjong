@@ -28,7 +28,9 @@ class PlayerIdentityMiddleware:
 
         profile = getattr(request, 'profile', None)
         if profile is not None:
-            current = request.get_signed_cookie(PLAYER_COOKIE_NAME, salt=PLAYER_COOKIE_SALT, default=None)
+            current = request.get_signed_cookie(
+                PLAYER_COOKIE_NAME, salt=PLAYER_COOKIE_SALT, default=None,
+            )
             if current != str(profile.public_id):
                 response.set_signed_cookie(
                     PLAYER_COOKIE_NAME, str(profile.public_id), salt=PLAYER_COOKIE_SALT,
@@ -39,7 +41,9 @@ class PlayerIdentityMiddleware:
 
     @staticmethod
     def _get_or_create_profile(request):
-        public_id = request.get_signed_cookie(PLAYER_COOKIE_NAME, salt=PLAYER_COOKIE_SALT, default=None)
+        public_id = request.get_signed_cookie(
+            PLAYER_COOKIE_NAME, salt=PLAYER_COOKIE_SALT, default=None,
+        )
         profile = (
             Profile.objects.select_related('user').filter(public_id=public_id).first()
             if public_id else None

@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
-from .api import SESSION_TTL, router as gameplay_router  # noqa: F401 (registers the router when the test module is imported)
+from .api import SESSION_TTL  # noqa: F401 (registers the router when the test module is imported)
 from .board import Board, Tile, is_free_position, match_key
 from .generator import DIFFICULTIES, generate_for_difficulty
 from .layouts import LAYOUTS_DIR, LayoutError, get_layout, list_boards, load_layouts, parse_layout
@@ -167,8 +167,12 @@ class GeneratorTests(TestCase):
             for level in DIFFICULTIES:
                 for seed in range(10):
                     tiles = generate_for_difficulty(level, layout, seed=f'{slug}-{level}-{seed}')
-                    self.assertEqual(len(tiles), 144, f'{slug}/{level} seed={seed}: expected 144 tiles')
-                    self.assertTrue(_solve(tiles), f'{slug}/{level} seed={seed}: board is unsolvable')
+                    self.assertEqual(
+                        len(tiles), 144, f'{slug}/{level} seed={seed}: expected 144 tiles',
+                    )
+                    self.assertTrue(
+                        _solve(tiles), f'{slug}/{level} seed={seed}: board is unsolvable',
+                    )
 
     def test_generated_layout_is_authentic_deck(self):
         """A full mahjong deck: 34 regular kinds × 4 copies + 8 bonus
@@ -242,7 +246,8 @@ class GameApiTests(TestCase):
 
     def test_start_accepts_explicit_board_choice(self):
         response = self.client.post(
-            '/api/game/start', data={'level': 'easy', 'board': 'dragon'}, content_type='application/json',
+            '/api/game/start',
+            data={'level': 'easy', 'board': 'dragon'}, content_type='application/json',
         )
         self.assertEqual(response.status_code, 200, response.content)
         positions = {(t['x'], t['y'], t['z']) for t in response.json()['layout']}
@@ -472,9 +477,13 @@ class PlayerIdentityMiddlewareTests(TestCase):
         self.assertEqual(session.user.profile, Profile.objects.get())
 
     def test_repeated_requests_with_same_cookie_reuse_profile(self):
-        self.client.post('/api/game/start', data={'level': 'easy'}, content_type='application/json')
+        self.client.post(
+            '/api/game/start', data={'level': 'easy'}, content_type='application/json',
+        )
         self.assertEqual(Profile.objects.count(), 1)
-        self.client.post('/api/game/start', data={'level': 'normal'}, content_type='application/json')
+        self.client.post(
+            '/api/game/start', data={'level': 'normal'}, content_type='application/json',
+        )
         self.assertEqual(Profile.objects.count(), 1)
         self.assertEqual(GameSession.objects.count(), 2)
         self.assertEqual(GameSession.objects.first().user_id, GameSession.objects.last().user_id)
@@ -491,6 +500,11 @@ class StatsEndpointTests(TestCase):
         )
         self.assertEqual(response.status_code, 200, response.content)
         return response.json()
+
+    def _bump(self, token, counter):
+        return self.client.post(
+            f'/api/game/{token}/bump', data={'counter': counter}, content_type='application/json',
+        )
 
     def _win_moves(self, layout):
         tiles = [Tile(i, t['x'], t['y'], t['z'], t['kind']) for i, t in enumerate(layout)]
@@ -518,22 +532,17 @@ class StatsEndpointTests(TestCase):
     def test_bump_increments_matching_counter_and_accumulates(self):
         data = self._start('easy')
         token = data['token']
-        for counter, field in (('hint', 'hintsTotal'), ('undo', 'undosTotal'), ('pair', 'pairsTotal')):
-            response = self.client.post(
-                f'/api/game/{token}/bump', data={'counter': counter}, content_type='application/json',
-            )
+        counters = (('hint', 'hintsTotal'), ('undo', 'undosTotal'), ('pair', 'pairsTotal'))
+        for counter, field in counters:
+            response = self._bump(token, counter)
             self.assertEqual(response.status_code, 200, response.content)
             self.assertEqual(response.json()['stats']['easy'][field], 1)
 
-        response = self.client.post(
-            f'/api/game/{token}/bump', data={'counter': 'hint'}, content_type='application/json',
-        )
+        response = self._bump(token, 'hint')
         self.assertEqual(response.json()['stats']['easy']['hintsTotal'], 2)
 
     def test_bump_rejects_unknown_token(self):
-        response = self.client.post(
-            f'/api/game/{uuid.uuid4()}/bump', data={'counter': 'hint'}, content_type='application/json',
-        )
+        response = self._bump(uuid.uuid4(), 'hint')
         self.assertEqual(response.status_code, 400)
 
     def test_bump_rejects_already_claimed_session(self):
@@ -544,15 +553,13 @@ class StatsEndpointTests(TestCase):
             data={'token': data['token'], 'moves': moves, 'outcome': 'win'},
             content_type='application/json',
         )
-        response = self.client.post(
-            f'/api/game/{data["token"]}/bump', data={'counter': 'hint'}, content_type='application/json',
-        )
+        response = self._bump(data['token'], 'hint')
         self.assertEqual(response.status_code, 400)
 
     def test_finish_updates_only_win_loss_fields_not_bump_totals(self):
         data = self._start('easy')
         token = data['token']
-        self.client.post(f'/api/game/{token}/bump', data={'counter': 'pair'}, content_type='application/json')
+        self._bump(token, 'pair')
         moves = self._win_moves(data['layout'])
         response = self.client.post(
             '/api/game/finish',
@@ -569,8 +576,8 @@ class StatsEndpointTests(TestCase):
         data = self._start('easy')
         token = data['token']
         for _ in range(3):
-            self.client.post(f'/api/game/{token}/bump', data={'counter': 'pair'}, content_type='application/json')
-        self.client.post(f'/api/game/{token}/bump', data={'counter': 'hint'}, content_type='application/json')
+            self._bump(token, 'pair')
+        self._bump(token, 'hint')
         moves = self._win_moves(data['layout'])
         response = self.client.post(
             '/api/game/finish',
@@ -588,7 +595,10 @@ class StatsEndpointTests(TestCase):
     def test_import_accepted_once_then_rejected(self):
         # Pinned to English — asserts the msgid itself, not a translation.
         legacy = {
-            'easy': {'gamesPlayed': 2, 'gamesWon': 1, 'bestTimeMs': 4000, 'currentStreak': 1, 'bestStreak': 1},
+            'easy': {
+                'gamesPlayed': 2, 'gamesWon': 1, 'bestTimeMs': 4000,
+                'currentStreak': 1, 'bestStreak': 1,
+            },
         }
         first = self.client.post(
             '/api/game/stats/import', data={'stats': legacy}, content_type='application/json',

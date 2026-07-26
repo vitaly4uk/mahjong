@@ -10,7 +10,7 @@ import {
 } from './stats.js';
 import {
   TILE_ASPECT, LAYER_DX_FRAC, LAYER_DY_FRAC, STEP_X_FRAC, STEP_Y_FRAC, MARGIN, TOOLBAR_H, STATUS_BAR_H,
-  STATUS_BAR_BG, STATUS_BAR_BG_ALPHA, SELECT_TINT, LAYER_TINTS,
+  STATUS_BAR_BG, STATUS_BAR_BG_ALPHA, LAYER_TINTS,
   GLOW_COLOR, GLOW_STRENGTH, GLOW_PULSE_DELTA, SELECT_TILT_DEG, HINT_GLOW_COLOR, SPARK_COLORS,
   POOF_COUNT, END_EFFECT_MS, CRUMBLE_FALL, UNDO_DROP, FALLING_DEPTH,
   HOVER_SCALE, HOVER_WOBBLE_DEG, HOVER_WOBBLE_MS, HOVER_MS,
@@ -313,7 +313,7 @@ class MainScene extends Phaser.Scene {
     this.registry.events.on('changedata-allStats', () => this.renderStatsModal());
 
     this.registry.set('modal', null);
-    this.registry.events.on('changedata-modal', (parent, value) => this.renderModal(value));
+    this.registry.events.on('changedata-modal', (_parent, value) => this.renderModal(value));
 
     this.currentLevel = loadDifficultyPref(allStats);
     saveDifficultyPref(this.currentLevel);
@@ -351,16 +351,16 @@ class MainScene extends Phaser.Scene {
       });
     }
 
-    this.input.on('gameobjectdown', (pointer, obj) => {
+    this.input.on('gameobjectdown', (_pointer, obj) => {
       if (this.registry.get('modal')) return;
       const tile = obj.getData('tile');
       if (tile) this.handleTileClick(tile);
     });
-    this.input.on('gameobjectover', (pointer, obj) => {
+    this.input.on('gameobjectover', (_pointer, obj) => {
       const tile = obj.getData('tile');
       if (tile) this.handleTileOver(tile);
     });
-    this.input.on('gameobjectout', (pointer, obj) => {
+    this.input.on('gameobjectout', (_pointer, obj) => {
       const tile = obj.getData('tile');
       if (tile) this.handleTileOut(tile);
     });
@@ -531,7 +531,8 @@ class MainScene extends Phaser.Scene {
     this._rasterH = h;
     for (const kind of KINDS) {
       const img = this.tileImages.get(kind);
-      let tex = this.textures.exists(kind) ? this.textures.get(kind) : this.textures.createCanvas(kind, w, h);
+      const tex = this.textures.exists(kind)
+        ? this.textures.get(kind) : this.textures.createCanvas(kind, w, h);
       if (tex.width !== w || tex.height !== h) tex.setSize(w, h);
       const ctx = tex.getContext();
       ctx.clearRect(0, 0, w, h);
@@ -848,7 +849,7 @@ class MainScene extends Phaser.Scene {
     } catch {
       state = null;
     }
-    if (!state || state.status !== 'active') {
+    if (state?.status !== 'active') {
       clearActiveGame();
       return false;
     }

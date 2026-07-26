@@ -109,7 +109,9 @@ def parse_layout(text, slug):
         for y in range(height):
             row = grid_lines[z * height + y]
             if len(row) != width:
-                raise LayoutError(f'{slug}: row {z * height + y} has length {len(row)}, expected {width}')
+                raise LayoutError(
+                    f'{slug}: row {z * height + y} has length {len(row)}, expected {width}',
+                )
             for x, ch in enumerate(row):
                 if ch != _ANCHOR:
                     continue
@@ -122,7 +124,9 @@ def parse_layout(text, slug):
                         qx >= width or qy >= height
                         or grid_lines[z * height + qy][qx] != quad_char
                     ):
-                        raise LayoutError(f'{slug}: tile at ({x},{y},{z}) missing quadrant {quad_char!r}')
+                        raise LayoutError(
+                            f'{slug}: tile at ({x},{y},{z}) missing quadrant {quad_char!r}',
+                        )
                 positions.append((x, y, z))
 
     if len(positions) != _TOTAL_TILES:
@@ -148,7 +152,9 @@ def parse_layout(text, slug):
     width = max(x for x, _y, _z in positions) + 2
     height = max(y for _x, y, _z in positions) + 2
 
-    return Layout(slug=slug, name=name, width=width, height=height, layers=depth, positions=positions)
+    return Layout(
+        slug=slug, name=name, width=width, height=height, layers=depth, positions=positions,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -177,4 +183,6 @@ def list_boards():
     gettext(layout.name) here (not baked into the cached Layout) — translates
     for the *current* request's active language; falls back to the English
     name itself if it isn't a registered msgid (see gettext_noop above)."""
-    return [{'slug': layout.slug, 'name': gettext(layout.name)} for layout in load_layouts().values()]
+    return [
+        {'slug': layout.slug, 'name': gettext(layout.name)} for layout in load_layouts().values()
+    ]
