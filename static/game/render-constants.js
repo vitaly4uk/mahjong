@@ -93,6 +93,10 @@ export const FLIGHT_MERGE_SCALE = 1.35; // how large the tiles grow at the cente
 export const FLIGHT_DOWN_MS = 900;
 export const FLIGHT_ARC_LIFT = 90; // how far phase-2's arc control point is offset sideways (base, ×dpr)
 
+// --- Shuffle (a card-style flip in place, per re-kinded tile) ---
+export const SHUFFLE_FLIP_MS = 280; // total flip duration (half collapsing to scaleX 0, half expanding back)
+export const SHUFFLE_TILE_STAGGER = 30; // delay between each re-kinded tile's flip start, for a cascading look
+
 // --- Dealing tiles at the start of a game ---
 export const DEAL_TILE_MS = 520; // duration of a single tile's flight
 export const DEAL_LAYER_STAGGER = 240; // delay between the start of each layer (z)

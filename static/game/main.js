@@ -3,6 +3,7 @@ import {
 } from './board.js';
 import {
   startGame as apiStartGame, finishGame as apiFinishGame, bumpStat as apiBumpStat,
+  shuffleGame as apiShuffleGame,
   fetchStats, importLegacyStats, fetchVersion, fetchSessionState, setLanguage,
 } from './sync.js';
 import {
@@ -18,6 +19,7 @@ import {
   ERROR_SHAKE_PX, ERROR_SHAKE_MS, ERROR_SHAKE_REPEAT, ERROR_TINT, ERROR_TINT_MS,
   FLIGHT_TO_CENTER_MS, FLIGHT_MERGE_SCALE, FLIGHT_DOWN_MS, FLIGHT_ARC_LIFT,
   DEAL_TILE_MS, DEAL_LAYER_STAGGER, DEAL_TILE_STAGGER, DEAL_START_SCALE, DEAL_OFFSCREEN_PAD,
+  SHUFFLE_FLIP_MS, SHUFFLE_TILE_STAGGER,
 } from './render-constants.js';
 
 // Provided globally by Django's JavaScriptCatalog (config/urls.py:
@@ -60,6 +62,7 @@ const STATS_ROW_LABELS = {
   totalHints: `💡 ${gettext('Total hints')}`,
   totalUndos: `↩️ ${gettext('Total undos')}`,
   totalPairs: `🀄 ${gettext('Total pairs removed')}`,
+  totalShuffles: `🔀 ${gettext('Total shuffles')}`,
 };
 
 const BOARD_KEY = 'mahjong.board';
@@ -174,6 +177,9 @@ const newgameModal = document.getElementById('newgame-modal');
 const newgameLevelButtons = [...newgameModal.querySelectorAll('[data-level]')];
 const newgameBoardButtons = [...newgameModal.querySelectorAll('[data-board]')];
 const newgameCloseBtn = document.getElementById('btn-newgame-close');
+const deadlockModal = document.getElementById('deadlock-modal');
+const deadlockShuffleBtn = document.getElementById('btn-deadlock-shuffle');
+const deadlockGiveupBtn = document.getElementById('btn-deadlock-giveup');
 
 // Only uk/en ship for now (config/settings.py: LANGUAGES) — a single toggle
 // button in the canvas toolbar (createToolbar) is simpler than a picker for
@@ -350,6 +356,8 @@ class MainScene extends Phaser.Scene {
         this.startGame(level, this.currentBoard);
       });
     }
+    deadlockShuffleBtn.addEventListener('click', () => this.shuffleGame());
+    deadlockGiveupBtn.addEventListener('click', () => this.finishGame(false));
 
     this.input.on('gameobjectdown', (_pointer, obj) => {
       if (this.registry.get('modal')) return;
@@ -805,13 +813,14 @@ class MainScene extends Phaser.Scene {
   // (where the data comes from); everything from here on — board dims,
   // sprites, deal-in, the per-game registry counters — is identical.
   enterGame({
-    token, layout, width, height, layers, boardInstance, movesLog,
+    token, layout, width, height, layers, boardInstance, movesLog, shuffles,
     hints, undos, pairs, startMs, elapsedMs,
   }) {
     this.sessionToken = token;
     this.layout = layout;
     this.applyBoardDims(width, height, layers);
     this.movesLog = movesLog;
+    this.shuffles = shuffles || [];
     this.board = boardInstance;
     for (const tile of this.board.tiles()) this.addTileSprite(tile);
     this.playDealIn();
@@ -834,6 +843,7 @@ class MainScene extends Phaser.Scene {
       boardHeight: this.boardHeight,
       boardLayers: this.boardLayers,
       movesLog: this.movesLog,
+      shuffles: this.shuffles,
       hints: this.registry.get('gameHints'),
       undos: this.registry.get('gameUndos'),
     });
@@ -855,7 +865,10 @@ class MainScene extends Phaser.Scene {
     }
 
     const tiles = saved.layout.map((t, idx) => ({ ...t, idx }));
-    const board = replayMoves(tiles, saved.movesLog);
+    // saved.shuffles is absent in snapshots written before shuffling existed
+    // — those games never shuffled, so an empty log reproduces them exactly.
+    const shuffles = saved.shuffles || [];
+    const board = replayMoves(tiles, saved.movesLog, shuffles);
     if (!board) {
       clearActiveGame();
       return false;
@@ -879,6 +892,7 @@ class MainScene extends Phaser.Scene {
       width: dims.width, height: dims.height, layers: dims.layers,
       boardInstance: board,
       movesLog: saved.movesLog.map((pair) => [...pair]),
+      shuffles,
       hints: saved.hints, undos: saved.undos, pairs: saved.movesLog.length,
       startMs: Date.now() - state.elapsedMs, elapsedMs: state.elapsedMs,
     });
@@ -892,6 +906,7 @@ class MainScene extends Phaser.Scene {
     const showStats = modal?.type === 'stats' || modal?.type === 'result';
     statsModal.classList.toggle('open', showStats);
     newgameModal.classList.toggle('open', modal?.type === 'newgame');
+    deadlockModal.classList.toggle('open', modal?.type === 'deadlock');
 
     if (showStats) {
       statsTitleEl.textContent = modal.type === 'result'
@@ -960,6 +975,7 @@ class MainScene extends Phaser.Scene {
             <dt>${STATS_ROW_LABELS.totalHints}</dt><dd>${s.hintsTotal}</dd>
             <dt>${STATS_ROW_LABELS.totalUndos}</dt><dd>${s.undosTotal}</dd>
             <dt>${STATS_ROW_LABELS.totalPairs}</dt><dd>${s.pairsTotal}</dd>
+            <dt>${STATS_ROW_LABELS.totalShuffles}</dt><dd>${s.shufflesTotal}</dd>
           </dl>
         </div>
       `;
@@ -1055,6 +1071,71 @@ class MainScene extends Phaser.Scene {
     if (result.won) this.loadBackground();
     this.playEndEffect(result.won, () => {
       this.registry.set('modal', { type: 'result', won: result.won });
+    });
+  }
+
+  // The dead-end alternative to giving up (main.js: updateStatus() opens the
+  // 'deadlock' modal, templates/game.html: #btn-deadlock-shuffle). Re-deals
+  // kinds for whatever tiles remain — server-authoritative and guaranteed
+  // solvable (gameplay/generator.py: reshuffle_layout) — so the game can
+  // always be finished after this, unlike a plain client-side shuffle.
+  async shuffleGame() {
+    if (!this.board) return;
+    let result;
+    try {
+      result = await apiShuffleGame(this.sessionToken, this.movesLog);
+    } catch {
+      this.registry.set('status', `⚠️ ${gettext('Failed to shuffle — check your connection')}`);
+      return;
+    }
+
+    // The data model updates immediately (the server is authoritative) —
+    // playShuffleFlip only re-textures the sprite, on its own delayed/tweened
+    // schedule, so a slow flip animation can never leave board state (isWon/
+    // isDeadlocked) looking at stale kinds.
+    const tilesByIdx = new Map(this.board.tiles().map((tile) => [tile.idx, tile]));
+    Object.entries(result.kinds).forEach(([idxStr, kind], i) => {
+      const tile = tilesByIdx.get(Number(idxStr));
+      if (!tile) return;
+      tile.kind = kind;
+      this.playShuffleFlip(tile, kind, i * SHUFFLE_TILE_STAGGER);
+    });
+    this.shuffles.push({ afterMoves: this.movesLog.length, kinds: result.kinds });
+    this.registry.set('allStats', result.stats);
+    this.persistGame();
+    this.registry.set('modal', null);
+    this.updateStatus();
+  }
+
+  // A card-style flip in place: collapse to scaleX 0, swap the texture at
+  // the midpoint (every kind's CanvasTexture is rasterized to the exact same
+  // pixel size — rasterizeTiles — so swapping mid-flip needs no
+  // setDisplaySize call), then expand back. `delay` staggers multiple tiles
+  // (main.js: shuffleGame) into a cascading reveal instead of all flipping
+  // in lockstep.
+  playShuffleFlip(tile, kind, delay = 0) {
+    const sprite = this.sprites.get(tile);
+    if (!sprite) return;
+    if (this.reducedMotion) {
+      sprite.setTexture(kind);
+      return;
+    }
+    const baseScaleX = sprite.scaleX;
+    this.tweens.add({
+      targets: sprite,
+      scaleX: 0,
+      duration: SHUFFLE_FLIP_MS / 2,
+      delay,
+      ease: 'Quad.easeIn',
+      onComplete: () => {
+        sprite.setTexture(kind);
+        this.tweens.add({
+          targets: sprite,
+          scaleX: baseScaleX,
+          duration: SHUFFLE_FLIP_MS / 2,
+          ease: 'Quad.easeOut',
+        });
+      },
     });
   }
 
@@ -1503,8 +1584,8 @@ class MainScene extends Phaser.Scene {
       this.registry.set('status', `🎉 ${gettext('Victory!')}`);
       this.finishGame(true);
     } else if (this.board.isDeadlocked()) {
-      this.registry.set('status', `🚫 ${gettext('No moves left — start a new game')}`);
-      this.finishGame(false);
+      this.registry.set('status', `🚫 ${gettext('No moves left')}`);
+      this.registry.set('modal', { type: 'deadlock' });
     } else {
       // No noun to agree in number here ("Remaining: N", not "N tiles left")
       // — a plain interpolated count needs no ngettext/plural forms.

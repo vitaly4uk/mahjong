@@ -45,6 +45,13 @@ class GameSession(models.Model):
     level = models.CharField(max_length=16)
     layout = models.JSONField()
     seed = models.CharField(max_length=64)
+    # Shuffle events applied during the game, in order:
+    # [{"after_moves": int, "kinds": {"<idx>": "<kind>"}}, ...]. `after_moves`
+    # is the move-log length at the moment of the shuffle (the replay anchor
+    # — see gameplay/api.py: _replay); `kinds` remaps the tiles still on the
+    # board at that point to their new kind, positions unchanged. Existing
+    # rows backfill to [] (sessions live 2h and turn over quickly).
+    shuffles = models.JSONField(default=list)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sessions',
         null=True, blank=True,

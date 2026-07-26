@@ -41,7 +41,7 @@
      кредит фотографа (Pexels License) тепер рендеряться всередині самого
      канваса (Phaser Text/rectangle, main.js: createToolbar/createStatusBar/
      setBgCredit) — окремих DOM-елементів не потрібно. */
-  #stats-modal, #newgame-modal {
+  #stats-modal, #newgame-modal, #deadlock-modal {
     display: none; position: fixed; inset: 0; z-index: 10;
     background: rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
@@ -49,15 +49,15 @@
     -webkit-app-region: no-drag;
     animation: stats-overlay-in .18s ease;
   }
-  #stats-modal.open, #newgame-modal.open { display: flex; }
-  #stats-modal .panel, #newgame-modal .panel {
+  #stats-modal.open, #newgame-modal.open, #deadlock-modal.open { display: flex; }
+  #stats-modal .panel, #newgame-modal .panel, #deadlock-modal .panel {
     background: #24352a; border-radius: 10px; padding: 24px 28px;
     min-width: 260px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.06);
     animation: stats-panel-in .2s ease;
     max-height: calc(100vh - 40px); overflow-y: auto;
   }
-  #stats-modal h2, #newgame-modal h2 {
+  #stats-modal h2, #newgame-modal h2, #deadlock-modal h2 {
     margin: 0 0 20px; font-size: 20px; text-align: center;
   }
   #stats-modal dl {
@@ -66,7 +66,7 @@
   }
   #stats-modal dt { color: #9bb; }
   #stats-modal dd { margin: 0; text-align: right; font-weight: 600; }
-  #stats-modal .actions, #newgame-modal .actions {
+  #stats-modal .actions, #newgame-modal .actions, #deadlock-modal .actions {
     margin-top: -4px; padding-top: 16px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     text-align: center;
@@ -74,19 +74,20 @@
   /* Той самий тактильний прийом, що й у кнопок тулбару-канваса (main.js:
      createToolbar) — трохи більше при наведенні, менше й "утоплено" при
      натисканні (:active), плавно повертається назад при відпусканні. */
-  #stats-modal button, #newgame-modal button {
+  #stats-modal button, #newgame-modal button, #deadlock-modal button {
     padding: 6px 20px; font-size: 14px; font-weight: 500;
     border: 0; border-radius: 6px; min-width: 120px;
     background: #3a5a40; color: #fff; cursor: pointer;
     transition: background .15s ease, transform .12s ease;
   }
-  #stats-modal button:hover, #newgame-modal button:hover {
+  #stats-modal button:hover, #newgame-modal button:hover, #deadlock-modal button:hover {
     background: #4c7454; transform: scale(1.05);
   }
-  #stats-modal button:active, #newgame-modal button:active {
+  #stats-modal button:active, #newgame-modal button:active, #deadlock-modal button:active {
     background: #4c7454; transform: scale(0.93) translateY(2px);
     transition: background .15s ease, transform .08s ease;
   }
+  #deadlock-modal .actions { display: flex; gap: 12px; border-top: 0; padding-top: 0; margin-top: 4px; }
   #newgame-modal .levels, #newgame-modal .boards {
     display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px;
   }
@@ -118,10 +119,11 @@
     to { opacity: 1; transform: none; }
   }
   @media (prefers-reduced-motion: reduce) {
-    #stats-modal, #stats-modal .panel, #newgame-modal, #newgame-modal .panel { animation: none; }
-    #stats-modal button, #newgame-modal button { transition: background .15s ease; }
-    #stats-modal button:hover, #newgame-modal button:hover,
-    #stats-modal button:active, #newgame-modal button:active { transform: none; }
+    #stats-modal, #stats-modal .panel, #newgame-modal, #newgame-modal .panel,
+    #deadlock-modal, #deadlock-modal .panel { animation: none; }
+    #stats-modal button, #newgame-modal button, #deadlock-modal button { transition: background .15s ease; }
+    #stats-modal button:hover, #newgame-modal button:hover, #deadlock-modal button:hover,
+    #stats-modal button:active, #newgame-modal button:active, #deadlock-modal button:active { transform: none; }
   }
 </style>
 </head>
@@ -154,6 +156,15 @@
     <div class="actions">
       <button id="btn-stats-new">🆕 {% trans "New game" %}</button>
       <button id="btn-stats-close">✖ {% trans "Close" %}</button>
+    </div>
+  </div>
+</div>
+<div id="deadlock-modal">
+  <div class="panel">
+    <h2>🚫 {% trans "No moves left" %}</h2>
+    <div class="actions">
+      <button id="btn-deadlock-shuffle">🔀 {% trans "Shuffle" %}</button>
+      <button id="btn-deadlock-giveup">🏳 {% trans "Give up" %}</button>
     </div>
   </div>
 </div>

@@ -9,6 +9,7 @@ anything. `Router(by_alias=True)` — all response schemas are serialized with
 camelCase field aliases (`gamesPlayed`, not `games_played`), as the client
 expects.
 """
+import random
 import uuid
 from datetime import timedelta
 
@@ -19,7 +20,7 @@ from ninja import Router
 from ninja.errors import HttpError
 
 from .board import Board, Tile
-from .generator import DIFFICULTIES, generate_for_difficulty
+from .generator import DIFFICULTIES, generate_for_difficulty, reshuffle_layout
 from .layouts import get_layout
 from .models import GameSession
 from .schemas import (
@@ -31,6 +32,8 @@ from .schemas import (
     ImportRequest,
     ImportResponse,
     SessionStateResponse,
+    ShuffleRequest,
+    ShuffleResponse,
     StartRequest,
     StartResponse,
     StatsResponse,
@@ -44,6 +47,7 @@ RATE_LIMIT_WINDOW_SECONDS = 300
 RATE_LIMIT_MAX_STARTS = 30
 RATE_LIMIT_MAX_FINISHES = 60
 RATE_LIMIT_MAX_IMPORTS = 10
+RATE_LIMIT_MAX_SHUFFLES = 60
 
 
 def _client_ip(request):
@@ -159,6 +163,97 @@ def bump_stat(request, token: uuid.UUID, payload: BumpRequest):
     return {'stats': all_stats}
 
 
+def _replay(session, moves):
+    """Rebuilds a Board from session.layout and replays `moves` (pairs of
+    idx, in removal order), applying session.shuffles at their recorded
+    anchors (gameplay/models.py: GameSession.shuffles) — a shuffle only
+    changes kinds, never positions, so it can be applied in-place to the
+    tiles already on the board. `after_moves` is the move-log length at the
+    moment of that shuffle, so applying it right before processing the move
+    at that same index reproduces exactly the kinds the client was looking
+    at when it made that move. Returns the resulting Board, or None on the
+    first illegal move (a corrupted/forged log)."""
+    tiles = [
+        Tile(idx, t['x'], t['y'], t['z'], t['kind'])
+        for idx, t in enumerate(session.layout)
+    ]
+    board = Board(tiles)
+    shuffles_by_anchor = {s['after_moves']: s['kinds'] for s in session.shuffles}
+
+    def apply_shuffle(anchor):
+        kinds = shuffles_by_anchor.get(anchor)
+        if not kinds:
+            return
+        for idx_str, kind in kinds.items():
+            tile = board.get_by_idx(int(idx_str))
+            if tile is not None:
+                tile.kind = kind
+
+    apply_shuffle(0)
+    for i, (a_idx, b_idx) in enumerate(moves):
+        a = board.get_by_idx(a_idx)
+        b = board.get_by_idx(b_idx)
+        if a is None or b is None or not board.remove_pair(a, b):
+            return None
+        apply_shuffle(i + 1)
+    return board
+
+
+@router.post('/{uuid:token}/shuffle', response=ShuffleResponse)
+def shuffle_game(request, token: uuid.UUID, payload: ShuffleRequest):
+    """Reshuffles the kinds of whatever tiles remain on the board — offered
+    to the player as an alternative to giving up on a dead end (main.js:
+    updateStatus()). Positions never move (the finish move-log is indexed by
+    position, gameplay/board.py), and the new arrangement is generated the
+    same way as a fresh deal (generator.py: reshuffle_layout) — guaranteed
+    solvable, never a repeat dead end."""
+    _enforce_rate_limit(request, 'shuffle', RATE_LIMIT_MAX_SHUFFLES)
+
+    try:
+        session = GameSession.objects.select_related('user__profile').get(token=token)
+    except GameSession.DoesNotExist:
+        raise HttpError(400, _('unknown session')) from None
+    if session.status != GameSession.Status.ACTIVE:
+        raise HttpError(400, _('session already claimed'))
+    if _session_elapsed(session) > SESSION_TTL:
+        raise HttpError(400, _('session expired'))
+
+    moves = payload.moves
+    profile = _session_profile(request, session)
+
+    # Idempotent replay of a duplicate/concurrent request: the client only
+    # ever shuffles once per dead end, so a second request with the same
+    # move-log length is a retry, not a new shuffle — hand back the mapping
+    # already recorded instead of generating (and charging for) another one.
+    if session.shuffles and session.shuffles[-1]['after_moves'] == len(moves):
+        kinds = {int(idx_str): kind for idx_str, kind in session.shuffles[-1]['kinds'].items()}
+        return {'kinds': kinds, 'stats': AllStats.model_validate(profile.stats)}
+
+    board = _replay(session, moves)
+    if board is None:
+        raise HttpError(400, _('illegal move'))
+    if not board.is_deadlocked():
+        raise HttpError(400, _('board is not deadlocked'))
+
+    remaining = board.tiles()
+    pos_to_idx = {tile.pos(): tile.idx for tile in remaining}
+    placement = DIFFICULTIES[session.level]['placement']
+    rng = random.Random(uuid.uuid4().hex)
+    reshuffled = reshuffle_layout(
+        rng, [tile.pos() for tile in remaining], [tile.kind for tile in remaining], placement,
+    )
+    kinds = {pos_to_idx[(x, y, z)]: kind for x, y, z, kind in reshuffled}
+
+    session.shuffles.append({
+        'after_moves': len(moves),
+        'kinds': {str(idx): kind for idx, kind in kinds.items()},
+    })
+    session.save(update_fields=['shuffles'])
+
+    all_stats = update_level_stats(profile, session.level, lambda s: bump_counter(s, 'shuffle'))
+    return {'kinds': kinds, 'stats': all_stats}
+
+
 @router.post('/finish', response=FinishResponse)
 def finish_game(request, payload: FinishRequest):
     _enforce_rate_limit(request, 'finish', RATE_LIMIT_MAX_FINISHES)
@@ -179,17 +274,9 @@ def finish_game(request, payload: FinishRequest):
     if payload.outcome not in ('win', 'deadlock'):
         return {'valid': False, 'reason': _('unknown outcome')}
 
-    tiles = [
-        Tile(idx, t['x'], t['y'], t['z'], t['kind'])
-        for idx, t in enumerate(session.layout)
-    ]
-    board = Board(tiles)
-
-    for a_idx, b_idx in payload.moves:
-        a = board.get_by_idx(a_idx)
-        b = board.get_by_idx(b_idx)
-        if a is None or b is None or not board.remove_pair(a, b):
-            return {'valid': False, 'reason': _('illegal move')}
+    board = _replay(session, payload.moves)
+    if board is None:
+        return {'valid': False, 'reason': _('illegal move')}
 
     if payload.outcome == 'win' and not board.is_won():
         return {'valid': False, 'reason': _('board not fully cleared')}

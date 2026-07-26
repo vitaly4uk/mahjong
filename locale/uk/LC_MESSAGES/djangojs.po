@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: mahjong\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-26 09:01+0000\n"
+"POT-Creation-Date: 2026-07-26 13:30+0000\n"
 "PO-Revision-Date: 2026-07-26 08:34+0000\n"
 "Last-Translator: \n"
 "Language-Team: Ukrainian\n"
@@ -15,118 +15,129 @@ msgstr ""
 "100 > 14) ? 1 : n % 1 == 0 && (n % 10 ==0 || (n % 10 >=5 && n % 10 <=9) || "
 "(n % 100 >=11 && n % 100 <=14 )) ? 2: 3);\n"
 
-#: static/game/main.js:34
+#: static/game/main.js:35
 msgid "Easy"
 msgstr "Легко"
 
-#: static/game/main.js:35
+#: static/game/main.js:36
 msgid "Normal"
 msgstr "Нормально"
 
-#: static/game/main.js:36
+#: static/game/main.js:37
 msgid "Hard"
 msgstr "Складно"
 
-#: static/game/main.js:44
+#: static/game/main.js:45
 msgid "Hint"
 msgstr "Підказка"
 
-#: static/game/main.js:45
+#: static/game/main.js:46
 msgid "Hint (%(n)s)"
 msgstr "Підказка (%(n)s)"
 
-#: static/game/main.js:46
+#: static/game/main.js:47
 msgid "Undo"
 msgstr "Скасувати"
 
-#: static/game/main.js:47
+#: static/game/main.js:48
 msgid "Undo (%(n)s)"
 msgstr "Скасувати (%(n)s)"
 
-#: static/game/main.js:53
+#: static/game/main.js:54
 msgid "Games started"
 msgstr "Розпочато партій"
 
-#: static/game/main.js:54
+#: static/game/main.js:55
 msgid "Games played"
 msgstr "Зіграно партій"
 
-#: static/game/main.js:55
+#: static/game/main.js:56
 msgid "Wins"
 msgstr "Перемог"
 
-#: static/game/main.js:56
+#: static/game/main.js:57
 msgid "Win rate"
 msgstr "% перемог"
 
-#: static/game/main.js:57
+#: static/game/main.js:58
 msgid "Current streak"
 msgstr "Поточна серія"
 
-#: static/game/main.js:58
+#: static/game/main.js:59
 msgid "Best streak"
 msgstr "Рекордна серія"
 
-#: static/game/main.js:59
+#: static/game/main.js:60
 msgid "Best time"
 msgstr "Найкращий час"
 
-#: static/game/main.js:60
+#: static/game/main.js:61
 msgid "Total hints"
 msgstr "Підказок усього"
 
-#: static/game/main.js:61
+#: static/game/main.js:62
 msgid "Total undos"
 msgstr "Скасувань усього"
 
-#: static/game/main.js:62
+#: static/game/main.js:63
 msgid "Total pairs removed"
 msgstr "Знято пар усього"
 
-#: static/game/main.js:289
+#: static/game/main.js:64
+msgid "Total shuffles"
+msgstr "Перемішувань усього"
+
+#: static/game/main.js:294
 msgid "Failed to load statistics"
 msgstr "Не вдалося завантажити статистику"
 
-#: static/game/main.js:565
+#: static/game/main.js:573
 msgid "New game"
 msgstr "Нова гра"
 
-#: static/game/main.js:570 static/game/main.js:900
+#: static/game/main.js:578 static/game/main.js:915
 msgid "Statistics"
 msgstr "Статистика"
 
-#: static/game/main.js:727
+#: static/game/main.js:735
 msgid "Photo: %(name)s · Pexels"
 msgstr "Фото: %(name)s · Pexels"
 
-#: static/game/main.js:898 static/game/main.js:1045
+#: static/game/main.js:913 static/game/main.js:1061
 msgid "The game was not confirmed by the server"
 msgstr "Партія не підтверджена сервером"
 
-#: static/game/main.js:899 static/game/main.js:1502
+#: static/game/main.js:914 static/game/main.js:1547
 msgid "Victory!"
 msgstr "Перемога!"
 
-#: static/game/main.js:899
+#: static/game/main.js:914
 msgid "Dead end — no moves left"
 msgstr "Глухий кут — немає ходів"
 
-#: static/game/main.js:986
+#: static/game/main.js:1002
 msgid "Generating layout…"
 msgstr "Генерую розклад…"
 
-#: static/game/main.js:993
+#: static/game/main.js:1009
 msgid "Failed to start the game — check your connection"
 msgstr "Не вдалося почати гру — перевірте з'єднання"
 
-#: static/game/main.js:1039
+#: static/game/main.js:1055
 msgid "Failed to confirm the game result"
 msgstr "Не вдалося підтвердити результат партії"
 
-#: static/game/main.js:1505
-msgid "No moves left — start a new game"
-msgstr "Немає ходів — почніть нову гру"
+#: static/game/main.js:1087
+msgid "Failed to shuffle — check your connection"
+msgstr "Не вдалося перемішати — перевірте з'єднання"
 
-#: static/game/main.js:1510
+#: static/game/main.js:1550
+msgid "No moves left"
+msgstr "Немає ходів"
+
+#: static/game/main.js:1555
 msgid "Remaining: %(n)s"
 msgstr "Залишилось: %(n)s"
+
+#~ msgid "No moves left — start a new game"
+#~ msgstr "Немає ходів — почніть нову гру"

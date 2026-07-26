@@ -54,6 +54,18 @@ export async function finishGame(token, moves, outcome) {
   };
 }
 
+// Reshuffles the kinds of whatever tiles remain on the board (offered on a
+// dead end, main.js: updateStatus()/shuffleGame). moves — the current move
+// log (same shape as finishGame), used server-side to replay to the current
+// board state before reshuffling. Returns { kinds: {idx: kind}, stats } — kinds
+// only for tiles still on the board; positions are unchanged. Throws (via
+// requestJson) on a non-2xx response — e.g. the board isn't actually
+// deadlocked, or the session already ended.
+export async function shuffleGame(token, moves) {
+  const data = await postJson(`/api/game/${token}/shuffle`, { moves });
+  return { kinds: data.kinds, stats: data.stats };
+}
+
 // Session state for resuming a game after a page reload: status — 'active' |
 // 'claimed' | 'expired' | 'unknown' (always 200, branch on the field),
 // elapsedMs — the server-side game time, only for 'active'.

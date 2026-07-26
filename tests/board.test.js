@@ -155,6 +155,39 @@ test('replayMoves: out-of-range index returns null', () => {
   assert.equal(replayMoves(tiles, [[0, 99]]), null);
 });
 
+test('replayMoves: empty shuffles log behaves exactly like no shuffles arg', () => {
+  const tiles = [t(0, 0, 0, 'Man1'), t(2, 0, 0, 'Man1')];
+  const board = replayMoves(tiles, [[0, 1]], []);
+  assert.ok(board);
+  assert.equal(board.remaining, 0);
+});
+
+test('replayMoves: shuffle event at anchor 0 re-kinds tiles before any move', () => {
+  // Server-recorded shape (gameplay/models.py: GameSession.shuffles): kinds
+  // keyed by tile idx (string, as parsed from JSON), applied before the move
+  // at position `afterMoves` in the log.
+  const tiles = [t(0, 0, 0, 'Man1'), t(2, 0, 0, 'Pin1')];
+  const shuffles = [{ afterMoves: 0, kinds: { 1: 'Man1' } }];
+  // Without the shuffle this pair would be illegal (Man1 vs Pin1) — the
+  // shuffle re-kinds tile 1 to Man1 first, making it legal.
+  const board = replayMoves(tiles, [[0, 1]], shuffles);
+  assert.ok(board);
+  assert.equal(board.remaining, 0);
+  assert.equal(tiles[1].kind, 'Man1');
+});
+
+test('replayMoves: shuffle mid-log only affects moves after its anchor', () => {
+  const tiles = [
+    t(0, 0, 0, 'Man1'), t(2, 0, 0, 'Man1'), t(0, 4, 0, 'Pin1'), t(2, 4, 0, 'Sou1'),
+  ];
+  // Shuffle recorded after 1 move — re-kinds tile 3 (still on the board at
+  // that point) from Sou1 to Pin1 so the second move becomes legal.
+  const shuffles = [{ afterMoves: 1, kinds: { 3: 'Pin1' } }];
+  const board = replayMoves(tiles, [[0, 1], [2, 3]], shuffles);
+  assert.ok(board);
+  assert.equal(board.remaining, 0);
+});
+
 test('tiles() returns remaining tiles', () => {
   const a = t(0, 0, 0, 'Man1');
   const b = t(2, 0, 0, 'Man1');

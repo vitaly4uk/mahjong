@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: mahjong\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-26 09:01+0000\n"
+"POT-Creation-Date: 2026-07-26 13:30+0000\n"
 "PO-Revision-Date: 2026-07-26 08:34+0000\n"
 "Last-Translator: \n"
 "Language-Team: English\n"
@@ -15,118 +15,126 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: static/game/main.js:34
+#: static/game/main.js:35
 msgid "Easy"
 msgstr ""
 
-#: static/game/main.js:35
+#: static/game/main.js:36
 msgid "Normal"
 msgstr ""
 
-#: static/game/main.js:36
+#: static/game/main.js:37
 msgid "Hard"
 msgstr ""
 
-#: static/game/main.js:44
+#: static/game/main.js:45
 msgid "Hint"
 msgstr ""
 
-#: static/game/main.js:45
+#: static/game/main.js:46
 msgid "Hint (%(n)s)"
 msgstr ""
 
-#: static/game/main.js:46
+#: static/game/main.js:47
 msgid "Undo"
 msgstr ""
 
-#: static/game/main.js:47
+#: static/game/main.js:48
 msgid "Undo (%(n)s)"
 msgstr ""
 
-#: static/game/main.js:53
+#: static/game/main.js:54
 msgid "Games started"
 msgstr ""
 
-#: static/game/main.js:54
+#: static/game/main.js:55
 msgid "Games played"
 msgstr ""
 
-#: static/game/main.js:55
+#: static/game/main.js:56
 msgid "Wins"
 msgstr ""
 
-#: static/game/main.js:56
+#: static/game/main.js:57
 msgid "Win rate"
 msgstr ""
 
-#: static/game/main.js:57
+#: static/game/main.js:58
 msgid "Current streak"
 msgstr ""
 
-#: static/game/main.js:58
+#: static/game/main.js:59
 msgid "Best streak"
 msgstr ""
 
-#: static/game/main.js:59
+#: static/game/main.js:60
 msgid "Best time"
 msgstr ""
 
-#: static/game/main.js:60
+#: static/game/main.js:61
 msgid "Total hints"
 msgstr ""
 
-#: static/game/main.js:61
+#: static/game/main.js:62
 msgid "Total undos"
 msgstr ""
 
-#: static/game/main.js:62
+#: static/game/main.js:63
 msgid "Total pairs removed"
 msgstr ""
 
-#: static/game/main.js:289
+#: static/game/main.js:64
+msgid "Total shuffles"
+msgstr ""
+
+#: static/game/main.js:294
 msgid "Failed to load statistics"
 msgstr ""
 
-#: static/game/main.js:565
+#: static/game/main.js:573
 msgid "New game"
 msgstr ""
 
-#: static/game/main.js:570 static/game/main.js:900
+#: static/game/main.js:578 static/game/main.js:915
 msgid "Statistics"
 msgstr ""
 
-#: static/game/main.js:727
+#: static/game/main.js:735
 msgid "Photo: %(name)s · Pexels"
 msgstr ""
 
-#: static/game/main.js:898 static/game/main.js:1045
+#: static/game/main.js:913 static/game/main.js:1061
 msgid "The game was not confirmed by the server"
 msgstr ""
 
-#: static/game/main.js:899 static/game/main.js:1502
+#: static/game/main.js:914 static/game/main.js:1547
 msgid "Victory!"
 msgstr ""
 
-#: static/game/main.js:899
+#: static/game/main.js:914
 msgid "Dead end — no moves left"
 msgstr ""
 
-#: static/game/main.js:986
+#: static/game/main.js:1002
 msgid "Generating layout…"
 msgstr ""
 
-#: static/game/main.js:993
+#: static/game/main.js:1009
 msgid "Failed to start the game — check your connection"
 msgstr ""
 
-#: static/game/main.js:1039
+#: static/game/main.js:1055
 msgid "Failed to confirm the game result"
 msgstr ""
 
-#: static/game/main.js:1505
-msgid "No moves left — start a new game"
+#: static/game/main.js:1087
+msgid "Failed to shuffle — check your connection"
 msgstr ""
 
-#: static/game/main.js:1510
+#: static/game/main.js:1550
+msgid "No moves left"
+msgstr ""
+
+#: static/game/main.js:1555
 msgid "Remaining: %(n)s"
 msgstr ""

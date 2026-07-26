@@ -65,16 +65,36 @@ export function isFreePosition(occupied, x, y, z) {
 
 // Restores a game from a saved move log (main.js: the localStorage blob
 // mahjong.activeGame.v1): tiles — an array where the index = the tile's idx
-// in the server layout; moves — pairs of indices in removal order. Returns a
-// Board with the pairs removed and the undo stack naturally rebuilt, or null
-// if any move is illegal (a corrupted/forged blob — a signal to discard the
-// saved state).
-export function replayMoves(tiles, moves) {
+// in the server layout; moves — pairs of indices in removal order; shuffles
+// — shuffle events in the same shape the server records them
+// (gameplay/models.py: GameSession.shuffles), [{afterMoves, kinds}], kinds
+// keyed by tile idx (string, as parsed from JSON) — see main.js: shuffleGame.
+// Applied at their recorded anchor (afterMoves = move-log length at the time
+// of that shuffle), same as the server's gameplay/api.py: _replay, so the
+// kinds a resumed board shows match what the player actually saw mid-game.
+// Returns a Board with the pairs removed and the undo stack naturally
+// rebuilt, or null if any move is illegal (a corrupted/forged blob — a
+// signal to discard the saved state).
+export function replayMoves(tiles, moves, shuffles = []) {
   const board = new Board(tiles);
-  for (const [a, b] of moves) {
+  const shufflesByAnchor = new Map(shuffles.map((s) => [s.afterMoves, s.kinds]));
+
+  const applyShuffle = (anchor) => {
+    const kinds = shufflesByAnchor.get(anchor);
+    if (!kinds) return;
+    for (const [idx, kind] of Object.entries(kinds)) {
+      const tile = tiles[idx];
+      if (tile) tile.kind = kind;
+    }
+  };
+
+  applyShuffle(0);
+  for (let i = 0; i < moves.length; i++) {
+    const [a, b] = moves[i];
     const tileA = tiles[a];
     const tileB = tiles[b];
     if (!tileA || !tileB || !board.removePair(tileA, tileB)) return null;
+    applyShuffle(i + 1);
   }
   return board;
 }

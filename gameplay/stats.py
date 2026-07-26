@@ -17,6 +17,7 @@ def empty_all_stats() -> dict:
 
 BUMP_FIELDS = {
     'start': 'games_started', 'hint': 'hints_total', 'undo': 'undos_total', 'pair': 'pairs_total',
+    'shuffle': 'shuffles_total',
 }
 
 
@@ -62,6 +63,10 @@ def _merge_level(server: LevelStats, imported: LevelStats) -> LevelStats:
         hints_total=server.hints_total + imported.hints_total,
         undos_total=server.undos_total + imported.undos_total,
         pairs_total=server.pairs_total + imported.pairs_total,
+        # The legacy localStorage blob predates shuffling — imported.shuffles_total
+        # is always 0, but the server-side count must still carry through, or
+        # the merge would silently reset it.
+        shuffles_total=server.shuffles_total + imported.shuffles_total,
         best_time_ms=best_time_ms,
         current_streak=current_streak,
         best_streak=max(server.best_streak, imported.best_streak),

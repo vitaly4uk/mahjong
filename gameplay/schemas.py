@@ -16,6 +16,7 @@ class LevelStats(Schema):
     hints_total: int = Field(0, ge=0, alias='hintsTotal')
     undos_total: int = Field(0, ge=0, alias='undosTotal')
     pairs_total: int = Field(0, ge=0, alias='pairsTotal')
+    shuffles_total: int = Field(0, ge=0, alias='shufflesTotal')
     best_time_ms: int | None = Field(None, ge=0, alias='bestTimeMs')
     current_streak: int = Field(0, ge=0, alias='currentStreak')
     best_streak: int = Field(0, ge=0, alias='bestStreak')
@@ -74,6 +75,18 @@ class FinishResponse(Schema):
     won: bool = False
     elapsed_ms: int | None = None
     stats: AllStats | None = None
+
+
+class ShuffleRequest(Schema):
+    moves: list[tuple[int, int]]
+
+
+class ShuffleResponse(Schema):
+    # {"<idx>": "<kind>"} — the new kind for every tile still on the board
+    # (positions unchanged); ninja/pydantic serializes int dict keys as
+    # strings, matching how the client indexes `layout` by idx.
+    kinds: dict[int, str]
+    stats: AllStats
 
 
 class SessionStateResponse(Schema):

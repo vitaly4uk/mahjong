@@ -8,8 +8,9 @@ guarantee is enough for anti-cheat purposes — difficulty levels are emulated
 only through placement/pair_scheduling.
 """
 import random
+from collections import defaultdict
 
-from .board import FLOWERS, SEASONS, is_free_position
+from .board import FLOWERS, SEASONS, is_free_position, match_key
 
 # 34 regular riichi kinds (4 copies each = 2 pairs each). Flowers/seasons (1
 # copy each, wildcard groups) are added separately — see _bonus_pairs.
@@ -110,9 +111,33 @@ def _pick_spread_pair(free, rng, require_layer_split):
     return a, rng.choice(candidates)
 
 
-def _try_generate(rng, positions, placement='uniform', pair_scheduling='random'):
+def _remnant_pairs(rng, kinds):
+    """Builds (kindA, kindB) pairs out of an arbitrary multiset of remaining
+    kinds (used by reshuffle_layout — the deck left on the board after some
+    pairs have already been removed, not the full 72-pair deck). Groups by
+    match_key (board.py) — regular kinds pair with themselves, flowers pair
+    with any other flower, seasons with any other season — since each group's
+    count is always even (removals happen two-at-a-time within a group),
+    pairing within the group never leaves a leftover."""
+    by_group = defaultdict(list)
+    for kind in kinds:
+        by_group[match_key(kind)].append(kind)
+
+    pairs = []
+    for group_kinds in by_group.values():
+        if len(group_kinds) % 2 != 0:
+            raise RuntimeError('_remnant_pairs: odd-sized match group, cannot pair evenly')
+        shuffled = list(group_kinds)
+        rng.shuffle(shuffled)
+        for i in range(0, len(shuffled), 2):
+            pairs.append((shuffled[i], shuffled[i + 1]))
+    rng.shuffle(pairs)
+    return pairs
+
+
+def _try_generate(rng, positions, pair_kinds, placement='uniform'):
     occupied = set(positions)
-    pair_kinds = _build_pair_kinds(rng, pair_scheduling)
+    pair_kinds = list(pair_kinds)
     tiles = []
     while occupied:
         free = [p for p in occupied if is_free_position(occupied, *p)]
@@ -134,10 +159,25 @@ def _try_generate(rng, positions, placement='uniform', pair_scheduling='random')
 
 def generate_layout(rng, positions, placement='uniform', pair_scheduling='random'):
     for _ in range(MAX_ATTEMPTS):
-        tiles = _try_generate(rng, positions, placement, pair_scheduling)
+        pair_kinds = _build_pair_kinds(rng, pair_scheduling)
+        tiles = _try_generate(rng, positions, pair_kinds, placement)
         if tiles is not None:
             return tiles
     raise RuntimeError('generate_layout: failed to avoid a dead end in 100 attempts')
+
+
+def reshuffle_layout(rng, positions, kinds, placement='uniform'):
+    """Like generate_layout, but for a shuffle mid-game: `positions` and
+    `kinds` are the tiles still on the board (not the full 72-pair deck) —
+    the reverse simulation only cares that each pair it lays down matches by
+    match_key, so reusing the same _try_generate keeps the same solvability
+    guarantee for an arbitrary remaining subset."""
+    for _ in range(MAX_ATTEMPTS):
+        pair_kinds = _remnant_pairs(rng, kinds)
+        tiles = _try_generate(rng, positions, pair_kinds, placement)
+        if tiles is not None:
+            return tiles
+    raise RuntimeError('reshuffle_layout: failed to avoid a dead end in 100 attempts')
 
 
 def generate_for_difficulty(level, layout, seed=None):

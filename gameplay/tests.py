@@ -1,13 +1,19 @@
+import random
 import uuid
 from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
-from .api import SESSION_TTL  # noqa: F401 (registers the router when the test module is imported)
+from .api import (  # noqa: F401 (SESSION_TTL import also registers the router when this module loads)
+    RATE_LIMIT_MAX_IMPORTS,
+    RATE_LIMIT_MAX_SHUFFLES,
+    SESSION_TTL,
+)
 from .board import Board, Tile, is_free_position, match_key
-from .generator import DIFFICULTIES, generate_for_difficulty
+from .generator import DIFFICULTIES, generate_for_difficulty, reshuffle_layout
 from .layouts import LAYOUTS_DIR, LayoutError, get_layout, list_boards, load_layouts, parse_layout
 from .middleware import PLAYER_COOKIE_NAME
 from .models import GameSession, Profile
@@ -195,8 +201,29 @@ class GeneratorTests(TestCase):
         b = generate_for_difficulty('hard', turtle, seed=42)
         self.assertEqual(a, b)
 
+    def test_reshuffle_layout_preserves_positions_and_kind_multiset_and_is_solvable(self):
+        """reshuffle_layout is used mid-game (an arbitrary remaining subset,
+        not the full 72-pair deck, gameplay/api.py: shuffle_game) — it must
+        never move a tile, never change the multiset of kinds, and must still
+        guarantee solvability for that subset."""
+        positions = [(0, 0, 0), (2, 0, 0), (4, 0, 0), (6, 0, 0)]
+        kinds = ['Man1', 'Man1', 'Pin1', 'Pin1']
+        for seed in range(10):
+            rng = random.Random(seed)
+            tiles = reshuffle_layout(rng, positions, kinds, placement='uniform')
+            self.assertEqual({(x, y, z) for x, y, z, _ in tiles}, set(positions), seed)
+            self.assertEqual(sorted(kind for *_, kind in tiles), sorted(kinds), seed)
+            self.assertTrue(_solve(tiles), f'seed={seed}: unsolvable')
+
 
 class GameApiTests(TestCase):
+    def setUp(self):
+        # Rate-limit counters (gameplay/api.py: _enforce_rate_limit) live in
+        # Django's cache, not the DB — TestCase's transaction rollback never
+        # clears them, so calls from any earlier test in the same process
+        # would otherwise carry over and eventually trip a real 429 here.
+        cache.clear()
+
     def _start(self, level='easy'):
         response = self.client.post(
             '/api/game/start', data={'level': level}, content_type='application/json',
@@ -282,6 +309,53 @@ class GameApiTests(TestCase):
             content_type='application/json',
         )
         self.assertFalse(response.json()['valid'])
+
+    def test_finish_rejects_move_on_covered_tile_even_with_matching_kind(self):
+        """A legal move needs BOTH same kind AND both tiles free
+        (gameplay/board.py: Board.can_match) — same kind alone must never be
+        enough. idx0 is directly covered by idx1 (same kind, stacked) — a
+        forged log claiming to remove them as a pair must be rejected even
+        though `match_key(a) == match_key(b)` holds."""
+        data = self._start()
+        token = data['token']
+        layout = [
+            {'x': 0, 'y': 0, 'z': 0, 'kind': 'Man1'},  # covered
+            {'x': 0, 'y': 0, 'z': 1, 'kind': 'Man1'},  # covers idx0, same kind
+        ]
+        GameSession.objects.filter(token=token).update(layout=layout)
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': token, 'moves': [[0, 1]], 'outcome': 'win'},
+            content_type='application/json',
+        )
+        self.assertFalse(response.json()['valid'])
+
+    def test_finish_rejects_out_of_range_tile_index(self):
+        """An idx with no corresponding tile at all (board.get_by_idx
+        returns None) — distinct from reusing an already-removed idx."""
+        data = self._start()
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': [[0, 9999]], 'outcome': 'win'},
+            content_type='application/json',
+        )
+        self.assertFalse(response.json()['valid'])
+
+    @override_settings(LANGUAGE_CODE='en')
+    def test_finish_rejects_fake_deadlock_claim_when_board_still_solvable(self):
+        # Pinned to English — asserts the msgid itself, not a translation.
+        # generate_for_difficulty guarantees a fresh board is solvable, so
+        # it's never actually deadlocked — claiming outcome='deadlock' here
+        # is a bald-faced "give up and still get a result" attempt.
+        data = self._start()
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': [], 'outcome': 'deadlock'},
+            content_type='application/json',
+        )
+        body = response.json()
+        self.assertFalse(body['valid'])
+        self.assertEqual(body['reason'], 'board is not deadlocked')
 
     def test_finish_rejects_fake_win_without_clearing_board(self):
         data = self._start()
@@ -379,6 +453,415 @@ class GameApiTests(TestCase):
             '/api/game/start', data={'level': 'easy'}, content_type='application/json',
         )
         self.assertEqual(response.status_code, 403)
+
+
+class ShuffleApiTests(TestCase):
+    """Coverage for gameplay/api.py: shuffle_game and its interplay with
+    finish_game's shared `_replay` helper. A hand-built 4-tile deadlock (two
+    same-kind pairs, each stacked so only the top tile of each stack is free
+    — a real 144-tile game deadlocks the same way, just with more tiles)
+    replaces the real 144-tile board.layout from a normal /start, so these
+    tests can force a dead end deterministically instead of hoping a random
+    seed produces one."""
+
+    # Two stacked pairs: within each stack the bottom tile is covered by the
+    # top one (gameplay/board.py: is_free_position's "anything on top" check)
+    # so only the top tile of each stack is ever free — and since the two
+    # free tiles (Man1, Pin1) don't share a kind, no legal pair exists.
+    DEADLOCK_LAYOUT = [
+        {'x': 0, 'y': 0, 'z': 0, 'kind': 'Man1'},
+        {'x': 0, 'y': 0, 'z': 1, 'kind': 'Man1'},
+        {'x': 10, 'y': 10, 'z': 0, 'kind': 'Pin1'},
+        {'x': 10, 'y': 10, 'z': 1, 'kind': 'Pin1'},
+    ]
+
+    def setUp(self):
+        cache.clear()  # see GameApiTests.setUp for why
+
+    def _start(self, level='easy'):
+        response = self.client.post(
+            '/api/game/start', data={'level': level}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def _force_deadlock(self, token):
+        GameSession.objects.filter(token=token).update(layout=self.DEADLOCK_LAYOUT)
+
+    def _shuffle(self, token, moves=()):
+        return self.client.post(
+            f'/api/game/{token}/shuffle',
+            data={'moves': list(moves)}, content_type='application/json',
+        )
+
+    def test_shuffle_rejects_when_board_not_deadlocked(self):
+        data = self._start()  # a fresh 144-tile board is never a dead end
+        response = self._shuffle(data['token'])
+        self.assertEqual(response.status_code, 400)
+
+    def test_shuffle_rejects_illegal_move_log(self):
+        data = self._start()
+        layout = data['layout']
+        second_idx = next(
+            i for i in range(1, len(layout)) if layout[i]['kind'] != layout[0]['kind']
+        )
+        response = self._shuffle(data['token'], [[0, second_idx]])
+        self.assertEqual(response.status_code, 400)
+
+    def test_shuffle_rejects_move_on_covered_tile_even_with_matching_kind(self):
+        """Same forgery as test_finish_rejects_move_on_covered_tile_even_with_
+        matching_kind, against the shuffle endpoint's own _replay call: same
+        kind alone (idx0 covered by idx1, both 'Man1') must never satisfy
+        Board.can_match. This 2-tile board is itself a genuine dead end
+        (idx0 blocked, idx1 free but alone) — proving the forged move is
+        rejected as illegal BEFORE the deadlock check ever runs, not
+        because the precondition happens to fail too."""
+        data = self._start()
+        token = data['token']
+        layout = [
+            {'x': 0, 'y': 0, 'z': 0, 'kind': 'Man1'},
+            {'x': 0, 'y': 0, 'z': 1, 'kind': 'Man1'},
+        ]
+        GameSession.objects.filter(token=token).update(layout=layout)
+        response = self._shuffle(token, [[0, 1]])
+        self.assertEqual(response.status_code, 400)
+
+    def test_shuffle_rejects_out_of_range_tile_index(self):
+        data = self._start()
+        response = self._shuffle(data['token'], [[0, 9999]])
+        self.assertEqual(response.status_code, 400)
+
+    def test_shuffle_succeeds_on_deadlock_and_preserves_kind_multiset(self):
+        data = self._start()
+        self._force_deadlock(data['token'])
+
+        response = self._shuffle(data['token'])
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(set(body['kinds'].keys()), {'0', '1', '2', '3'})
+        self.assertEqual(sorted(body['kinds'].values()), ['Man1', 'Man1', 'Pin1', 'Pin1'])
+        self.assertEqual(body['stats']['easy']['shufflesTotal'], 1)
+
+        session = GameSession.objects.get(token=data['token'])
+        self.assertEqual(len(session.shuffles), 1)
+        self.assertEqual(session.shuffles[0]['after_moves'], 0)
+
+    def test_shuffle_duplicate_request_is_idempotent(self):
+        data = self._start()
+        self._force_deadlock(data['token'])
+
+        first = self._shuffle(data['token'])
+        second = self._shuffle(data['token'])
+        self.assertEqual(first.json()['kinds'], second.json()['kinds'])
+        # A duplicate request (same move-log length) doesn't charge a second
+        # shufflesTotal increment or append a second event.
+        self.assertEqual(second.json()['stats']['easy']['shufflesTotal'], 1)
+        session = GameSession.objects.get(token=data['token'])
+        self.assertEqual(len(session.shuffles), 1)
+
+    def test_finish_after_shuffle_replays_new_kinds_and_wins(self):
+        data = self._start()
+        token = data['token']
+        self._force_deadlock(token)
+
+        shuffle_response = self._shuffle(token)
+        self.assertEqual(shuffle_response.status_code, 200, shuffle_response.content)
+
+        # Solve the now-reshuffled board with the same greedy solver used
+        # elsewhere in this file, to build a legal move log for finish.
+        session = GameSession.objects.get(token=token)
+        shuffled_kinds = session.shuffles[0]['kinds']
+        tiles = [
+            Tile(idx, t['x'], t['y'], t['z'], shuffled_kinds.get(str(idx), t['kind']))
+            for idx, t in enumerate(session.layout)
+        ]
+        board = Board(tiles)
+        moves = []
+        while board.remaining > 0:
+            a, b = board.find_matching_pair()
+            moves.append([a.idx, b.idx])
+            board.remove_pair(a, b)
+
+        finish_response = self.client.post(
+            '/api/game/finish',
+            data={'token': token, 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        body = finish_response.json()
+        self.assertTrue(body['valid'], body)
+        self.assertTrue(body['won'])
+
+    def test_finish_replays_multiple_shuffle_events_at_different_anchors(self):
+        """_replay (shared by shuffle_game and finish_game) must thread
+        through an arbitrary NUMBER of shuffle events, not just one — a real
+        144-tile game can hit a second dead end after the first reshuffle.
+        Two independent stacked dead-end pairs (idx2/3, idx4/5) plus a
+        trivially matchable pair (idx0/1): after removing idx0/1, the board
+        is deadlocked (mismatched kinds on the two free top tiles) — shuffle
+        #1 fixes idx2/3 but deliberately still leaves idx4/5 mismatched — a
+        second dead end — shuffle #2 (a different anchor) finally fixes it."""
+        data = self._start()
+        token = data['token']
+        layout = [
+            {'x': 0, 'y': 0, 'z': 0, 'kind': 'Man1'},
+            {'x': 2, 'y': 0, 'z': 0, 'kind': 'Man1'},
+            {'x': 0, 'y': 10, 'z': 0, 'kind': 'Pin1'},
+            {'x': 0, 'y': 10, 'z': 1, 'kind': 'Pin1'},
+            {'x': 10, 'y': 10, 'z': 0, 'kind': 'Sou1'},
+            {'x': 10, 'y': 10, 'z': 1, 'kind': 'Sou1'},
+        ]
+        # anchor=1: right after removing idx0/1 (1 move made so far) — the
+        # two now-visible top tiles (idx3, idx5) are re-kinded to MATCH
+        # ('Man1' each), so the greedy solve below can remove them next.
+        # anchor=2: right after also removing idx3/idx5 (2 moves made so
+        # far) — the last two (now-visible bottom) tiles idx2/idx4 are
+        # re-kinded to match too ('Chun' each), a genuinely SEPARATE anchor.
+        GameSession.objects.filter(token=token).update(layout=layout, shuffles=[
+            {'after_moves': 1, 'kinds': {'2': 'Pin1', '3': 'Man1', '4': 'Sou1', '5': 'Man1'}},
+            {'after_moves': 2, 'kinds': {'2': 'Chun', '4': 'Chun'}},
+        ])
+
+        moves = [[0, 1], [3, 5], [2, 4]]
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': token, 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        body = response.json()
+        self.assertTrue(body['valid'], body)
+        self.assertTrue(body['won'])
+
+    def test_shuffle_cannot_be_forged_by_the_client(self):
+        """The client can never supply its own kinds/shuffles — ShuffleRequest
+        and FinishRequest only accept `moves`/`outcome`; any extra fields are
+        silently ignored by ninja's schema validation, never applied."""
+        data = self._start()
+        token = data['token']
+        self._force_deadlock(token)
+
+        forged_kinds = {'0': 'Chun', '1': 'Chun', '2': 'Chun', '3': 'Chun'}
+        response = self.client.post(
+            f'/api/game/{token}/shuffle',
+            data={'moves': [], 'kinds': forged_kinds, 'stats': {'shufflesTotal': 999}},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        # The forged kinds are ignored — the server's own reshuffle_layout
+        # output preserves the real kind multiset (Man1×2, Pin1×2), not the
+        # all-Chun payload the client tried to inject.
+        self.assertNotEqual(response.json()['kinds'], forged_kinds)
+        self.assertEqual(
+            sorted(response.json()['kinds'].values()), ['Man1', 'Man1', 'Pin1', 'Pin1'],
+        )
+
+        session = GameSession.objects.get(token=token)
+        # Server-computed shufflesTotal (1), not the forged 999.
+        self.assertEqual(session.user.profile.stats['easy']['shufflesTotal'], 1)
+
+    def test_finish_rejects_fake_shuffle_injected_via_finish_payload(self):
+        """FinishRequest has no `shuffles`/`kinds` field at all — a client
+        cannot smuggle a self-serving reshuffle into finish. A move log that
+        would only be legal under a fabricated kind change is rejected."""
+        data = self._start()
+        token = data['token']
+        # idx0/1 = 'Man1' stack, idx2/3 = 'Pin1' stack — no legal move exists.
+        self._force_deadlock(token)
+
+        # This move would only be legal if idx1 were 'Man1' (its real kind
+        # per DEADLOCK_LAYOUT) — try smuggling a kind override via `shuffles`,
+        # a field FinishRequest doesn't even declare.
+        response = self.client.post(
+            '/api/game/finish',
+            data={
+                'token': token,
+                'moves': [[0, 1]],
+                'outcome': 'win',
+                'shuffles': [{'after_moves': 0, 'kinds': {'0': 'Pin1'}}],  # not a real field
+            },
+            content_type='application/json',
+        )
+        body = response.json()
+        # idx0 is covered (blocked) in DEADLOCK_LAYOUT — illegal regardless
+        # of the forged shuffle payload, proving it was never applied.
+        self.assertFalse(body['valid'], body)
+
+
+class AntiCheatTests(TestCase):
+    """Deliberately hostile inputs across gameplay/api.py: malformed request
+    bodies, replay/self-match tricks, acting on a session that's already
+    over, and rate-limit enforcement. Complements the more scenario-specific
+    forgery tests in GameApiTests/ShuffleApiTests above."""
+
+    # Same 4-tile stacked dead end as ShuffleApiTests.DEADLOCK_LAYOUT — kept
+    # local rather than shared, matching this file's existing convention of
+    # each test class owning its small fixtures (see _start/_win_moves
+    # duplicated across GameApiTests/StatsEndpointTests/ShuffleApiTests).
+    DEADLOCK_LAYOUT = [
+        {'x': 0, 'y': 0, 'z': 0, 'kind': 'Man1'},
+        {'x': 0, 'y': 0, 'z': 1, 'kind': 'Man1'},
+        {'x': 10, 'y': 10, 'z': 0, 'kind': 'Pin1'},
+        {'x': 10, 'y': 10, 'z': 1, 'kind': 'Pin1'},
+    ]
+
+    def setUp(self):
+        cache.clear()  # see GameApiTests.setUp for why
+
+    def _start(self, level='easy'):
+        response = self.client.post(
+            '/api/game/start', data={'level': level}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def _win_moves(self, layout):
+        tiles = [Tile(i, t['x'], t['y'], t['z'], t['kind']) for i, t in enumerate(layout)]
+        board = Board(tiles)
+        moves = []
+        while board.remaining > 0:
+            a, b = board.find_matching_pair()
+            moves.append([a.idx, b.idx])
+            board.remove_pair(a, b)
+        return moves
+
+    # --- Replay/self-match tricks -----------------------------------------
+
+    def test_finish_rejects_self_matched_pair(self):
+        """[idx, idx] — matching a tile with itself. Board.can_match's `a is
+        not b` check must reject this; without it, a single free tile could
+        be "removed" against itself, silently shrinking the board for free."""
+        data = self._start()
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': [[0, 0]], 'outcome': 'win'},
+            content_type='application/json',
+        )
+        self.assertFalse(response.json()['valid'])
+
+    def test_finish_rejects_reusing_an_already_removed_tile(self):
+        """Replays the same legal pair twice — the second occurrence must
+        fail (the tile is already gone from the board), not silently no-op
+        or double-count towards a win."""
+        data = self._start()
+        moves = self._win_moves(data['layout'])
+        rigged = [moves[0], moves[0], *moves[1:]]
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': rigged, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        self.assertFalse(response.json()['valid'])
+
+    @override_settings(LANGUAGE_CODE='en')
+    def test_finish_rejects_unknown_outcome(self):
+        # Pinned to English — asserts the msgid itself, not a translation.
+        data = self._start()
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': [], 'outcome': 'i-win-obviously'},
+            content_type='application/json',
+        )
+        body = response.json()
+        self.assertFalse(body['valid'])
+        self.assertEqual(body['reason'], 'unknown outcome')
+
+    # --- Acting on a session that's already over ---------------------------
+
+    def test_shuffle_rejects_on_already_claimed_session(self):
+        data = self._start()
+        token = data['token']
+        GameSession.objects.filter(token=token).update(layout=self.DEADLOCK_LAYOUT)
+        # Legitimately claim it as a loss first.
+        finish = self.client.post(
+            '/api/game/finish',
+            data={'token': token, 'moves': [], 'outcome': 'deadlock'},
+            content_type='application/json',
+        )
+        self.assertTrue(finish.json()['valid'], finish.content)
+
+        response = self.client.post(
+            f'/api/game/{token}/shuffle', data={'moves': []}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_shuffle_rejects_on_expired_session(self):
+        data = self._start()
+        token = data['token']
+        GameSession.objects.filter(token=token).update(
+            layout=self.DEADLOCK_LAYOUT,
+            created_at=timezone.now() - SESSION_TTL - timedelta(minutes=1),
+        )
+        response = self.client.post(
+            f'/api/game/{token}/shuffle', data={'moves': []}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    # --- Malformed request bodies (schema-level rejection, 422) ------------
+
+    def test_finish_rejects_non_integer_move_indices(self):
+        data = self._start()
+        response = self.client.post(
+            '/api/game/finish',
+            data={
+                'token': data['token'], 'moves': [['not-an-index', 'also-not']], 'outcome': 'win',
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_shuffle_rejects_non_integer_move_indices(self):
+        data = self._start()
+        response = self.client.post(
+            f"/api/game/{data['token']}/shuffle",
+            data={'moves': [['not-an-index', 'also-not']]},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_bump_rejects_shuffle_as_a_generic_counter(self):
+        """BumpRequest.counter is a closed Literal['hint','undo','pair'] —
+        'shuffle' isn't in it. shufflesTotal must only ever move via the
+        dedicated, server-computed /shuffle endpoint, never by a client
+        just POSTing an arbitrary counter name to the generic /bump route."""
+        data = self._start()
+        response = self.client.post(
+            f"/api/game/{data['token']}/bump",
+            data={'counter': 'shuffle'}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 422)
+
+    # --- Rate limiting ------------------------------------------------------
+
+    def test_shuffle_rate_limit_returns_429_past_the_quota(self):
+        data = self._start()
+        token = data['token']
+        GameSession.objects.filter(token=token).update(layout=self.DEADLOCK_LAYOUT)
+        # A unique IP so this test's quota can't collide with any other
+        # test's requests sharing the process-wide LocMemCache.
+        headers = {'HTTP_CF_CONNECTING_IP': '203.0.113.42'}
+        for _ in range(RATE_LIMIT_MAX_SHUFFLES):
+            response = self.client.post(
+                f'/api/game/{token}/shuffle',
+                data={'moves': []}, content_type='application/json', **headers,
+            )
+            self.assertNotEqual(response.status_code, 429)
+        response = self.client.post(
+            f'/api/game/{token}/shuffle',
+            data={'moves': []}, content_type='application/json', **headers,
+        )
+        self.assertEqual(response.status_code, 429)
+
+    def test_stats_import_rate_limit_returns_429_past_the_quota(self):
+        headers = {'HTTP_CF_CONNECTING_IP': '203.0.113.99'}
+        payload = {'stats': {'easy': {'gamesPlayed': 1}}}
+        for _ in range(RATE_LIMIT_MAX_IMPORTS):
+            response = self.client.post(
+                '/api/game/stats/import', data=payload, content_type='application/json', **headers,
+            )
+            self.assertNotEqual(response.status_code, 429)
+        response = self.client.post(
+            '/api/game/stats/import', data=payload, content_type='application/json', **headers,
+        )
+        self.assertEqual(response.status_code, 429)
 
 
 class StatsTransformerTests(TestCase):
@@ -494,6 +977,9 @@ class PlayerIdentityMiddlewareTests(TestCase):
 
 
 class StatsEndpointTests(TestCase):
+    def setUp(self):
+        cache.clear()  # see GameApiTests.setUp for why
+
     def _start(self, level='easy'):
         response = self.client.post(
             '/api/game/start', data={'level': level}, content_type='application/json',

@@ -22,6 +22,7 @@ export function emptyStats() {
     hintsTotal: 0,
     undosTotal: 0,
     pairsTotal: 0,
+    shufflesTotal: 0,
     bestTimeMs: null,
     currentStreak: 0,
     bestStreak: 0,
