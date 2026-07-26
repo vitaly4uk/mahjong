@@ -19,6 +19,12 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1
 
+# gettext (msgfmt) — compiles locale/*.po into .mo below; .mo is a build
+# artifact (.gitignore), regenerated on every image build from the committed
+# .po sources.
+RUN apt-get update && apt-get install -y --no-install-recommends gettext \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-install-project --no-dev
 
@@ -27,6 +33,11 @@ COPY . .
 # він потрапив у collectstatic-маніфест.
 COPY --from=jsbuild /app/static/game/bundle.js static/game/bundle.js
 RUN uv sync --locked --no-dev
+
+# -l/--locale scoped to our own catalogs — without it compilemessages also
+# walks every installed package's own locale/ (Django itself, etc.), which is
+# pointless work (those .mo ship precompiled already) and slows the build.
+RUN uv run manage.py compilemessages --locale=uk --locale=en
 
 RUN uv run manage.py collectstatic --noinput
 

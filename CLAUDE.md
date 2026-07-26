@@ -70,6 +70,53 @@ uv run manage.py runserver
 
 Додавання залежностей: `uv add <package>` (прод) / `uv add --dev <package>` (dev-інструменти, лінтери, тести).
 
+## Локалізація
+
+Штатний Django gettext-i18n (`uk` + `en`), msgid — **англійською** (ідіоматичний Django),
+переклади — `locale/{uk,en}/LC_MESSAGES/{django,djangojs}.po`. Дефолт для нового
+відвідувача без куки й без збігу `Accept-Language` — українська (`LANGUAGE_CODE = 'uk'`,
+`config/settings.py`). Перемикач мови — кнопка `🌐 UA`/`🌐 EN` у самому тулбарі
+(`static/game/main.js: createToolbar()`, той самий канвасний ряд, що й «Нова гра»/
+«Підказка»/«Скасувати»/«Статистика», п'ята кнопка), не в модалці. Лише дві мови
+(`config/settings.py: LANGUAGES`), тож це простий тоггл (`OTHER_LANG`), а не пікер:
+показує ПОТОЧНУ мову, клік перемикає на іншу. `window.MAHJONG_LANG` (з
+`{% get_current_language %}`, `templates/game.html`) — джерело поточної мови для
+JS. Клік шле POST у Django `set_language` (`static/game/sync.js: setLanguage()`,
+`config/urls.py: path('i18n/', include('django.conf.urls.i18n'))`) і перезавантажує
+сторінку — **без** `i18n_patterns`, URL кореня `/` лишається чистим (важливо для
+standalone-PWA/`start_url`). Активна партія переживає перезавантаження без втрат
+(`tryResumeGame()` — той самий шлях, що й для звичайного reload/resume).
+
+Більшість тексту рендериться на Phaser-канвасі (`static/game/main.js`), тож основний
+канал перекладу — Django **`JavaScriptCatalog`** (`config/urls.py:
+path('jsi18n/', JavaScriptCatalog.as_view())`, без `packages=` — каталог живе в
+проєктному `locale/`, не всередині `gameplay/locale/`), підключений у `game.html`
+**класичним** `<script>` (не `type="module"`) **перед** модульним бандлом — глобальні
+`gettext`/`interpolate` мають бути визначені до виконання `main.js`/`bundle.js`.
+Емодзі-префікси (`🆕`, `💡`, `🏆`, ...) свідомо лишаються **поза** `gettext()`/
+`{% trans %}` — вони мовонезалежні, перекладати нема чого.
+
+Назви розкладок (`Turtle`/`Dragon`/`Cat`, з `#`-коментарів `.layout`-файлів) кешуються
+процесом (`gameplay/layouts.py: load_layouts()`, `@lru_cache`) — тому переклад
+застосовується не до самого кешованого імені, а щоразу в `list_boards()` через
+`gettext(layout.name)`; відомі назви зареєстровані через `gettext_noop()` для
+`makemessages`.
+
+Каталоги перекомпілюються з `.po` в `.mo` на кожному Docker-білді
+(`Dockerfile: RUN uv run manage.py compilemessages`, вимагає системний `gettext`) —
+`.mo` у git не комітяться (`.gitignore: locale/**/*.mo`), як і `bundle.js`. Після зміни
+перекладного тексту в коді — перегенерувати каталоги:
+
+```
+uv run manage.py makemessages -l uk -l en \
+  --ignore='static/vendor/*' --ignore='static/game/bundle.js' \
+  --ignore='staticfiles/*' --ignore='.venv/*'
+uv run manage.py makemessages -d djangojs -l uk -l en \
+  --ignore='static/vendor/*' --ignore='static/game/bundle.js' \
+  --ignore='staticfiles/*' --ignore='.venv/*'
+uv run manage.py compilemessages --locale=uk --locale=en   # для локальної перевірки
+```
+
 ## Тести
 
 Клієнтська логіка гри тестується без браузера й без npm — вбудованим test runner Node:

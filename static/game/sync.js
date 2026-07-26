@@ -92,3 +92,25 @@ export async function fetchVersion() {
   const data = await requestJson('/api/version/');
   return data.version;
 }
+
+// Switches the active UI language via Django's built-in set_language view
+// (config/urls.py: path('i18n/', include('django.conf.urls.i18n'))). Sent as
+// a form-encoded body (not JSON, unlike the rest of this file) — the view
+// reads request.POST, which Django only populates for form-encoded/multipart
+// bodies. 'Accept: application/json' skips the HTML redirect-page body the
+// view would otherwise render (no text/html in Accept -> 204 No Content); the
+// django_language cookie is set either way, via Set-Cookie on the response.
+// Caller reloads the page afterward — both the server-rendered template and
+// the /jsi18n/ catalog need a fresh request to pick up the new language.
+export async function setLanguage(code) {
+  await fetch('/i18n/setlang/', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-CSRFToken': window.MAHJONG_CSRF,
+      Accept: 'application/json',
+    },
+    body: new URLSearchParams({ language: code, next: '/' }),
+  });
+}

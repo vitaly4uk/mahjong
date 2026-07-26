@@ -3,7 +3,7 @@ import {
 } from './board.js';
 import {
   startGame as apiStartGame, finishGame as apiFinishGame, bumpStat as apiBumpStat,
-  fetchStats, importLegacyStats, fetchVersion, fetchSessionState,
+  fetchStats, importLegacyStats, fetchVersion, fetchSessionState, setLanguage,
 } from './sync.js';
 import {
   load as loadLegacyStats, clearLegacy, emptyAllStats, winRate, fmtTime, LEVELS,
@@ -20,9 +20,47 @@ import {
   DEAL_TILE_MS, DEAL_LAYER_STAGGER, DEAL_TILE_STAGGER, DEAL_START_SCALE, DEAL_OFFSCREEN_PAD,
 } from './render-constants.js';
 
+// Provided globally by Django's JavaScriptCatalog (config/urls.py:
+// javascript-catalog) — templates/game.html loads it as a classic <script>
+// before this module, so these already exist by the time this file runs.
+// Emoji prefixes throughout this file are deliberately kept OUTSIDE these
+// calls (plain string literals) — they're language-neutral, only the text is
+// translated.
+const { gettext, interpolate } = window;
+
 const DIFFICULTY_KEY = 'mahjong.difficulty';
 const DEFAULT_DIFFICULTY = 'normal';
-const LEVEL_LABELS = { easy: '😌 Легко', normal: '🙂 Нормально', hard: '😈 Складно' };
+const LEVEL_LABELS = {
+  easy: `😌 ${gettext('Easy')}`,
+  normal: `🙂 ${gettext('Normal')}`,
+  hard: `😈 ${gettext('Hard')}`,
+};
+
+// Hoisted like LEVEL_LABELS above — renderStats() runs on every registry
+//'changedata' tick (deliberately cheap, see its own comment), so these
+// gettext()/interpolate() results (constant for the life of the page — the
+// language only ever changes via a full reload) shouldn't be recomputed
+// on every tick.
+const HINT_LABEL = `💡 ${gettext('Hint')}`;
+const HINT_TEMPLATE = gettext('Hint (%(n)s)');
+const UNDO_LABEL = `↩️ ${gettext('Undo')}`;
+const UNDO_TEMPLATE = gettext('Undo (%(n)s)');
+
+// Hoisted for the same reason as HINT_LABEL/UNDO_LABEL above — renderStatsModal()
+// rebuilds this 3-levels×9-rows table on every allStats change/modal open, no
+// need to re-translate the (per-page-load constant) row labels each time.
+const STATS_ROW_LABELS = {
+  started: `🎲 ${gettext('Games started')}`,
+  played: `📋 ${gettext('Games played')}`,
+  wins: `🏆 ${gettext('Wins')}`,
+  winRate: `📈 ${gettext('Win rate')}`,
+  currentStreak: `🔥 ${gettext('Current streak')}`,
+  bestStreak: `⭐ ${gettext('Best streak')}`,
+  bestTime: `⏱️ ${gettext('Best time')}`,
+  totalHints: `💡 ${gettext('Total hints')}`,
+  totalUndos: `↩️ ${gettext('Total undos')}`,
+  totalPairs: `🀄 ${gettext('Total pairs removed')}`,
+};
 
 const BOARD_KEY = 'mahjong.board';
 const DEFAULT_BOARD = 'turtle';
@@ -137,6 +175,11 @@ const newgameLevelButtons = [...newgameModal.querySelectorAll('[data-level]')];
 const newgameBoardButtons = [...newgameModal.querySelectorAll('[data-board]')];
 const newgameCloseBtn = document.getElementById('btn-newgame-close');
 
+// Only uk/en ship for now (config/settings.py: LANGUAGES) — a single toggle
+// button in the canvas toolbar (createToolbar) is simpler than a picker for
+// two options; switching to more languages later would need a real picker.
+const LANG_BTN_LABEL = { uk: 'UA', en: 'EN' };
+
 const BG_VEIL_ALPHA = 0.45;
 const BG_DEPTH = -2;
 const BG_VEIL_DEPTH = -1;
@@ -243,7 +286,7 @@ class MainScene extends Phaser.Scene {
       bootstrapped = await fetchStats();
     } catch {
       bootstrapped = { stats: emptyAllStats(), legacyImportAvailable: false };
-      this.registry.set('status', '⚠️ Не вдалося завантажити статистику');
+      this.registry.set('status', `⚠️ ${gettext('Failed to load statistics')}`);
     }
     let allStats = bootstrapped.stats;
     if (bootstrapped.legacyImportAvailable) {
@@ -519,16 +562,24 @@ class MainScene extends Phaser.Scene {
       .setDepth(TOOLBAR_PLATE_DEPTH);
 
     const specs = [
-      { key: 'new', text: '🆕 Нова гра', onClick: () => this.registry.set('modal', { type: 'newgame', canClose: true }) },
-      { key: 'hint', text: '💡 Підказка', onClick: () => this.hint() },
-      { key: 'undo', text: '↩️ Скасувати', onClick: () => this.undo() },
+      { key: 'new', text: `🆕 ${gettext('New game')}`, onClick: () => this.registry.set('modal', { type: 'newgame', canClose: true }) },
+      { key: 'hint', text: HINT_LABEL, onClick: () => this.hint() },
+      { key: 'undo', text: UNDO_LABEL, onClick: () => this.undo() },
       {
         key: 'stats',
-        text: '📊 Статистика',
+        text: `📊 ${gettext('Statistics')}`,
         onClick: () => {
           const open = this.registry.get('modal')?.type === 'stats';
           this.registry.set('modal', open ? null : { type: 'stats' });
         },
+      },
+      {
+        // Toggles straight to the other language — no picker needed for
+        // just two options. The button label shows the CURRENT language;
+        // reloading after the switch flips it to the new current one.
+        key: 'lang',
+        text: `🌐 ${LANG_BTN_LABEL[window.MAHJONG_LANG] || window.MAHJONG_LANG}`,
+        onClick: () => setLanguage(window.MAHJONG_LANG === 'uk' ? 'en' : 'uk').finally(() => location.reload()),
       },
     ];
     this.toolbarTexts = {};
@@ -673,7 +724,7 @@ class MainScene extends Phaser.Scene {
     const text = this.add.text(
       viewW - this.d(BG_CREDIT_PADDING),
       viewH - statusH - this.d(BG_CREDIT_PADDING),
-      `Фото: ${photographer} · Pexels`,
+      interpolate(gettext('Photo: %(name)s · Pexels'), { name: photographer }, true),
       this.textStyle(12, '#ffffff'),
     )
       .setOrigin(1, 1)
@@ -844,9 +895,9 @@ class MainScene extends Phaser.Scene {
     if (showStats) {
       statsTitleEl.textContent = modal.type === 'result'
         ? (modal.error
-          ? '⚠️ Партія не підтверджена сервером'
-          : (modal.won ? '🎉 Перемога!' : '🚫 Глухий кут — немає ходів'))
-        : '📊 Статистика';
+          ? `⚠️ ${gettext('The game was not confirmed by the server')}`
+          : (modal.won ? `🎉 ${gettext('Victory!')}` : `🚫 ${gettext('Dead end — no moves left')}`))
+        : `📊 ${gettext('Statistics')}`;
       // Not just relying on the changedata-allStats listener: currentLevel
       // (which controls the "current" highlight) can change without a fresh
       // allStats push, so refresh the content on every open too.
@@ -872,8 +923,12 @@ class MainScene extends Phaser.Scene {
 
     const hints = this.registry.get('gameHints') || 0;
     const undos = this.registry.get('gameUndos') || 0;
-    this.toolbarTexts.hint.setText(hints > 0 ? `💡 Підказка (${hints})` : '💡 Підказка');
-    this.toolbarTexts.undo.setText(undos > 0 ? `↩️ Скасувати (${undos})` : '↩️ Скасувати');
+    this.toolbarTexts.hint.setText(hints > 0
+      ? `💡 ${interpolate(HINT_TEMPLATE, { n: hints }, true)}`
+      : HINT_LABEL);
+    this.toolbarTexts.undo.setText(undos > 0
+      ? `↩️ ${interpolate(UNDO_TEMPLATE, { n: undos }, true)}`
+      : UNDO_LABEL);
     this.difficultyText.setText(LEVEL_LABELS[this.currentLevel]);
 
     const stats = this.lifetimeStats();
@@ -894,16 +949,16 @@ class MainScene extends Phaser.Scene {
         <div class="level-block${current}">
           <h3>${LEVEL_LABELS[level]}</h3>
           <dl>
-            <dt>🎲 Розпочато партій</dt><dd>${s.gamesStarted}</dd>
-            <dt>📋 Зіграно партій</dt><dd>${s.gamesPlayed}</dd>
-            <dt>🏆 Перемог</dt><dd>${s.gamesWon}</dd>
-            <dt>📈 % перемог</dt><dd>${winRate(s)}%</dd>
-            <dt>🔥 Поточна серія</dt><dd>${s.currentStreak}</dd>
-            <dt>⭐ Рекордна серія</dt><dd>${s.bestStreak}</dd>
-            <dt>⏱️ Найкращий час</dt><dd>${s.bestTimeMs == null ? '—' : fmtTime(s.bestTimeMs)}</dd>
-            <dt>💡 Підказок усього</dt><dd>${s.hintsTotal}</dd>
-            <dt>↩️ Скасувань усього</dt><dd>${s.undosTotal}</dd>
-            <dt>🀄 Знято пар усього</dt><dd>${s.pairsTotal}</dd>
+            <dt>${STATS_ROW_LABELS.started}</dt><dd>${s.gamesStarted}</dd>
+            <dt>${STATS_ROW_LABELS.played}</dt><dd>${s.gamesPlayed}</dd>
+            <dt>${STATS_ROW_LABELS.wins}</dt><dd>${s.gamesWon}</dd>
+            <dt>${STATS_ROW_LABELS.winRate}</dt><dd>${winRate(s)}%</dd>
+            <dt>${STATS_ROW_LABELS.currentStreak}</dt><dd>${s.currentStreak}</dd>
+            <dt>${STATS_ROW_LABELS.bestStreak}</dt><dd>${s.bestStreak}</dd>
+            <dt>${STATS_ROW_LABELS.bestTime}</dt><dd>${s.bestTimeMs == null ? '—' : fmtTime(s.bestTimeMs)}</dd>
+            <dt>${STATS_ROW_LABELS.totalHints}</dt><dd>${s.hintsTotal}</dd>
+            <dt>${STATS_ROW_LABELS.totalUndos}</dt><dd>${s.undosTotal}</dd>
+            <dt>${STATS_ROW_LABELS.totalPairs}</dt><dd>${s.pairsTotal}</dd>
           </dl>
         </div>
       `;
@@ -928,14 +983,14 @@ class MainScene extends Phaser.Scene {
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
     this.selected = null;
-    this.registry.set('status', '⏳ Генерую розклад…');
+    this.registry.set('status', `⏳ ${gettext('Generating layout…')}`);
     this.registry.set('modal', null);
 
     let data;
     try {
       data = await apiStartGame(level, board);
     } catch {
-      this.registry.set('status', '⚠️ Не вдалося почати гру — перевірте з\'єднання');
+      this.registry.set('status', `⚠️ ${gettext("Failed to start the game — check your connection")}`);
       return;
     }
 
@@ -981,13 +1036,13 @@ class MainScene extends Phaser.Scene {
     try {
       result = await apiFinishGame(this.sessionToken, this.movesLog, outcome);
     } catch {
-      this.registry.set('status', '⚠️ Не вдалося підтвердити результат партії');
+      this.registry.set('status', `⚠️ ${gettext('Failed to confirm the game result')}`);
       this.registry.set('modal', { type: 'result', error: true });
       return;
     }
 
     if (!result.valid) {
-      this.registry.set('status', '⚠️ Партія не підтверджена сервером');
+      this.registry.set('status', `⚠️ ${gettext('The game was not confirmed by the server')}`);
       this.registry.set('modal', { type: 'result', error: true });
       clearActiveGame();
       return;
@@ -1444,13 +1499,15 @@ class MainScene extends Phaser.Scene {
 
   updateStatus() {
     if (this.board.isWon()) {
-      this.registry.set('status', '🎉 Перемога!');
+      this.registry.set('status', `🎉 ${gettext('Victory!')}`);
       this.finishGame(true);
     } else if (this.board.isDeadlocked()) {
-      this.registry.set('status', '🚫 Немає ходів — почніть нову гру');
+      this.registry.set('status', `🚫 ${gettext('No moves left — start a new game')}`);
       this.finishGame(false);
     } else {
-      this.registry.set('status', `🀄 Залишилось: ${this.board.remaining}`);
+      // No noun to agree in number here ("Remaining: N", not "N tiles left")
+      // — a plain interpolated count needs no ngettext/plural forms.
+      this.registry.set('status', `🀄 ${interpolate(gettext('Remaining: %(n)s'), { n: this.board.remaining }, true)}`);
     }
   }
 }

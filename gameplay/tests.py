@@ -2,7 +2,7 @@ import uuid
 from datetime import timedelta
 
 from django.contrib.auth.models import User
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from .api import SESSION_TTL, router as gameplay_router  # noqa: F401 (registers the router when the test module is imported)
@@ -44,7 +44,11 @@ class LayoutParserTests(TestCase):
             self.assertEqual(len(layout.positions), 144, slug)
             self.assertEqual(len(set(layout.positions)), 144, f'{slug}: duplicate position')
 
+    @override_settings(LANGUAGE_CODE='en')
     def test_list_boards_exposes_slug_and_name(self):
+        # Asserts the English msgid itself (list_boards() translates it via
+        # the active language, gameplay/layouts.py) — pin the language so this
+        # doesn't depend on LANGUAGE_CODE's default (uk).
         boards = list_boards()
         slugs = {b['slug'] for b in boards}
         self.assertIn('turtle', slugs)
@@ -292,9 +296,11 @@ class GameApiTests(TestCase):
         second = self.client.post('/api/game/finish', data=payload, content_type='application/json')
         self.assertFalse(second.json()['valid'])
 
+    @override_settings(LANGUAGE_CODE='en')
     def test_finish_double_claim_race_is_atomic(self):
         """Simulates a race: both requests read ACTIVE, but only one atomic
-        UPDATE actually changes the status — the other gets 0 updated rows."""
+        UPDATE actually changes the status — the other gets 0 updated rows.
+        Pinned to English — asserts the msgid itself, not a translation."""
         data = self._start()
         moves = self._win_moves(data['layout'])
         payload = {'token': data['token'], 'moves': moves, 'outcome': 'win'}
@@ -578,7 +584,9 @@ class StatsEndpointTests(TestCase):
         self.assertEqual(stats['gamesWon'], 1)
         self.assertEqual(stats['gamesStarted'], 1)
 
+    @override_settings(LANGUAGE_CODE='en')
     def test_import_accepted_once_then_rejected(self):
+        # Pinned to English — asserts the msgid itself, not a translation.
         legacy = {
             'easy': {'gamesPlayed': 2, 'gamesWon': 1, 'bestTimeMs': 4000, 'currentStreak': 1, 'bestStreak': 1},
         }

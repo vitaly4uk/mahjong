@@ -1,0 +1,120 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: mahjong\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-26 08:50+0000\n"
+"PO-Revision-Date: 2026-07-26 08:34+0000\n"
+"Last-Translator: \n"
+"Language-Team: Ukrainian\n"
+"Language: uk\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=4; plural=(n % 1 == 0 && n % 10 == 1 && n % 100 != "
+"11 ? 0 : n % 1 == 0 && n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % "
+"100 > 14) ? 1 : n % 1 == 0 && (n % 10 ==0 || (n % 10 >=5 && n % 10 <=9) || "
+"(n % 100 >=11 && n % 100 <=14 )) ? 2: 3);\n"
+
+#: config/settings.py:142
+msgid "Ukrainian"
+msgstr "Українська"
+
+#: config/settings.py:143
+msgid "English"
+msgstr "Англійська"
+
+#: gameplay/api.py:67
+msgid "too many requests, slow down"
+msgstr "забагато запитів, зачекайте"
+
+#: gameplay/api.py:88
+msgid "unknown level"
+msgstr "невідома складність"
+
+#: gameplay/api.py:91
+msgid "unknown board"
+msgstr "невідома розкладка"
+
+#: gameplay/api.py:141 gameplay/api.py:160
+msgid "unknown session"
+msgstr "невідома сесія"
+
+#: gameplay/api.py:143 gameplay/api.py:163 gameplay/api.py:207
+msgid "session already claimed"
+msgstr "сесія вже закрита"
+
+#: gameplay/api.py:168
+msgid "session expired"
+msgstr "сесія протермінована"
+
+#: gameplay/api.py:171
+msgid "unknown outcome"
+msgstr "невідомий результат"
+
+#: gameplay/api.py:183
+msgid "illegal move"
+msgstr "недозволений хід"
+
+#: gameplay/api.py:186
+msgid "board not fully cleared"
+msgstr "поле не повністю очищене"
+
+#: gameplay/api.py:188
+msgid "board is not deadlocked"
+msgstr "у полі ще є доступні ходи"
+
+#: gameplay/api.py:231
+msgid "already imported"
+msgstr "вже перенесено"
+
+#: gameplay/layouts.py:43
+msgid "Turtle"
+msgstr "Черепаха"
+
+#: gameplay/layouts.py:44
+msgid "Dragon"
+msgstr "Дракон"
+
+#: gameplay/layouts.py:45
+msgid "Cat"
+msgstr "Кіт"
+
+#: templates/game.html:14
+msgid "Mahjong"
+msgstr "Маджонг"
+
+#: templates/game.html:111
+msgid "current"
+msgstr "поточний"
+
+#: templates/game.html:132 templates/game.html:155
+msgid "New game"
+msgstr "Нова гра"
+
+#: templates/game.html:133
+msgid "Layout"
+msgstr "Розкладка"
+
+#: templates/game.html:139
+msgid "Difficulty"
+msgstr "Складність"
+
+#: templates/game.html:141
+msgid "Easy"
+msgstr "Легко"
+
+#: templates/game.html:142
+msgid "Normal"
+msgstr "Нормально"
+
+#: templates/game.html:143
+msgid "Hard"
+msgstr "Складно"
+
+#: templates/game.html:146 templates/game.html:156
+msgid "Close"
+msgstr "Закрити"
+
+#: templates/game.html:152
+msgid "Statistics"
+msgstr "Статистика"

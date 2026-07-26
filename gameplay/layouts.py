@@ -17,6 +17,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from django.utils.translation import gettext, gettext_noop
 from ninja import Schema
 
 from config.settings import BASE_DIR
@@ -32,6 +33,16 @@ _ANCHOR = '1'
 _OTHER_QUADRANTS = {'2': (1, 0), '3': (1, 1), '4': (0, 1)}
 
 _TOTAL_TILES = 144
+
+# Board names come from `.layout` file comments (English, see parse_layout
+# below) and are cached process-wide by load_layouts() — so they can't carry
+# a translation baked in (that would freeze them at whichever language
+# happened to trigger the first parse). Registering the known names here only
+# makes makemessages pick them up as msgids; list_boards() does the actual
+# per-request gettext() lookup.
+gettext_noop('Turtle')
+gettext_noop('Dragon')
+gettext_noop('Cat')
 
 
 class Layout(Schema):
@@ -162,5 +173,8 @@ def list_boards():
     """[{'slug', 'name'}, ...] for the client's board-picker UI — config/urls.py
     passes this into templates/game.html's context, which renders it as
     `[data-board]` buttons (no separate JS global; main.js reads the
-    attributes straight off the DOM, same as the difficulty buttons)."""
-    return [{'slug': layout.slug, 'name': layout.name} for layout in load_layouts().values()]
+    attributes straight off the DOM, same as the difficulty buttons).
+    gettext(layout.name) here (not baked into the cached Layout) — translates
+    for the *current* request's active language; falls back to the English
+    name itself if it isn't a registered msgid (see gettext_noop above)."""
+    return [{'slug': layout.slug, 'name': gettext(layout.name)} for layout in load_layouts().values()]

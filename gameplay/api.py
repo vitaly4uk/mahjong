@@ -14,6 +14,7 @@ from datetime import timedelta
 
 from django.core.cache import cache
 from django.utils import timezone
+from django.utils.translation import gettext as _
 from ninja import Router
 from ninja.errors import HttpError
 
@@ -63,7 +64,7 @@ def _rate_limited(request, action, limit):
 
 def _enforce_rate_limit(request, action, limit):
     if _rate_limited(request, action, limit):
-        raise HttpError(429, 'too many requests, slow down')
+        raise HttpError(429, _('too many requests, slow down'))
 
 
 def _session_elapsed(session):
@@ -84,10 +85,10 @@ def _session_profile(request, session):
 @router.post('/start', response=StartResponse)
 def start_game(request, payload: StartRequest):
     if payload.level not in DIFFICULTIES:
-        raise HttpError(400, 'unknown level')
+        raise HttpError(400, _('unknown level'))
     board = get_layout(payload.board)
     if board is None:
-        raise HttpError(400, 'unknown board')
+        raise HttpError(400, _('unknown board'))
     _enforce_rate_limit(request, 'start', RATE_LIMIT_MAX_STARTS)
 
     seed = uuid.uuid4().hex
@@ -137,9 +138,9 @@ def bump_stat(request, token: uuid.UUID, payload: BumpRequest):
     try:
         session = GameSession.objects.select_related('user__profile').get(token=token)
     except GameSession.DoesNotExist:
-        raise HttpError(400, 'unknown session')
+        raise HttpError(400, _('unknown session'))
     if session.status != GameSession.Status.ACTIVE:
-        raise HttpError(400, 'session already claimed')
+        raise HttpError(400, _('session already claimed'))
 
     profile = _session_profile(request, session)
     all_stats = update_level_stats(
@@ -156,18 +157,18 @@ def finish_game(request, payload: FinishRequest):
     try:
         session = GameSession.objects.select_related('user__profile').get(token=payload.token)
     except GameSession.DoesNotExist:
-        return {'valid': False, 'reason': 'unknown session'}
+        return {'valid': False, 'reason': _('unknown session')}
 
     if session.status != GameSession.Status.ACTIVE:
-        return {'valid': False, 'reason': 'session already claimed'}
+        return {'valid': False, 'reason': _('session already claimed')}
 
     if _session_elapsed(session) > SESSION_TTL:
         session.status = GameSession.Status.EXPIRED
         session.save(update_fields=['status'])
-        return {'valid': False, 'reason': 'session expired'}
+        return {'valid': False, 'reason': _('session expired')}
 
     if payload.outcome not in ('win', 'deadlock'):
-        return {'valid': False, 'reason': 'unknown outcome'}
+        return {'valid': False, 'reason': _('unknown outcome')}
 
     tiles = [
         Tile(idx, t['x'], t['y'], t['z'], t['kind'])
@@ -179,12 +180,12 @@ def finish_game(request, payload: FinishRequest):
         a = board.get_by_idx(a_idx)
         b = board.get_by_idx(b_idx)
         if a is None or b is None or not board.remove_pair(a, b):
-            return {'valid': False, 'reason': 'illegal move'}
+            return {'valid': False, 'reason': _('illegal move')}
 
     if payload.outcome == 'win' and not board.is_won():
-        return {'valid': False, 'reason': 'board not fully cleared'}
+        return {'valid': False, 'reason': _('board not fully cleared')}
     if payload.outcome == 'deadlock' and not board.is_deadlocked():
-        return {'valid': False, 'reason': 'board is not deadlocked'}
+        return {'valid': False, 'reason': _('board is not deadlocked')}
 
     # A fresh reading (not reusing the TTL check's elapsed above) — this one
     # must reflect time up to the actual claim, after move validation.
@@ -203,7 +204,7 @@ def finish_game(request, payload: FinishRequest):
         won=payload.outcome == 'win',
     )
     if claimed_count == 0:
-        return {'valid': False, 'reason': 'session already claimed'}
+        return {'valid': False, 'reason': _('session already claimed')}
 
     profile = _session_profile(request, session)
     mutator = (lambda s: apply_win(s, elapsed_ms)) if payload.outcome == 'win' else apply_loss
@@ -227,7 +228,7 @@ def import_stats(request, payload: ImportRequest):
 
     profile = request.profile
     if profile.legacy_imported:
-        return {'imported': False, 'reason': 'already imported'}
+        return {'imported': False, 'reason': _('already imported')}
 
     current = AllStats.model_validate(profile.stats)
     merged = merge_imported(current, payload.stats)

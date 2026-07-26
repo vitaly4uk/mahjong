@@ -6,6 +6,9 @@ db.sqlite3
 *.log
 staticfiles/
 static/game/bundle.js
+# Compiled translation catalogs (compilemessages build artifact) — .po
+# sources are committed, .mo is regenerated at Docker build time.
+locale/**/*.mo
 .playwright-mcp/
 .DS_Store
 .claude/
