@@ -6,24 +6,77 @@ from django.test import Client, TestCase
 from django.utils import timezone
 
 from .api import SESSION_TTL, router as gameplay_router  # noqa: F401 (registers the router when the test module is imported)
-from .board import Board, Tile, is_free_position, match_key, target_positions
+from .board import Board, Tile, is_free_position, match_key
 from .generator import DIFFICULTIES, generate_for_difficulty
+from .layouts import LAYOUTS_DIR, LayoutError, get_layout, list_boards, load_layouts, parse_layout
 from .middleware import PLAYER_COOKIE_NAME
 from .models import GameSession, Profile
 from .schemas import AllStats, LevelStats
 from .stats import apply_loss, apply_win, merge_imported
 
 
-class BoardRuleTests(TestCase):
-    def test_target_positions_is_144(self):
-        self.assertEqual(len(target_positions()), 144)
+class LayoutParserTests(TestCase):
+    """Coverage for gameplay/layouts.py — parsing the kmahjongg-format
+    `.layout` files in layouts/ (project root)."""
 
-    def test_target_positions_layer_split(self):
+    def test_turtle_layout_is_144_tiles_with_authentic_layer_split(self):
+        layout = get_layout('turtle')
+        self.assertIsNotNone(layout)
+        self.assertEqual(len(layout.positions), 144)
         by_layer = [0, 0, 0, 0, 0]
-        for _, _, z in target_positions():
+        for _, _, z in layout.positions:
             by_layer[z] += 1
         self.assertEqual(by_layer, [87, 36, 16, 4, 1])
 
+    def test_turtle_layout_known_coordinates(self):
+        """Spot-checks against the shape this project has always used
+        (formerly hardcoded in board.py: _TURTLE_CELLS) — the head/tail
+        protrusions and the peak apex, all on ODD half-tile coordinates."""
+        positions = set(get_layout('turtle').positions)
+        self.assertIn((0, 7, 0), positions)  # head
+        self.assertIn((26, 7, 0), positions)  # tail
+        self.assertIn((28, 7, 0), positions)  # tail
+        self.assertIn((13, 7, 4), positions)  # peak apex
+        self.assertNotIn((0, 0, 0), positions)  # shell corner is absent
+
+    def test_all_bundled_boards_are_144_tiles(self):
+        for slug, layout in load_layouts().items():
+            self.assertEqual(len(layout.positions), 144, slug)
+            self.assertEqual(len(set(layout.positions)), 144, f'{slug}: duplicate position')
+
+    def test_list_boards_exposes_slug_and_name(self):
+        boards = list_boards()
+        slugs = {b['slug'] for b in boards}
+        self.assertIn('turtle', slugs)
+        turtle = next(b for b in boards if b['slug'] == 'turtle')
+        self.assertEqual(turtle['name'], 'Turtle')
+
+    def test_get_layout_unknown_slug_returns_none(self):
+        self.assertIsNone(get_layout('does-not-exist'))
+
+    def test_parse_layout_rejects_unknown_header(self):
+        with self.assertRaises(LayoutError):
+            parse_layout('not-a-kmahjongg-header\n', 'bad')
+
+    def test_parse_layout_rejects_wrong_tile_count(self):
+        # A minimal well-formed but tiny grid — nowhere near 144 tiles.
+        text = 'kmahjongg-layout-v1.1\nw4\nh4\nd1\n1234\n4321\n....\n....\n'
+        with self.assertRaises(LayoutError):
+            parse_layout(text, 'tiny')
+
+    def test_parse_layout_rejects_broken_quadrant(self):
+        # A '1' anchor whose neighbouring quadrants aren't 2/3/4 — corrupted grid.
+        text = 'kmahjongg-layout-v1.1\nw4\nh4\nd1\n1.1.\n....\n....\n....\n'
+        with self.assertRaises(LayoutError):
+            parse_layout(text, 'broken')
+
+    def test_real_turtle_layout_file_parses_and_matches_get_layout(self):
+        text = (LAYOUTS_DIR / 'turtle.layout').read_text(encoding='utf-8')
+        layout = parse_layout(text, 'turtle')
+        self.assertEqual(set(layout.positions), set(get_layout('turtle').positions))
+
+
+class BoardRuleTests(TestCase):
     def test_wildcard_flowers_and_seasons_match_within_group(self):
         # Two DIFFERENT flowers match (same group); a flower and a season don't.
         plum = Tile(0, 0, 0, 0, 'Plum')
@@ -105,17 +158,18 @@ def _solve(tiles):
 
 
 class GeneratorTests(TestCase):
-    def test_generated_layout_is_solvable_across_seeds(self):
-        for level in DIFFICULTIES:
-            for seed in range(30):
-                tiles = generate_for_difficulty(level, seed=seed)
-                self.assertEqual(len(tiles), 144, f'{level} seed={seed}: expected 144 tiles')
-                self.assertTrue(_solve(tiles), f'{level} seed={seed}: board is unsolvable')
+    def test_generated_layout_is_solvable_across_seeds_and_boards(self):
+        for slug, layout in load_layouts().items():
+            for level in DIFFICULTIES:
+                for seed in range(10):
+                    tiles = generate_for_difficulty(level, layout, seed=f'{slug}-{level}-{seed}')
+                    self.assertEqual(len(tiles), 144, f'{slug}/{level} seed={seed}: expected 144 tiles')
+                    self.assertTrue(_solve(tiles), f'{slug}/{level} seed={seed}: board is unsolvable')
 
     def test_generated_layout_is_authentic_deck(self):
         """A full mahjong deck: 34 regular kinds × 4 copies + 8 bonus
         (flowers/seasons) × 1 copy = 144 tiles."""
-        tiles = generate_for_difficulty('normal', seed=1)
+        tiles = generate_for_difficulty('normal', get_layout('turtle'), seed=1)
         kinds = [kind for _, _, _, kind in tiles]
         self.assertEqual(len(kinds), 144)
         regular = {k for k in kinds if match_key(k) == k}
@@ -128,8 +182,9 @@ class GeneratorTests(TestCase):
             self.assertEqual(kinds.count(kind), 1, f'{kind}: expected 1 copy')
 
     def test_generate_for_difficulty_deterministic_by_seed(self):
-        a = generate_for_difficulty('hard', seed=42)
-        b = generate_for_difficulty('hard', seed=42)
+        turtle = get_layout('turtle')
+        a = generate_for_difficulty('hard', turtle, seed=42)
+        b = generate_for_difficulty('hard', turtle, seed=42)
         self.assertEqual(a, b)
 
 
@@ -163,6 +218,31 @@ class GameApiTests(TestCase):
             '/api/game/start', data={'level': 'impossible'}, content_type='application/json',
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_start_rejects_unknown_board(self):
+        response = self.client.post(
+            '/api/game/start',
+            data={'level': 'easy', 'board': 'does-not-exist'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_start_defaults_to_turtle_board_when_omitted(self):
+        data = self._start()
+        positions = {(t['x'], t['y'], t['z']) for t in data['layout']}
+        turtle = get_layout('turtle')
+        self.assertEqual(positions, set(turtle.positions))
+        self.assertEqual(data['board_width'], turtle.width)
+        self.assertEqual(data['board_height'], turtle.height)
+        self.assertEqual(data['board_layers'], turtle.layers)
+
+    def test_start_accepts_explicit_board_choice(self):
+        response = self.client.post(
+            '/api/game/start', data={'level': 'easy', 'board': 'dragon'}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        positions = {(t['x'], t['y'], t['z']) for t in response.json()['layout']}
+        self.assertEqual(positions, set(get_layout('dragon').positions))
 
     def test_finish_accepts_valid_full_solution(self):
         data = self._start()

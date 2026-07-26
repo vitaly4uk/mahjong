@@ -1,40 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  WIDTH, HEIGHT, LAYERS, posKey, targetPositions, isFreePosition, Board, replayMoves, matchKey,
+  posKey, isFreePosition, Board, replayMoves, matchKey,
 } from '../static/game/board.js';
 
 const t = (x, y, z, kind) => ({ x, y, z, kind });
 
-test('constants', () => {
-  // kmahjongg's half-tile grid: a regular tile = a step of 2, not 1.
-  assert.equal(WIDTH, 30);
-  assert.equal(HEIGHT, 16);
-  assert.equal(LAYERS, 5);
-});
-
-test('targetPositions: 144 unique positions (authentic Turtle shape), per-layer counts', () => {
-  const pos = targetPositions();
-  assert.equal(pos.length, 144);
-  const keys = new Set(pos.map((p) => posKey(p.x, p.y, p.z)));
-  assert.equal(keys.size, 144);
-  const byLayer = [0, 0, 0, 0, 0];
-  for (const p of pos) byLayer[p.z] += 1;
-  assert.deepEqual(byLayer, [87, 36, 16, 4, 1]);
-  // Layer 0 shell: corner (0,0) is absent, a regular cell is present.
-  assert.ok(!keys.has(posKey(0, 0, 0)));
-  assert.ok(keys.has(posKey(2, 0, 0)));
-  // The "head" (0,7) and "tail" (26,7)/(28,7) protrusions — on ODD y=7 (half-row).
-  assert.ok(keys.has(posKey(0, 7, 0)));
-  assert.ok(keys.has(posKey(26, 7, 0)));
-  assert.ok(keys.has(posKey(28, 7, 0)));
-  // Layer 2 + the peak's base (z3, 2×2) + apex (z4) at ODD (13,7) — exactly
-  // between the four z3 tiles, with no rounding to a whole cell.
-  assert.ok(keys.has(posKey(10, 4, 2)));
-  assert.ok(!keys.has(posKey(0, 0, 2)));
-  assert.ok(keys.has(posKey(12, 6, 3)));
-  assert.ok(keys.has(posKey(13, 7, 4)));
-});
+// Board shape (which positions exist, board dimensions) is no longer
+// hardcoded on the client — it's server-authoritative (gameplay/layouts.py,
+// parsed from a kmahjongg-format `.layout` file) and comes down with every
+// game's `layout` array. board.js tests below only cover the shape-agnostic
+// rules (freedom, matching, undo, replay) — see gameplay/tests.py for
+// coverage of the actual layouts/*.layout files (144-tile count, known
+// coordinates, solvability).
 
 test('matchKey: flowers and seasons form two wildcard groups', () => {
   assert.equal(matchKey('Man1'), 'Man1');

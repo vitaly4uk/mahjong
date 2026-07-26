@@ -19,6 +19,7 @@ from ninja.errors import HttpError
 
 from .board import Board, Tile
 from .generator import DIFFICULTIES, generate_for_difficulty
+from .layouts import get_layout
 from .models import GameSession
 from .schemas import (
     AllStats, BumpRequest, BumpResponse, FinishRequest, FinishResponse, ImportRequest,
@@ -75,11 +76,14 @@ def _session_profile(request, session):
 def start_game(request, payload: StartRequest):
     if payload.level not in DIFFICULTIES:
         raise HttpError(400, 'unknown level')
+    board = get_layout(payload.board)
+    if board is None:
+        raise HttpError(400, 'unknown board')
     if _rate_limited(request, 'start', RATE_LIMIT_MAX_STARTS):
         raise HttpError(429, 'too many new games, slow down')
 
     seed = uuid.uuid4().hex
-    tiles = generate_for_difficulty(payload.level, seed=seed)
+    tiles = generate_for_difficulty(payload.level, board, seed=seed)
     layout = [{'x': x, 'y': y, 'z': z, 'kind': kind} for x, y, z, kind in tiles]
 
     session = GameSession.objects.create(
@@ -93,7 +97,10 @@ def start_game(request, payload: StartRequest):
     profile.stats = all_stats.model_dump(by_alias=True)
     profile.save(update_fields=['stats', 'updated_at'])
 
-    return {'token': session.token, 'layout': layout, 'stats': all_stats}
+    return {
+        'token': session.token, 'layout': layout, 'stats': all_stats,
+        'board_width': board.width, 'board_height': board.height, 'board_layers': board.layers,
+    }
 
 
 @router.get('/{uuid:token}', response=SessionStateResponse)

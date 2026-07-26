@@ -87,16 +87,21 @@
     background: #4c7454; transform: scale(0.93) translateY(2px);
     transition: background .15s ease, transform .08s ease;
   }
-  #newgame-modal .levels {
+  #newgame-modal .levels, #newgame-modal .boards {
     display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px;
   }
-  #newgame-modal .levels button {
+  #newgame-modal .boards { margin-bottom: 18px; }
+  #newgame-modal .levels button, #newgame-modal .boards button {
     padding: 10px 20px; font-size: 15px; font-weight: 500;
     border: 0; border-radius: 6px; min-width: 180px;
     background: #3a5a40; color: #fff; cursor: pointer;
   }
-  #newgame-modal .levels button.selected {
+  #newgame-modal .levels button.selected, #newgame-modal .boards button.selected {
     background: #6ea56f; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3) inset;
+  }
+  #newgame-modal h3 {
+    margin: 0 0 10px; font-size: 13px; color: #9bb; text-align: center;
+    text-transform: uppercase; letter-spacing: .04em;
   }
   #stats-modal .level-block { margin-bottom: 22px; }
   #stats-modal .level-block h3 {
@@ -125,6 +130,13 @@
 <div id="newgame-modal">
   <div class="panel">
     <h2>🆕 Нова гра</h2>
+    <h3>Розкладка</h3>
+    <div class="boards">
+      {% for board in boards %}
+      <button data-board="{{ board.slug }}">🀄 {{ board.name }}</button>
+      {% endfor %}
+    </div>
+    <h3>Складність</h3>
     <div class="levels">
       <button data-level="easy">😌 Легко</button>
       <button data-level="normal">🙂 Нормально</button>

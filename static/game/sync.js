@@ -28,12 +28,17 @@ async function postJson(url, body) {
   return requestJson(url, { method: 'POST', body });
 }
 
-// Returns { token, layout: [{x,y,z,kind}, ...], stats } — the renderer takes
-// positions from layout, and a tile's index in this array is its identifier
-// for the moves log. stats — the updated lifetime blob (the server already
-// incremented gamesStarted for this level).
-export async function startGame(level) {
-  return postJson('/api/game/start', { level });
+// Returns { token, layout: [{x,y,z,kind}, ...], board_width, board_height,
+// board_layers, stats } — the renderer takes positions from layout (a tile's
+// index in this array is its identifier for the moves log) and board
+// dimensions straight from board_width/height/layers (gameplay/layouts.py:
+// Layout, main.js: applyBoardDims — no need to re-derive them from layout).
+// stats — the updated lifetime blob (the server already incremented
+// gamesStarted for this level). board — a slug rendered server-side as
+// `[data-board]` buttons in templates/game.html (gameplay/layouts.py:
+// list_boards()), defaults to 'turtle' server-side if omitted.
+export async function startGame(level, board) {
+  return postJson('/api/game/start', { level, board });
 }
 
 // moves — an array of [idxA, idxB] pairs (indices into the layout array from

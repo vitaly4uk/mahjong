@@ -21,6 +21,7 @@ from django.views.decorators.cache import cache_control
 from django.views.generic import TemplateView
 
 from config.api import api, get_build_version
+from gameplay.layouts import list_boards
 
 # no-cache (not "no caching" but "always revalidate via ETag/Last-Modified") —
 # so a long-open standalone app on iOS/macOS gets fresh HTML whenever it does
@@ -31,7 +32,9 @@ home_view = cache_control(no_cache=True, must_revalidate=True)(
         # debug — so the template picks raw ES modules (dev) or the minified
         # bundle.js (prod). Explicit, since context_processors.debug only
         # gives debug for INTERNAL_IPS.
-        extra_context={'version': get_build_version(), 'debug': settings.DEBUG},
+        extra_context={
+            'version': get_build_version(), 'debug': settings.DEBUG, 'boards': list_boards(),
+        },
     )
 )
 

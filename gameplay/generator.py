@@ -9,7 +9,7 @@ only through placement/pair_scheduling.
 """
 import random
 
-from .board import FLOWERS, SEASONS, is_free_position, target_positions
+from .board import FLOWERS, SEASONS, is_free_position
 
 # 34 regular riichi kinds (4 copies each = 2 pairs each). Flowers/seasons (1
 # copy each, wildcard groups) are added separately — see _bonus_pairs.
@@ -116,8 +116,8 @@ def _pick_spread_pair(free, rng, require_layer_split):
     return a, _pick(candidates, rng)
 
 
-def _try_generate(rng, placement='uniform', pair_scheduling='random'):
-    occupied = set(target_positions())
+def _try_generate(rng, positions, placement='uniform', pair_scheduling='random'):
+    occupied = set(positions)
     pair_kinds = _build_pair_kinds(rng, pair_scheduling)
     tiles = []
     while occupied:
@@ -138,17 +138,17 @@ def _try_generate(rng, placement='uniform', pair_scheduling='random'):
     return tiles
 
 
-def generate_layout(rng, placement='uniform', pair_scheduling='random'):
+def generate_layout(rng, positions, placement='uniform', pair_scheduling='random'):
     for _ in range(MAX_ATTEMPTS):
-        tiles = _try_generate(rng, placement, pair_scheduling)
+        tiles = _try_generate(rng, positions, placement, pair_scheduling)
         if tiles is not None:
             return tiles
     raise RuntimeError('generate_layout: failed to avoid a dead end in 100 attempts')
 
 
-def generate_for_difficulty(level, seed=None):
-    """Returns a solvable field for the given difficulty level: a list of 144
-    (x, y, z, kind) tuples."""
+def generate_for_difficulty(level, layout, seed=None):
+    """Returns a solvable field for the given difficulty level and board
+    shape (a gameplay.layouts.Layout): a list of 144 (x, y, z, kind) tuples."""
     preset = DIFFICULTIES[level]
     rng = random.Random(seed)
-    return generate_layout(rng, **preset)
+    return generate_layout(rng, layout.positions, **preset)

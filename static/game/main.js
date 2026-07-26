@@ -1,5 +1,5 @@
 import {
-  WIDTH, HEIGHT, LAYERS, KINDS, Board, replayMoves,
+  KINDS, Board, replayMoves,
 } from './board.js';
 import {
   startGame as apiStartGame, finishGame as apiFinishGame, bumpStat as apiBumpStat,
@@ -24,25 +24,76 @@ const DIFFICULTY_KEY = 'mahjong.difficulty';
 const DEFAULT_DIFFICULTY = 'normal';
 const LEVEL_LABELS = { easy: '😌 Легко', normal: '🙂 Нормально', hard: '😈 Складно' };
 
+const BOARD_KEY = 'mahjong.board';
+const DEFAULT_BOARD = 'turtle';
+// Board dimensions before any game has loaded a real `layout` from the
+// server (main.js: applyBoardDims) — Turtle's own shape, so the very first
+// canvas sizing (create(), before the new-game modal is even shown) matches
+// what a default-board game will look like.
+const DEFAULT_BOARD_DIMS = { width: 30, height: 16, layers: 5 };
+
+// The server sends board_width/board_height/board_layers alongside `layout`
+// on every startGame() (gameplay/layouts.py: Layout.width/height/layers,
+// gameplay/schemas.py: StartResponse) — this is only a FALLBACK for resuming
+// a game from a localStorage snapshot saved before those fields existed
+// (persistGame), where the tile coordinates are all we have. Deriving them
+// (bounding box + 2 for the tile footprint, one more layer than the max z)
+// is the same convention gameplay/layouts.py's own normalization uses.
+function boardDimsFromLayout(layout) {
+  let maxX = 0;
+  let maxY = 0;
+  let maxZ = 0;
+  for (const t of layout) {
+    if (t.x > maxX) maxX = t.x;
+    if (t.y > maxY) maxY = t.y;
+    if (t.z > maxZ) maxZ = t.z;
+  }
+  return { width: maxX + 2, height: maxY + 2, layers: maxZ + 1 };
+}
+
+// Shared read/write for the small localStorage preferences below (board,
+// difficulty) — each pref keeps its own validation/fallback logic, only the
+// try/catch-around-localStorage (private mode, quota, etc.) is common.
+function readPref(key) {
+  try {
+    return globalThis.localStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writePref(key, value) {
+  try {
+    globalThis.localStorage?.setItem(key, value);
+  } catch {
+    // ignore (private mode, quota, etc.)
+  }
+}
+
+// this.currentBoard persists the same way difficulty does — but validated
+// against the buttons actually rendered in the DOM (server-curated
+// layouts/*.layout — templates/game.html), since a stale slug from an older
+// deploy might no longer exist.
+function loadBoardPref(validSlugs) {
+  const stored = readPref(BOARD_KEY);
+  return validSlugs.includes(stored) ? stored : DEFAULT_BOARD;
+}
+
+function saveBoardPref(slug) {
+  writePref(BOARD_KEY, slug);
+}
+
 // With no explicitly saved choice — if data was just migrated from v1 (it
 // always lands in hard, see stats.js), open the game on hard; otherwise a
 // newcomer would see empty stats on normal and think they'd been lost.
 function loadDifficultyPref(allStats) {
-  try {
-    const stored = globalThis.localStorage?.getItem(DIFFICULTY_KEY);
-    if (LEVELS.includes(stored)) return stored;
-    return allStats.hard.gamesPlayed > 0 ? 'hard' : DEFAULT_DIFFICULTY;
-  } catch {
-    return DEFAULT_DIFFICULTY;
-  }
+  const stored = readPref(DIFFICULTY_KEY);
+  if (LEVELS.includes(stored)) return stored;
+  return allStats.hard.gamesPlayed > 0 ? 'hard' : DEFAULT_DIFFICULTY;
 }
 
 function saveDifficultyPref(level) {
-  try {
-    globalThis.localStorage?.setItem(DIFFICULTY_KEY, level);
-  } catch {
-    // ignore (private mode, quota, etc.)
-  }
+  writePref(DIFFICULTY_KEY, level);
 }
 
 // A snapshot of the active game for resuming after a page reload (a closed/
@@ -83,6 +134,7 @@ const statsTitleEl = document.getElementById('stats-title');
 const statsLevelsEl = document.getElementById('stats-levels');
 const newgameModal = document.getElementById('newgame-modal');
 const newgameLevelButtons = [...newgameModal.querySelectorAll('[data-level]')];
+const newgameBoardButtons = [...newgameModal.querySelectorAll('[data-board]')];
 const newgameCloseBtn = document.getElementById('btn-newgame-close');
 
 const BG_VEIL_ALPHA = 0.45;
@@ -136,6 +188,13 @@ class MainScene extends Phaser.Scene {
   async create() {
     this.dpr = window.devicePixelRatio || 1;
     this.resizeCanvas();
+    // A board's real shape only arrives with the server's `layout` (start/
+    // resume — applyBoardDims()); Turtle's own dims are a reasonable default
+    // for sizing the canvas/tiles before that (the new-game modal's default
+    // board selection).
+    this.boardWidth = DEFAULT_BOARD_DIMS.width;
+    this.boardHeight = DEFAULT_BOARD_DIMS.height;
+    this.boardLayers = DEFAULT_BOARD_DIMS.layers;
     this.computeLayout();
 
     // Tile sources — 42 oblique SVGs (Cangjie6), loaded as HTMLImageElement
@@ -209,6 +268,8 @@ class MainScene extends Phaser.Scene {
 
     this.currentLevel = loadDifficultyPref(allStats);
     saveDifficultyPref(this.currentLevel);
+    this.currentBoard = loadBoardPref(newgameBoardButtons.map((btn) => btn.dataset.board));
+    saveBoardPref(this.currentBoard);
     this.registry.set('gameFinished', true);
 
     this.time.addEvent({
@@ -225,12 +286,19 @@ class MainScene extends Phaser.Scene {
       this.registry.set('modal', { type: 'newgame', canClose: true });
     });
     newgameCloseBtn.addEventListener('click', () => this.registry.set('modal', null));
+    for (const btn of newgameBoardButtons) {
+      btn.addEventListener('click', () => {
+        this.currentBoard = btn.dataset.board;
+        saveBoardPref(this.currentBoard);
+        this.renderModal(this.registry.get('modal'));
+      });
+    }
     for (const btn of newgameLevelButtons) {
       btn.addEventListener('click', () => {
         const level = btn.dataset.level;
         saveDifficultyPref(level);
         this.registry.set('modal', null);
-        this.startGame(level);
+        this.startGame(level, this.currentBoard);
       });
     }
 
@@ -304,11 +372,13 @@ class MainScene extends Phaser.Scene {
     const availW = Math.max(1, viewW - 2 * margin);
     const availH = Math.max(1, viewH - toolbarH - statusH - 2 * margin);
 
-    // WIDTH/HEIGHT (board.js) are in kmahjongg's half-tile units (a regular
-    // tile = a step of 2, not 1: that's also where the peak/protrusion
-    // coordinates live on odd units). The real tile-column/row count is half that.
-    const realWidth = WIDTH / 2;
-    const realHeight = HEIGHT / 2;
+    // this.boardWidth/boardHeight (see applyBoardDims) are in kmahjongg's
+    // half-tile units (a regular tile = a step of 2, not 1: that's also
+    // where the peak/protrusion coordinates live on odd units). The real
+    // tile-column/row count is half that.
+    const realWidth = this.boardWidth / 2;
+    const realHeight = this.boardHeight / 2;
+    const layers = this.boardLayers;
 
     // Tiles on the same grid DELIBERATELY overlap (step < the sprite's full
     // size) — every Cangjie6 sprite contains not just the face but also a
@@ -318,8 +388,8 @@ class MainScene extends Phaser.Scene {
     // one full tileW (the last tile extends its full width past its own
     // step), and likewise for Y. tileW = tileH*ASPECT. We pick tileH so it
     // fits both the width and the height.
-    const wSpan = TILE_ASPECT * ((realWidth - 1) * STEP_X_FRAC + 1 + (LAYERS - 1) * LAYER_DX_FRAC);
-    const hSpan = (realHeight - 1) * STEP_Y_FRAC + 1 + (LAYERS - 1) * LAYER_DY_FRAC;
+    const wSpan = TILE_ASPECT * ((realWidth - 1) * STEP_X_FRAC + 1 + (layers - 1) * LAYER_DX_FRAC);
+    const hSpan = (realHeight - 1) * STEP_Y_FRAC + 1 + (layers - 1) * LAYER_DY_FRAC;
     const tileH = Math.min(availW / wSpan, availH / hSpan);
     const tileW = tileH * TILE_ASPECT;
     const stepX = tileW * STEP_X_FRAC;
@@ -327,12 +397,12 @@ class MainScene extends Phaser.Scene {
     const layerDX = tileW * LAYER_DX_FRAC;
     const layerDY = tileH * LAYER_DY_FRAC;
 
-    // The topmost layer (z=LAYERS-1) is shifted furthest down-left — we
+    // The topmost layer (z=layers-1) is shifted furthest down-left — we
     // compute the content size FROM IT (the largest visible rectangle), so
     // originX/Y remains the bound of that topmost layer, and lower layers
     // (smaller shift) fit inside it.
-    const contentW = (realWidth - 1) * stepX + tileW + (LAYERS - 1) * layerDX;
-    const contentH = (realHeight - 1) * stepY + tileH + (LAYERS - 1) * layerDY;
+    const contentW = (realWidth - 1) * stepX + tileW + (layers - 1) * layerDX;
+    const contentH = (realHeight - 1) * stepY + tileH + (layers - 1) * layerDY;
     const originX = (viewW - contentW) / 2;
     const originY = toolbarH + (viewH - toolbarH - statusH - contentH) / 2;
 
@@ -611,6 +681,19 @@ class MainScene extends Phaser.Scene {
     this.bgCredit = text;
   }
 
+  // Sets this.boardWidth/boardHeight/boardLayers (the board shape is no
+  // longer hardcoded — see gameplay/layouts.py) and recomputes tile sizing/
+  // rasterization for it. Called before any tile sprites for that layout are
+  // created (startGame/tryResumeGame), so no relayoutTiles() pass is needed
+  // here — new sprites spawn at the right size/position from the start.
+  applyBoardDims(width, height, layers) {
+    this.boardWidth = width;
+    this.boardHeight = height;
+    this.boardLayers = layers;
+    this.computeLayout();
+    this.rasterizeTiles(); // no-op if the tile pixel size didn't change
+  }
+
   // --- Resize handling --------------------------------------------------
 
   handleResize() {
@@ -662,7 +745,11 @@ class MainScene extends Phaser.Scene {
     saveActiveGame({
       token: this.sessionToken,
       level: this.currentLevel,
+      board: this.currentBoard,
       layout: this.layout,
+      boardWidth: this.boardWidth,
+      boardHeight: this.boardHeight,
+      boardLayers: this.boardLayers,
       movesLog: this.movesLog,
       hints: this.registry.get('gameHints'),
       undos: this.registry.get('gameUndos'),
@@ -692,8 +779,20 @@ class MainScene extends Phaser.Scene {
     }
 
     this.currentLevel = saved.level;
+    // saved.board is absent in snapshots written before board selection
+    // existed — those are all Turtle games (the only board there was).
+    this.currentBoard = saved.board || DEFAULT_BOARD;
     this.sessionToken = saved.token;
     this.layout = saved.layout;
+    // saved.boardWidth/Height/Layers are likewise absent in snapshots from
+    // before this field existed — fall back to deriving them from the tile
+    // coordinates themselves (boardDimsFromLayout) for those old saves only;
+    // a fresh save always carries the server-authoritative values straight
+    // through, no re-derivation needed.
+    const dims = saved.boardWidth != null
+      ? { width: saved.boardWidth, height: saved.boardHeight, layers: saved.boardLayers }
+      : boardDimsFromLayout(saved.layout);
+    this.applyBoardDims(dims.width, dims.height, dims.layers);
     this.movesLog = saved.movesLog.map((pair) => [...pair]);
     this.board = board;
     for (const tile of this.board.tiles()) this.addTileSprite(tile);
@@ -726,6 +825,9 @@ class MainScene extends Phaser.Scene {
     if (modal?.type === 'newgame') {
       for (const btn of newgameLevelButtons) {
         btn.classList.toggle('selected', btn.dataset.level === this.currentLevel);
+      }
+      for (const btn of newgameBoardButtons) {
+        btn.classList.toggle('selected', btn.dataset.board === this.currentBoard);
       }
       newgameCloseBtn.style.display = modal.canClose ? '' : 'none';
     }
@@ -774,7 +876,7 @@ class MainScene extends Phaser.Scene {
 
   // --- The game session ----------------------------------------------------------
 
-  async startGame(level) {
+  async startGame(level, board) {
     try {
       const serverVersion = await fetchVersion();
       if (serverVersion !== window.MAHJONG_VERSION) {
@@ -786,6 +888,7 @@ class MainScene extends Phaser.Scene {
     }
 
     this.currentLevel = level;
+    this.currentBoard = board;
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
     this.selected = null;
@@ -794,7 +897,7 @@ class MainScene extends Phaser.Scene {
 
     let data;
     try {
-      data = await apiStartGame(level);
+      data = await apiStartGame(level, board);
     } catch {
       this.registry.set('status', '⚠️ Не вдалося почати гру — перевірте з\'єднання');
       return;
@@ -802,6 +905,7 @@ class MainScene extends Phaser.Scene {
 
     this.sessionToken = data.token;
     this.layout = data.layout;
+    this.applyBoardDims(data.board_width, data.board_height, data.board_layers);
     this.movesLog = [];
     const tiles = data.layout.map((t, idx) => ({ ...t, idx }));
     this.board = new Board(tiles);
@@ -918,7 +1022,7 @@ class MainScene extends Phaser.Scene {
     // completely swamp x and gave the wrong draw order exactly for them (a
     // visible hole with the background showing through at the seam). Higher
     // layers (z) are always on top, regardless of x/y.
-    sprite.setDepth(tile.z * 10000 + (HEIGHT - 1 - tile.y) + tile.x);
+    sprite.setDepth(tile.z * 10000 + (this.boardHeight - 1 - tile.y) + tile.x);
     sprite.setInteractive();
     sprite.setData('tile', tile);
     this.sprites.set(tile, sprite);

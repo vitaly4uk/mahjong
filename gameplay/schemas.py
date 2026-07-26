@@ -40,6 +40,7 @@ class AllStats(Schema):
 
 class StartRequest(Schema):
     level: str
+    board: str = 'turtle'
 
 
 class TileOut(Schema):
@@ -52,6 +53,12 @@ class TileOut(Schema):
 class StartResponse(Schema):
     token: uuid.UUID
     layout: list[TileOut]
+    # The board's own dimensions (gameplay/layouts.py: Layout.width/height/
+    # layers) — sent alongside `layout` so the client doesn't need to
+    # re-derive them from the tile coordinates (main.js: applyBoardDims).
+    board_width: int
+    board_height: int
+    board_layers: int
     stats: AllStats
 
 
