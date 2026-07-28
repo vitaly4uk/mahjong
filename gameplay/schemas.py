@@ -75,6 +75,10 @@ class FinishResponse(Schema):
     won: bool = False
     elapsed_ms: int | None = None
     stats: AllStats | None = None
+    # Only set for a won daily-tournament session (gameplay/api.py:
+    # finish_game) — the caller's rank on today's leaderboard right after
+    # claiming, so the client can show it without a second /daily fetch.
+    daily_rank: int | None = None
 
 
 class ShuffleRequest(Schema):
@@ -118,3 +122,40 @@ class ImportResponse(Schema):
     imported: bool
     reason: str | None = None
     stats: AllStats | None = None
+
+
+class LeaderboardEntry(Schema):
+    rank: int
+    nickname: str
+    score_ms: int
+
+
+class DailyResponse(Schema):
+    date: str
+    board: str
+    board_name: str
+    board_width: int
+    board_height: int
+    board_layers: int
+    level: str
+    # 'new' — no attempt yet; 'active' — in progress (resumable); 'won'/'lost'
+    # — already claimed today (a second /daily/start won't hand out a new
+    # board — gameplay/api.py: start_daily).
+    your_status: Literal['new', 'active', 'won', 'lost']
+    your_score_ms: int | None = None
+    your_rank: int | None = None
+    total_participants: int
+    leaderboard: list[LeaderboardEntry]
+
+
+class DailyStartResponse(Schema):
+    # True when today's attempt is already claimed (won or lost) — no board
+    # is generated/returned, the client shows the existing result instead.
+    finished: bool = False
+    token: uuid.UUID | None = None
+    layout: list[TileOut] = []
+    board: str | None = None
+    board_width: int | None = None
+    board_height: int | None = None
+    board_layers: int | None = None
+    level: str | None = None

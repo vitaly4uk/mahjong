@@ -5,6 +5,7 @@ import {
   startGame as apiStartGame, finishGame as apiFinishGame, bumpStat as apiBumpStat,
   shuffleGame as apiShuffleGame,
   fetchStats, importLegacyStats, fetchVersion, fetchSessionState, setLanguage,
+  fetchDaily, startDaily,
 } from './sync.js';
 import {
   load as loadLegacyStats, clearLegacy, emptyAllStats, winRate, fmtTime, LEVELS,
@@ -176,10 +177,17 @@ const statsLevelsEl = document.getElementById('stats-levels');
 const newgameModal = document.getElementById('newgame-modal');
 const newgameLevelButtons = [...newgameModal.querySelectorAll('[data-level]')];
 const newgameBoardButtons = [...newgameModal.querySelectorAll('[data-board]')];
+const newgameStartBtn = document.getElementById('btn-newgame-start');
 const newgameCloseBtn = document.getElementById('btn-newgame-close');
 const deadlockModal = document.getElementById('deadlock-modal');
 const deadlockShuffleBtn = document.getElementById('btn-deadlock-shuffle');
+const deadlockReplayBtn = document.getElementById('btn-deadlock-replay');
 const deadlockGiveupBtn = document.getElementById('btn-deadlock-giveup');
+const dailyModal = document.getElementById('daily-modal');
+const dailyInfoEl = document.getElementById('daily-info');
+const dailyBoardEl = document.getElementById('daily-board');
+const dailyPlayBtn = document.getElementById('btn-daily-play');
+const dailyCloseBtn = document.getElementById('btn-daily-close');
 
 // Only uk/en ship for now (config/settings.py: LANGUAGES) — a single toggle
 // button in the canvas toolbar (createToolbar) is simpler than a picker for
@@ -280,6 +288,8 @@ class MainScene extends Phaser.Scene {
     this.sessionToken = null;
     this.layout = null;
     this.movesLog = [];
+    this.isDaily = false;
+    this.dailyInfo = null;
 
     this.createStatusBar();
     this.createToolbar();
@@ -350,14 +360,20 @@ class MainScene extends Phaser.Scene {
     }
     for (const btn of newgameLevelButtons) {
       btn.addEventListener('click', () => {
-        const level = btn.dataset.level;
-        saveDifficultyPref(level);
-        this.registry.set('modal', null);
-        this.startGame(level, this.currentBoard);
+        this.currentLevel = btn.dataset.level;
+        saveDifficultyPref(this.currentLevel);
+        this.renderModal(this.registry.get('modal'));
       });
     }
+    newgameStartBtn.addEventListener('click', () => {
+      this.registry.set('modal', null);
+      this.startGame(this.currentLevel, this.currentBoard);
+    });
     deadlockShuffleBtn.addEventListener('click', () => this.shuffleGame());
+    deadlockReplayBtn.addEventListener('click', () => this.replayGame());
     deadlockGiveupBtn.addEventListener('click', () => this.finishGame(false));
+    dailyPlayBtn.addEventListener('click', () => this.playDaily());
+    dailyCloseBtn.addEventListener('click', () => this.registry.set('modal', null));
 
     this.input.on('gameobjectdown', (_pointer, obj) => {
       if (this.registry.get('modal')) return;
@@ -580,6 +596,14 @@ class MainScene extends Phaser.Scene {
         onClick: () => {
           const open = this.registry.get('modal')?.type === 'stats';
           this.registry.set('modal', open ? null : { type: 'stats' });
+        },
+      },
+      {
+        key: 'daily',
+        text: `🏆 ${gettext('Daily')}`,
+        onClick: () => {
+          const open = this.registry.get('modal')?.type === 'daily';
+          this.registry.set('modal', open ? null : { type: 'daily' });
         },
       },
       {
@@ -846,6 +870,7 @@ class MainScene extends Phaser.Scene {
       shuffles: this.shuffles,
       hints: this.registry.get('gameHints'),
       undos: this.registry.get('gameUndos'),
+      daily: this.isDaily,
     });
   }
 
@@ -878,6 +903,9 @@ class MainScene extends Phaser.Scene {
     // saved.board is absent in snapshots written before board selection
     // existed — those are all Turtle games (the only board there was).
     this.currentBoard = saved.board || DEFAULT_BOARD;
+    // saved.daily is absent in snapshots written before the daily tournament
+    // existed — those are always regular games.
+    this.isDaily = !!saved.daily;
     // saved.boardWidth/Height/Layers are likewise absent in snapshots from
     // before this field existed — fall back to deriving them from the tile
     // coordinates themselves (boardDimsFromLayout) for those old saves only;
@@ -907,13 +935,23 @@ class MainScene extends Phaser.Scene {
     statsModal.classList.toggle('open', showStats);
     newgameModal.classList.toggle('open', modal?.type === 'newgame');
     deadlockModal.classList.toggle('open', modal?.type === 'deadlock');
+    dailyModal.classList.toggle('open', modal?.type === 'daily');
 
     if (showStats) {
-      statsTitleEl.textContent = modal.type === 'result'
-        ? (modal.error
-          ? `⚠️ ${gettext('The game was not confirmed by the server')}`
-          : (modal.won ? `🎉 ${gettext('Victory!')}` : `🚫 ${gettext('Dead end — no moves left')}`))
-        : `📊 ${gettext('Statistics')}`;
+      let title = `📊 ${gettext('Statistics')}`;
+      if (modal.type === 'result') {
+        if (modal.error) {
+          title = `⚠️ ${gettext('The game was not confirmed by the server')}`;
+        } else if (modal.won) {
+          title = `🎉 ${gettext('Victory!')}`;
+          if (modal.dailyRank) {
+            title += ` · 🏆 ${interpolate(gettext('daily rank #%(rank)s'), { rank: modal.dailyRank }, true)}`;
+          }
+        } else {
+          title = `🚫 ${gettext('Dead end — no moves left')}`;
+        }
+      }
+      statsTitleEl.textContent = title;
       // Not just relying on the changedata-allStats listener: currentLevel
       // (which controls the "current" highlight) can change without a fresh
       // allStats push, so refresh the content on every open too.
@@ -928,6 +966,68 @@ class MainScene extends Phaser.Scene {
       }
       newgameCloseBtn.style.display = modal.canClose ? '' : 'none';
     }
+    if (modal?.type === 'daily') this.renderDailyModal();
+  }
+
+  // Fills the daily-tournament modal: today's board/level, the caller's own
+  // status/rank, and the leaderboard (gameplay/api.py: daily_info). Fetched
+  // fresh on every open — the standings change as other players finish.
+  async renderDailyModal() {
+    dailyInfoEl.textContent = gettext('Loading…');
+    dailyBoardEl.innerHTML = '';
+    dailyPlayBtn.disabled = true;
+    dailyPlayBtn.style.display = '';
+
+    let info;
+    try {
+      info = await fetchDaily();
+    } catch {
+      dailyInfoEl.textContent = `⚠️ ${gettext('Failed to load the daily tournament')}`;
+      dailyPlayBtn.disabled = false;
+      dailyPlayBtn.textContent = `🔄 ${gettext('Retry')}`;
+      return;
+    }
+    this.dailyInfo = info;
+    dailyPlayBtn.disabled = false;
+
+    // Once today's attempt is claimed there's nothing left to do here — the
+    // result (score/rank) and the leaderboard below already show it inline,
+    // so a "view result" action would just close the modal again, which
+    // read as a dead button. Only 'new'/'active' get a Play/Resume action.
+    const finished = info.yourStatus === 'won' || info.yourStatus === 'lost';
+    dailyPlayBtn.style.display = finished ? 'none' : '';
+    const playLabels = {
+      new: `▶️ ${gettext('Play')}`,
+      active: `▶️ ${gettext('Resume')}`,
+    };
+    dailyPlayBtn.textContent = playLabels[info.yourStatus] || playLabels.new;
+
+    // The daily tournament is always a single difficulty (gameplay/daily.py:
+    // DAILY_LEVEL) — nothing to disambiguate, so unlike the regular-game
+    // status bar, level is deliberately not shown here.
+    const lines = [
+      info.boardName,
+      interpolate(gettext('Participants: %(n)s'), { n: info.totalParticipants }, true),
+    ];
+    if (info.yourStatus === 'won' && info.yourScoreMs != null) {
+      lines.push(interpolate(
+        gettext('Your score: %(time)s (rank #%(rank)s)'),
+        { time: fmtTime(info.yourScoreMs), rank: info.yourRank }, true,
+      ));
+    } else if (info.yourStatus === 'lost') {
+      lines.push(gettext("Today's attempt is over"));
+    }
+    dailyInfoEl.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
+
+    dailyBoardEl.innerHTML = info.leaderboard.length
+      ? info.leaderboard.map((entry) => `
+        <li class="${entry.rank === info.yourRank ? 'you' : ''}">
+          <span class="rank">#${entry.rank}</span>
+          <span class="nickname">${entry.nickname}</span>
+          <span class="time">${fmtTime(entry.scoreMs)}</span>
+        </li>
+      `).join('')
+      : `<li class="empty">${gettext('No winners yet today')}</li>`;
   }
 
   lifetimeStats() {
@@ -995,8 +1095,9 @@ class MainScene extends Phaser.Scene {
       // Network unavailable — don't block the game on the version check.
     }
 
-    this.currentLevel = level;
-    this.currentBoard = board;
+    // Cleared eagerly (before the network round trip) so the board visibly
+    // empties out right away, under the "Generating layout…" status —
+    // unlike playDaily() below, which has no equivalent waiting state to show.
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
     this.selected = null;
@@ -1011,21 +1112,82 @@ class MainScene extends Phaser.Scene {
       return;
     }
 
-    const tiles = data.layout.map((t, idx) => ({ ...t, idx }));
-    this.enterGame({
-      token: data.token,
-      layout: data.layout,
+    this.registry.set('allStats', data.stats);
+    this._enterFreshGame({
+      token: data.token, layout: data.layout,
       width: data.board_width, height: data.board_height, layers: data.board_layers,
+      level, board, isDaily: false,
+    });
+  }
+
+  // Starts (or resumes) today's daily-tournament attempt (gameplay/api.py:
+  // start_daily) — idempotent, so clicking Play again the same day never
+  // hands out a different board. If the attempt is already claimed (won/
+  // lost, possibly on another device), there's no board to start — just
+  // refresh the modal to show the result instead.
+  async playDaily() {
+    // Already resumed into this tab (e.g. tryResumeGame() on page load) —
+    // just return to it, don't re-fetch/restart via the server (that would
+    // reset the local move log to empty, discarding real progress).
+    if (this.isDaily && this.sessionToken && !this.registry.get('gameFinished')) {
+      this.registry.set('modal', null);
+      return;
+    }
+    if (this.dailyInfo && (this.dailyInfo.yourStatus === 'won' || this.dailyInfo.yourStatus === 'lost')) {
+      this.registry.set('modal', null);
+      return;
+    }
+
+    let data;
+    try {
+      data = await startDaily();
+    } catch {
+      this.registry.set(
+        'status', `⚠️ ${gettext('Failed to start the daily tournament — check your connection')}`,
+      );
+      return;
+    }
+    if (data.finished) {
+      this.renderDailyModal(); // claimed/forfeited between fetch and click
+      return;
+    }
+
+    this.registry.set('modal', null);
+    // The server doesn't store partial progress — resuming an attempt
+    // already active on another device (or after clearing localStorage)
+    // starts the move log over in _enterFreshGame, even though the board/
+    // timer are shared (an accepted limitation — see docs/superpowers/specs).
+    this._enterFreshGame({
+      token: data.token, layout: data.layout,
+      width: data.boardWidth, height: data.boardHeight, layers: data.boardLayers,
+      level: data.level, board: data.board, isDaily: true,
+    });
+  }
+
+  // Shared tail of startGame()/playDaily(): swap in a brand new board (empty
+  // move log, fresh counters) and re-render everything that depends on it.
+  // `data.stats`, when present, must already be pushed to the registry by
+  // the caller before this runs — daily starts don't bump lifetime stats, so
+  // playDaily() has none to push.
+  _enterFreshGame({ token, layout, width, height, layers, level, board, isDaily }) {
+    this.currentLevel = level;
+    this.currentBoard = board;
+    this.isDaily = isDaily;
+    for (const sprite of this.sprites.values()) sprite.destroy();
+    this.sprites.clear();
+    this.selected = null;
+
+    const tiles = layout.map((t, idx) => ({ ...t, idx }));
+    this.enterGame({
+      token, layout, width, height, layers,
       boardInstance: new Board(tiles),
       movesLog: [],
       hints: 0, undos: 0, pairs: 0,
       startMs: Date.now(), elapsedMs: 0,
     });
 
-    this.registry.set('allStats', data.stats);
     this.renderStats();
     this.persistGame();
-
     this.updateStatus();
   }
 
@@ -1069,9 +1231,46 @@ class MainScene extends Phaser.Scene {
     this.registry.set('gameElapsedMs', result.elapsedMs);
     this.registry.set('allStats', result.stats);
     if (result.won) this.loadBackground();
+    const dailyRank = this.isDaily ? result.dailyRank : null;
     this.playEndEffect(result.won, () => {
-      this.registry.set('modal', { type: 'result', won: result.won });
+      this.registry.set('modal', { type: 'result', won: result.won, dailyRank });
     });
+  }
+
+  // The dead-end alternative to shuffling/giving up (main.js: updateStatus()
+  // opens the 'deadlock' modal, templates/game.html: #btn-deadlock-replay):
+  // registers the current game as a loss (the same server call "give up"
+  // makes) and immediately starts a fresh one with the same settings — no
+  // intermediate result screen. For a daily attempt the per-day seed is
+  // deterministic, so the retry is the identical board, just a new session
+  // row (gameplay/models.py: one_daily_win_per_user_per_day only blocks a
+  // SECOND win, a lost attempt may always be retried).
+  async replayGame() {
+    if (this.registry.get('gameFinished')) return;
+    this.registry.set('gameFinished', true);
+    const wasDaily = this.isDaily;
+    const level = this.currentLevel;
+    const board = this.currentBoard;
+
+    try {
+      await apiFinishGame(this.sessionToken, this.movesLog, 'deadlock');
+    } catch {
+      // Best-effort: even if the server didn't get to record the loss (e.g.
+      // a network hiccup), still let the player continue instead of leaving
+      // them stuck at a dead end. For a daily attempt the old session simply
+      // stays ACTIVE and playDaily() below picks it back up; for a regular
+      // game startGame() always mints a fresh session regardless, so the
+      // old one is just abandoned (orphaned until it hits SESSION_TTL).
+    }
+    clearActiveGame();
+    this.registry.set('modal', null);
+
+    if (wasDaily) {
+      this.dailyInfo = null;
+      await this.playDaily();
+    } else {
+      await this.startGame(level, board);
+    }
   }
 
   // The dead-end alternative to giving up (main.js: updateStatus() opens the

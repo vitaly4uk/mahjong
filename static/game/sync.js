@@ -51,6 +51,8 @@ export async function finishGame(token, moves, outcome) {
     won: data.won,
     elapsedMs: data.elapsed_ms,
     stats: data.stats ?? null,
+    // Only set for a won daily-tournament session (gameplay/api.py: finish_game).
+    dailyRank: data.daily_rank ?? null,
   };
 }
 
@@ -103,6 +105,48 @@ export async function importLegacyStats(stats) {
 export async function fetchVersion() {
   const data = await requestJson('/api/version/');
   return data.version;
+}
+
+// Today's daily tournament: the shared board/level, the caller's own
+// progress ('new'|'active'|'won'|'lost'), and the top of the leaderboard
+// (gameplay/api.py: daily_info). Read-only — safe to call just to refresh
+// the modal.
+export async function fetchDaily() {
+  const data = await requestJson('/api/game/daily');
+  return {
+    date: data.date,
+    board: data.board,
+    boardName: data.board_name,
+    boardWidth: data.board_width,
+    boardHeight: data.board_height,
+    boardLayers: data.board_layers,
+    level: data.level,
+    yourStatus: data.your_status,
+    yourScoreMs: data.your_score_ms,
+    yourRank: data.your_rank,
+    totalParticipants: data.total_participants,
+    leaderboard: data.leaderboard.map((entry) => (
+      { rank: entry.rank, nickname: entry.nickname, scoreMs: entry.score_ms }
+    )),
+  };
+}
+
+// Idempotent get-or-create for today's attempt (gameplay/api.py: start_daily):
+// the first call generates+claims today's shared board; later calls the same
+// day return the same session while resumable, or finished=true (with no
+// token/layout) once claimed/forfeited — never a second board.
+export async function startDaily() {
+  const data = await postJson('/api/game/daily/start', {});
+  return {
+    finished: data.finished,
+    token: data.token,
+    layout: data.layout,
+    board: data.board,
+    boardWidth: data.board_width,
+    boardHeight: data.board_height,
+    boardLayers: data.board_layers,
+    level: data.level,
+  };
 }
 
 // Switches the active UI language via Django's built-in set_language view

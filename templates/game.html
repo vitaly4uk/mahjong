@@ -41,7 +41,7 @@
      кредит фотографа (Pexels License) тепер рендеряться всередині самого
      канваса (Phaser Text/rectangle, main.js: createToolbar/createStatusBar/
      setBgCredit) — окремих DOM-елементів не потрібно. */
-  #stats-modal, #newgame-modal, #deadlock-modal {
+  #stats-modal, #newgame-modal, #deadlock-modal, #daily-modal {
     display: none; position: fixed; inset: 0; z-index: 10;
     background: rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
@@ -49,15 +49,15 @@
     -webkit-app-region: no-drag;
     animation: stats-overlay-in .18s ease;
   }
-  #stats-modal.open, #newgame-modal.open, #deadlock-modal.open { display: flex; }
-  #stats-modal .panel, #newgame-modal .panel, #deadlock-modal .panel {
+  #stats-modal.open, #newgame-modal.open, #deadlock-modal.open, #daily-modal.open { display: flex; }
+  #stats-modal .panel, #newgame-modal .panel, #deadlock-modal .panel, #daily-modal .panel {
     background: #24352a; border-radius: 10px; padding: 24px 28px;
     min-width: 260px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.06);
     animation: stats-panel-in .2s ease;
     max-height: calc(100vh - 40px); overflow-y: auto;
   }
-  #stats-modal h2, #newgame-modal h2, #deadlock-modal h2 {
+  #stats-modal h2, #newgame-modal h2, #deadlock-modal h2, #daily-modal h2 {
     margin: 0 0 20px; font-size: 20px; text-align: center;
   }
   #stats-modal dl {
@@ -74,20 +74,37 @@
   /* Той самий тактильний прийом, що й у кнопок тулбару-канваса (main.js:
      createToolbar) — трохи більше при наведенні, менше й "утоплено" при
      натисканні (:active), плавно повертається назад при відпусканні. */
-  #stats-modal button, #newgame-modal button, #deadlock-modal button {
+  #stats-modal button, #newgame-modal button, #deadlock-modal button, #daily-modal button {
     padding: 6px 20px; font-size: 14px; font-weight: 500;
     border: 0; border-radius: 6px; min-width: 120px;
     background: #3a5a40; color: #fff; cursor: pointer;
     transition: background .15s ease, transform .12s ease;
   }
-  #stats-modal button:hover, #newgame-modal button:hover, #deadlock-modal button:hover {
+  #stats-modal button:hover, #newgame-modal button:hover, #deadlock-modal button:hover, #daily-modal button:hover {
     background: #4c7454; transform: scale(1.05);
   }
-  #stats-modal button:active, #newgame-modal button:active, #deadlock-modal button:active {
+  #stats-modal button:active, #newgame-modal button:active, #deadlock-modal button:active, #daily-modal button:active {
     background: #4c7454; transform: scale(0.93) translateY(2px);
     transition: background .15s ease, transform .08s ease;
   }
-  #deadlock-modal .actions { display: flex; gap: 12px; border-top: 0; padding-top: 0; margin-top: 4px; }
+  #daily-modal .info { text-align: center; margin-bottom: 14px; font-size: 14px; color: #cde; }
+  #daily-modal .info div { margin-bottom: 4px; }
+  #daily-modal .board-list {
+    list-style: none; margin: 0 0 18px; padding: 0;
+    max-height: 260px; overflow-y: auto; min-width: 240px;
+  }
+  #daily-modal .board-list li {
+    display: flex; align-items: center; gap: 10px;
+    padding: 5px 6px; font-size: 14px; border-radius: 4px;
+  }
+  #daily-modal .board-list li.you { background: rgba(110, 165, 111, 0.25); font-weight: 600; }
+  #daily-modal .board-list li.empty { justify-content: center; color: #9bb; }
+  #daily-modal .board-list .rank { color: #9bb; width: 28px; flex: none; }
+  #daily-modal .board-list .nickname { flex: 1; }
+  #deadlock-modal .actions {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 12px;
+    border-top: 0; padding-top: 0; margin-top: 4px;
+  }
   #newgame-modal .levels, #newgame-modal .boards {
     display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px;
   }
@@ -145,6 +162,7 @@
       <button data-level="hard">😈 {% trans "Hard" %}</button>
     </div>
     <div class="actions">
+      <button id="btn-newgame-start">▶️ {% trans "Start" %}</button>
       <button id="btn-newgame-close">✖ {% trans "Close" %}</button>
     </div>
   </div>
@@ -164,7 +182,19 @@
     <h2>🚫 {% trans "No moves left" %}</h2>
     <div class="actions">
       <button id="btn-deadlock-shuffle">🔀 {% trans "Shuffle" %}</button>
+      <button id="btn-deadlock-replay">🔁 {% trans "Replay" %}</button>
       <button id="btn-deadlock-giveup">🏳 {% trans "Give up" %}</button>
+    </div>
+  </div>
+</div>
+<div id="daily-modal">
+  <div class="panel">
+    <h2>🏆 {% trans "Daily Tournament" %}</h2>
+    <div id="daily-info" class="info"></div>
+    <ul id="daily-board" class="board-list"></ul>
+    <div class="actions">
+      <button id="btn-daily-play"></button>
+      <button id="btn-daily-close">✖ {% trans "Close" %}</button>
     </div>
   </div>
 </div>

@@ -1,9 +1,11 @@
+import datetime
 import random
 import uuid
 from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
@@ -13,6 +15,7 @@ from .api import (  # noqa: F401 (SESSION_TTL import also registers the router w
     SESSION_TTL,
 )
 from .board import Board, Tile, is_free_position, match_key
+from .daily import HINT_PENALTY_MS, UNDO_PENALTY_MS, daily_challenge
 from .generator import DIFFICULTIES, generate_for_difficulty, reshuffle_layout
 from .layouts import LAYOUTS_DIR, LayoutError, get_layout, list_boards, load_layouts, parse_layout
 from .middleware import PLAYER_COOKIE_NAME
@@ -1109,3 +1112,306 @@ class StatsEndpointTests(TestCase):
         )
         # Field(ge=0) rejects negative values at the ninja request-validation layer.
         self.assertEqual(response.status_code, 422)
+
+
+class DailyTournamentTests(TestCase):
+    """Coverage for gameplay/daily.py (deterministic board/level/seed
+    selection) and the /api/game/daily* endpoints (gameplay/api.py:
+    daily_info/start_daily) — the shared-seed daily challenge and its
+    per-day, penalty-adjusted leaderboard."""
+
+    def setUp(self):
+        cache.clear()  # see GameApiTests.setUp for why
+
+    def _win_moves(self, layout):
+        tiles = [Tile(i, t['x'], t['y'], t['z'], t['kind']) for i, t in enumerate(layout)]
+        board = Board(tiles)
+        moves = []
+        while board.remaining > 0:
+            a, b = board.find_matching_pair()
+            moves.append([a.idx, b.idx])
+            board.remove_pair(a, b)
+        return moves
+
+    def _make_winner(self, score_ms, claimed_at=None):
+        """A GameSession row that already stands as a claimed daily win —
+        bypasses the full start/finish flow for tests only about leaderboard
+        ordering."""
+        user = User.objects.create_user(username=f'daily-winner-{uuid.uuid4().hex}')
+        Profile.objects.create(user=user)
+        return GameSession.objects.create(
+            level='easy', layout=[], seed='x', user=user, daily_date=timezone.localdate(),
+            status=GameSession.Status.CLAIMED, won=True, score_ms=score_ms,
+            claimed_at=claimed_at or timezone.now(),
+        )
+
+    # --- daily_challenge (pure) ---------------------------------------------
+
+    def test_daily_challenge_deterministic_for_a_fixed_date(self):
+        date = datetime.date(2026, 7, 28)
+        self.assertEqual(daily_challenge(date), daily_challenge(date))
+
+    def test_daily_challenge_rotates_board_but_always_normal_level(self):
+        slugs = sorted(load_layouts().keys())
+        base = datetime.date(2026, 7, 28)
+        seen_boards = set()
+        for offset in range(len(slugs)):
+            board_slug, level, _seed = daily_challenge(base + timedelta(days=offset))
+            self.assertIn(board_slug, slugs)
+            self.assertEqual(level, 'normal')
+            seen_boards.add(board_slug)
+        self.assertEqual(seen_boards, set(slugs))
+
+    def test_daily_challenge_seed_reproduces_identical_layout(self):
+        board_slug, level, seed = daily_challenge(datetime.date(2026, 7, 28))
+        board = get_layout(board_slug)
+        a = generate_for_difficulty(level, board, seed=seed)
+        b = generate_for_difficulty(level, board, seed=seed)
+        self.assertEqual(a, b)
+
+    # --- /daily/start --------------------------------------------------------
+
+    def test_daily_start_is_idempotent_same_token_and_layout(self):
+        first = self.client.post('/api/game/daily/start', data={}, content_type='application/json')
+        second = self.client.post('/api/game/daily/start', data={}, content_type='application/json')
+        self.assertEqual(first.status_code, 200, first.content)
+        self.assertFalse(first.json()['finished'])
+        self.assertEqual(first.json()['token'], second.json()['token'])
+        self.assertEqual(first.json()['layout'], second.json()['layout'])
+        self.assertEqual(GameSession.objects.filter(daily_date=timezone.localdate()).count(), 1)
+
+    def test_daily_start_after_finish_reports_finished_with_no_board(self):
+        data = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        moves = self._win_moves(data['layout'])
+        self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        again = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        self.assertTrue(again['finished'])
+        self.assertIsNone(again['token'])
+        self.assertEqual(again['layout'], [])
+
+    def test_two_regular_games_same_day_do_not_collide(self):
+        """The one-attempt constraint is scoped to daily_date IS NOT NULL —
+        ordinary /start games (always daily_date=NULL) never collide."""
+        first = self.client.post(
+            '/api/game/start', data={'level': 'easy'}, content_type='application/json',
+        )
+        second = self.client.post(
+            '/api/game/start', data={'level': 'easy'}, content_type='application/json',
+        )
+        self.assertEqual(first.status_code, 200, first.content)
+        self.assertNotEqual(first.json()['token'], second.json()['token'])
+
+    def test_two_lost_daily_attempts_same_day_do_not_collide(self):
+        """A lost/never-finished attempt doesn't hold an exclusive slot —
+        only a WIN does (gameplay/models.py: one_daily_win_per_user_per_day)."""
+        user = User.objects.create_user(username='daily-tester')
+        Profile.objects.create(user=user)
+        today = timezone.localdate()
+        GameSession.objects.create(level='easy', layout=[], seed='x', user=user, daily_date=today)
+        GameSession.objects.create(  # doesn't raise
+            level='normal', layout=[], seed='y', user=user, daily_date=today,
+        )
+        self.assertEqual(
+            GameSession.objects.filter(user=user, daily_date=today).count(), 2,
+        )
+
+    def test_two_daily_wins_same_day_violates_constraint(self):
+        user = User.objects.create_user(username='daily-winner')
+        Profile.objects.create(user=user)
+        today = timezone.localdate()
+        GameSession.objects.create(
+            level='normal', layout=[], seed='x', user=user, daily_date=today, won=True,
+            status=GameSession.Status.CLAIMED, score_ms=1000,
+        )
+        with self.assertRaises(IntegrityError):
+            GameSession.objects.create(
+                level='normal', layout=[], seed='y', user=user, daily_date=today, won=True,
+                status=GameSession.Status.CLAIMED, score_ms=2000,
+            )
+
+    def _force_deadlock(self, token):
+        # Same fixture as ShuffleApiTests.DEADLOCK_LAYOUT — two same-kind
+        # stacked pairs whose free top tiles don't match each other.
+        GameSession.objects.filter(token=token).update(layout=[
+            {'x': 0, 'y': 0, 'z': 0, 'kind': 'Man1'},
+            {'x': 0, 'y': 0, 'z': 1, 'kind': 'Man1'},
+            {'x': 10, 'y': 10, 'z': 0, 'kind': 'Pin1'},
+            {'x': 10, 'y': 10, 'z': 1, 'kind': 'Pin1'},
+        ])
+
+    def test_daily_start_after_deadlock_loss_allows_retry_with_fresh_session(self):
+        first = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        self._force_deadlock(first['token'])
+        lost = self.client.post(
+            '/api/game/finish',
+            data={'token': first['token'], 'moves': [], 'outcome': 'deadlock'},
+            content_type='application/json',
+        )
+        self.assertTrue(lost.json()['valid'], lost.content)
+
+        retry = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        self.assertFalse(retry['finished'])
+        self.assertNotEqual(retry['token'], first['token'])
+        # Deterministic per-day seed — the retry is the exact same board.
+        self.assertEqual(retry['layout'], first['layout'])
+        self.assertEqual(
+            GameSession.objects.filter(daily_date=timezone.localdate()).count(), 2,
+        )
+
+    def test_daily_info_status_lost_after_deadlock_allows_retry(self):
+        data = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        self._force_deadlock(data['token'])
+        self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': [], 'outcome': 'deadlock'},
+            content_type='application/json',
+        )
+        body = self.client.get('/api/game/daily').json()
+        self.assertEqual(body['your_status'], 'lost')
+
+    def test_win_after_retry_locks_out_further_attempts(self):
+        first = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        self._force_deadlock(first['token'])
+        self.client.post(
+            '/api/game/finish',
+            data={'token': first['token'], 'moves': [], 'outcome': 'deadlock'},
+            content_type='application/json',
+        )
+
+        retry = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        moves = self._win_moves(retry['layout'])
+        win = self.client.post(
+            '/api/game/finish',
+            data={'token': retry['token'], 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        self.assertTrue(win.json()['valid'], win.content)
+
+        again = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        self.assertTrue(again['finished'])
+        body = self.client.get('/api/game/daily').json()
+        self.assertEqual(body['your_status'], 'won')
+
+    # --- finish (scoring) -----------------------------------------------------
+
+    def test_daily_finish_sets_score_ms_with_hint_and_undo_penalties(self):
+        data = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        token = data['token']
+        for counter in ('hint', 'hint', 'undo'):
+            self.client.post(
+                f'/api/game/{token}/bump',
+                data={'counter': counter}, content_type='application/json',
+            )
+        moves = self._win_moves(data['layout'])
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': token, 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        body = response.json()
+        self.assertTrue(body['valid'], body)
+        session = GameSession.objects.get(token=token)
+        expected = body['elapsed_ms'] + 2 * HINT_PENALTY_MS + 1 * UNDO_PENALTY_MS
+        self.assertEqual(session.score_ms, expected)
+        self.assertEqual(body['daily_rank'], 1)  # sole winner today
+
+    def test_daily_play_never_touches_lifetime_normal_stats(self):
+        """Tournament and regular-play stats must never mix: hints/undos/
+        shuffles/a win on a daily session leave Profile.stats['normal']
+        exactly as it was (gameplay/api.py: _lifetime_stats_after) — the
+        tournament's own record lives entirely in GameSession rows."""
+        data = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        token = data['token']
+        profile = GameSession.objects.get(token=token).user.profile
+        before = profile.stats['normal']
+
+        self.client.post(
+            f'/api/game/{token}/bump', data={'counter': 'hint'}, content_type='application/json',
+        )
+        moves = self._win_moves(data['layout'])
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': token, 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        self.assertTrue(response.json()['valid'], response.content)
+
+        profile.refresh_from_db()
+        self.assertEqual(profile.stats['normal'], before)
+        # The response's own stats blob reflects the same untouched state.
+        self.assertEqual(response.json()['stats']['normal'], before)
+
+    def test_daily_loss_leaves_score_ms_null_and_off_leaderboard(self):
+        data = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        session = GameSession.objects.get(token=data['token'])
+        session.status = GameSession.Status.CLAIMED
+        session.won = False
+        session.save(update_fields=['status', 'won'])
+
+        leaderboard = self.client.get('/api/game/daily').json()['leaderboard']
+        self.assertEqual(leaderboard, [])
+        self.assertIsNone(GameSession.objects.get(token=data['token']).score_ms)
+
+    # --- leaderboard / status -------------------------------------------------
+
+    def test_leaderboard_orders_by_score_then_claimed_at(self):
+        now = timezone.now()
+        self._make_winner(score_ms=5000, claimed_at=now)
+        self._make_winner(score_ms=3000, claimed_at=now)
+        self._make_winner(score_ms=3000, claimed_at=now - timedelta(seconds=10))  # earlier tie
+
+        body = self.client.get('/api/game/daily').json()
+        self.assertEqual([e['score_ms'] for e in body['leaderboard']], [3000, 3000, 5000])
+        self.assertEqual(body['total_participants'], 3)
+
+    def test_your_rank_reflects_standing_among_wins(self):
+        data = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        moves = self._win_moves(data['layout'])
+        self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        # Seed one faster and one slower win *relative to the caller's own
+        # real score* — avoids a flaky assumption about how fast the test's
+        # greedy solve itself runs.
+        my_score = GameSession.objects.get(token=data['token']).score_ms
+        self._make_winner(score_ms=max(0, my_score - 100))
+        self._make_winner(score_ms=my_score + 100)
+
+        body = self.client.get('/api/game/daily').json()
+        self.assertEqual(body['your_status'], 'won')
+        self.assertEqual(body['your_rank'], 2)  # one faster winner ahead of me
+
+    def test_daily_info_your_status_new_before_any_attempt(self):
+        body = self.client.get('/api/game/daily').json()
+        self.assertEqual(body['your_status'], 'new')
+        self.assertIsNone(body['your_rank'])

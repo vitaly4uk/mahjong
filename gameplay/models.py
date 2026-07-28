@@ -61,9 +61,38 @@ class GameSession(models.Model):
     claimed_at = models.DateTimeField(null=True, blank=True)
     elapsed_ms = models.PositiveIntegerField(null=True, blank=True)
     won = models.BooleanField(null=True, blank=True)
+    # Server-authoritative penalty counters (gameplay/api.py: bump_stat), used
+    # only to compute score_ms for daily tournament sessions — never trusted
+    # from the client. Harmless unused columns on regular (non-daily) games.
+    hints = models.PositiveIntegerField(default=0)
+    undos = models.PositiveIntegerField(default=0)
+    # None = a regular free-play game; a date = a daily-tournament attempt for
+    # that local calendar day (gameplay/daily.py: daily_challenge). This IS the
+    # is-daily marker — no separate boolean.
+    daily_date = models.DateField(null=True, blank=True)
+    # Set on a winning daily claim only (gameplay/api.py: finish_game) —
+    # elapsed_ms plus hint/undo penalties (gameplay/daily.py:
+    # HINT_PENALTY_MS/UNDO_PENALTY_MS). Stays null for regular games and for
+    # daily losses/deadlocks, so those never appear on the leaderboard
+    # (gameplay/api.py: daily_info's `won=True` filter).
+    score_ms = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=['created_at'])]
+        constraints = [
+            # A lost/expired daily attempt may be retried (gameplay/api.py:
+            # start_daily) — any number of non-winning rows per user per day
+            # are allowed. Only a WIN locks the day: at most one row with
+            # won=True per (user, daily_date).
+            models.UniqueConstraint(
+                fields=['user', 'daily_date'],
+                condition=models.Q(daily_date__isnull=False) & models.Q(won=True),
+                name='one_daily_win_per_user_per_day',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['daily_date', 'score_ms']),
+        ]
 
     def __str__(self):
         return f'{self.token} ({self.level}, {self.status})'
