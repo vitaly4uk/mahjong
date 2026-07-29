@@ -943,10 +943,9 @@ class MainScene extends Phaser.Scene {
         if (modal.error) {
           title = `⚠️ ${gettext('The game was not confirmed by the server')}`;
         } else if (modal.won) {
+          // A daily win never reaches here — finishGame() routes it to the
+          // {type:'daily'} modal instead (see there for why).
           title = `🎉 ${gettext('Victory!')}`;
-          if (modal.dailyRank) {
-            title += ` · 🏆 ${interpolate(gettext('daily rank #%(rank)s'), { rank: modal.dailyRank }, true)}`;
-          }
         } else {
           title = `🚫 ${gettext('Dead end — no moves left')}`;
         }
@@ -1231,9 +1230,18 @@ class MainScene extends Phaser.Scene {
     this.registry.set('gameElapsedMs', result.elapsedMs);
     this.registry.set('allStats', result.stats);
     if (result.won) this.loadBackground();
-    const dailyRank = this.isDaily ? result.dailyRank : null;
     this.playEndEffect(result.won, () => {
-      this.registry.set('modal', { type: 'result', won: result.won, dailyRank });
+      if (this.isDaily) {
+        // A daily win/loss doesn't touch lifetime per-difficulty stats
+        // (gameplay/api.py: _lifetime_stats_after) — showing the regular
+        // stats-modal breakdown here would show numbers unrelated to what
+        // just happened. Reopen the tournament modal instead: it refetches
+        // today's status and shows the score/rank/leaderboard directly.
+        this.dailyInfo = null;
+        this.registry.set('modal', { type: 'daily' });
+      } else {
+        this.registry.set('modal', { type: 'result', won: result.won });
+      }
     });
   }
 

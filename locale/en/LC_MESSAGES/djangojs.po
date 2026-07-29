@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: mahjong\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-28 17:45+0000\n"
+"POT-Creation-Date: 2026-07-28 19:58+0000\n"
 "PO-Revision-Date: 2026-07-26 08:34+0000\n"
 "Last-Translator: \n"
 "Language-Team: English\n"
@@ -111,63 +111,59 @@ msgstr ""
 msgid "The game was not confirmed by the server"
 msgstr ""
 
-#: static/game/main.js:946 static/game/main.js:1780
+#: static/game/main.js:948 static/game/main.js:1791
 msgid "Victory!"
 msgstr ""
 
-#: static/game/main.js:948
-msgid "daily rank #%(rank)s"
-msgstr ""
-
-#: static/game/main.js:951
+#: static/game/main.js:950
 msgid "Dead end — no moves left"
 msgstr ""
 
-#: static/game/main.js:976
+#: static/game/main.js:975
 msgid "Loading…"
 msgstr ""
 
-#: static/game/main.js:985
+#: static/game/main.js:984
 msgid "Failed to load the daily tournament"
 msgstr ""
 
-#: static/game/main.js:987
+#: static/game/main.js:986
 msgid "Retry"
 msgstr ""
 
-#: static/game/main.js:1000
+#: static/game/main.js:999
 msgid "Play"
 msgstr ""
 
-#: static/game/main.js:1001
+#: static/game/main.js:1000
 msgid "Resume"
 msgstr ""
 
-#: static/game/main.js:1010
+#: static/game/main.js:1009
 msgid "Participants: %(n)s"
 msgstr ""
 
-#: static/game/main.js:1014
+#: static/game/main.js:1013
 msgid "Your score: %(time)s (rank #%(rank)s)"
 msgstr ""
 
-#: static/game/main.js:1018
+#: static/game/main.js:1017
 msgid "Today's attempt is over"
 msgstr ""
 
-#: static/game/main.js:1030
+#: static/game/main.js:1029
 msgid "No winners yet today"
 msgstr ""
 
-#: static/game/main.js:1104
+#: static/game/main.js:1103
 msgid "Generating layout…"
 msgstr ""
 
-#: static/game/main.js:1111
+#: static/game/main.js:1110
 msgid "Failed to start the game — check your connection"
 msgstr ""
 
-#: static/game/main.js:1156
+#: static/game/main.js:1145
 msgid "Failed to start the daily tournament — check your connection"
 msgstr ""
 
@@ -175,14 +171,14 @@ msgstr ""
 msgid "Failed to confirm the game result"
 msgstr ""
 
-#: static/game/main.js:1284
+#: static/game/main.js:1295
 msgid "Failed to shuffle — check your connection"
 msgstr ""
 
-#: static/game/main.js:1783
+#: static/game/main.js:1794
 msgid "No moves left"
 msgstr ""
 
-#: static/game/main.js:1788
+#: static/game/main.js:1799
 msgid "Remaining: %(n)s"
 msgstr ""
