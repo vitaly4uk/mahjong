@@ -1,7 +1,12 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.5/schema.json",
   "files": {
-    "includes": ["static/game/**/*.js", "tests/**/*.js", "!static/game/bundle.js"]
+    "includes": [
+      "static/game/**/*.js",
+      "static/game/**/*.css",
+      "tests/**/*.js",
+      "!static/game/bundle.js"
+    ]
   },
   "formatter": {
     "indentStyle": "space",

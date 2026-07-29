@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: mahjong\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-28 19:58+0000\n"
+"POT-Creation-Date: 2026-07-29 07:02+0000\n"
 "PO-Revision-Date: 2026-07-26 08:34+0000\n"
 "Last-Translator: \n"
 "Language-Team: English\n"
@@ -107,11 +107,11 @@ msgstr ""
 msgid "Photo: %(name)s · Pexels"
 msgstr ""
 
-#: static/game/main.js:944 static/game/main.js:1223
+#: static/game/main.js:944 static/game/main.js:1224
 msgid "The game was not confirmed by the server"
 msgstr ""
 
-#: static/game/main.js:948 static/game/main.js:1791
+#: static/game/main.js:948 static/game/main.js:1792
 msgid "Victory!"
 msgstr ""
 
@@ -155,30 +155,34 @@ msgstr ""
 msgid "No winners yet today"
 msgstr ""
 
-#: static/game/main.js:1103
+#: static/game/main.js:1063
+msgid "current"
+msgstr ""
+
+#: static/game/main.js:1104
 msgid "Generating layout…"
 msgstr ""
 
-#: static/game/main.js:1110
+#: static/game/main.js:1111
 msgid "Failed to start the game — check your connection"
 msgstr ""
 
-#: static/game/main.js:1145
+#: static/game/main.js:1146
 msgid "Failed to start the daily tournament — check your connection"
 msgstr ""
 
-#: static/game/main.js:1217
+#: static/game/main.js:1218
 msgid "Failed to confirm the game result"
 msgstr ""
 
-#: static/game/main.js:1295
+#: static/game/main.js:1296
 msgid "Failed to shuffle — check your connection"
 msgstr ""
 
-#: static/game/main.js:1794
+#: static/game/main.js:1795
 msgid "No moves left"
 msgstr ""
 
-#: static/game/main.js:1799
+#: static/game/main.js:1800
 msgid "Remaining: %(n)s"
 msgstr ""

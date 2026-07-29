@@ -36,7 +36,7 @@ cross-file зв'язок), деталі лишай коду; для нової �
 - **django-ninja** — увесь JSON/HTTP API проєкту (жодного plain Django view/`JsonResponse` — лише `admin/` (стандартна Django-адмінка) і `''` (рендер HTML-сторінки гри) лишаються поза ninja, бо це не API).
 - Проєкт Django: `config/` (settings/urls/api/wsgi), `manage.py` в корені.
 - Продакшен-сервер: `gunicorn` (`config.wsgi:application`).
-- Фронтенд гри: **Phaser 3.90** vanilla JS ES-модулями. Phaser — локальний файл `static/vendor/phaser.min.js`. **Збірка JS**: локальна розробка вантажить сирі ES-модулі `static/game/*.js` напряму (жодного локального білда — редагуй `.js`, онови сторінку); прод віддає **один мініфікований `bundle.js`**, який `esbuild` склеює з графа модулів на етапі Docker-білда (окремий `node`-стейдж `jsbuild` у `Dockerfile`). Перемикання — `{% if debug %}` у `templates/game.html`. `bundle.js` — build-артефакт, у git не комітиться (`.gitignore`). Кешбастинг — штатний `whitenoise.storage.CompressedManifestStaticFilesStorage` (хеш в імені файлу); whitenoise на `collectstatic` генерує `.gz` **і `.br`** для кожного статик-файла (brotli — залежність `brotli` у `pyproject.toml`; без неї був би лише gzip) і за `Accept-Encoding` віддає найменший варіант.
+- Фронтенд гри: **Phaser 3.90** vanilla JS ES-модулями. Phaser — локальний файл `static/vendor/phaser.min.js`. **Збірка JS**: локальна розробка вантажить сирі ES-модулі `static/game/*.js` напряму (жодного локального білда — редагуй `.js`, онови сторінку); прод віддає **один мініфікований `bundle.js`**, який `esbuild` склеює з графа модулів на етапі Docker-білда (окремий `node`-стейдж `jsbuild` у `Dockerfile`). Перемикання — `{% if debug %}` у `templates/game.html`. `bundle.js` — build-артефакт, у git не комітиться (`.gitignore`). **CSS** (`static/game/app.css`) через esbuild/`jsbuild` не проходить — свідомо: один невеликий файл, окремий build-стейдж заради нього не виправданий; віддається як звичайна статика, той самий `<link>` в dev і в prod. Кешбастинг — штатний `whitenoise.storage.CompressedManifestStaticFilesStorage` (хеш в імені файлу, працює однаково для JS і CSS); whitenoise на `collectstatic` генерує `.gz` **і `.br`** для кожного статик-файла (brotli — залежність `brotli` у `pyproject.toml`; без неї був би лише gzip) і за `Accept-Encoding` віддає найменший варіант.
 
 ## Структура гри
 
@@ -103,7 +103,13 @@ cross-file зв'язок), деталі лишай коду; для нової �
 - `templates/game.html` — сторінка гри (корінь `/`): `#game-container`
   (канвас) + DOM-модалки (нової гри/статистики/турніру/глухого кута).
   Тулбар і смуга статусу — **не DOM**, рендеряться в канвасі. Інжектить
-  `window.MAHJONG_CSRF`/`MAHJONG_VERSION`/`MAHJONG_LANG`.
+  `window.MAHJONG_CSRF`/`MAHJONG_VERSION`/`MAHJONG_LANG`. Стилі — в окремому
+  `static/game/app.css` (єдиний `<link>` без `{% if debug %}`, кешбастинг —
+  той самий whitenoise manifest storage, що й для JS/іншої статики); шаблон
+  свого `<style>` не містить — жоден `{% trans %}` усередині CSS неможливий
+  (статика не проходить через шаблонізатор), тож підпис "← current" у
+  статистиці рендерить `main.js: renderStatsModal()` через `gettext()`, а не
+  CSS `::after`.
 - `static/game/tiles/*.svg` — 42 oblique-3D тайли (Cangjie6, **CC BY-SA
   4.0**, атрибуція обов'язкова — див. `static/game/tiles/CREDITS.md`).
   Растеризуються з SVG у `CanvasTexture` в рантаймі, без текстурного
@@ -227,11 +233,14 @@ uv run manage.py test
   ```
   Автофікс безпечних (сортування імпортів, pyupgrade): `uv run ruff check --fix .`
 
-- **JS (`Biome`)** — без локального `node_modules`, гониться через `npx` з
-  піном версії (той самий підхід, що й `esbuild` у `Dockerfile: jsbuild`),
-  конфіг — `biome.json` (лінтить лише `static/game/**/*.js` і `tests/**/*.js`,
-  виключає build-артефакт `bundle.js`; `static/vendor/` не мапиться жодним
-  include-патерном, тож теж поза скоупом):
+- **JS + CSS (`Biome`)** — без локального `node_modules`, гониться через `npx`
+  з піном версії (той самий підхід, що й `esbuild` у `Dockerfile: jsbuild`),
+  конфіг — `biome.json` (лінтить `static/game/**/*.js`, `static/game/**/*.css`
+  і `tests/**/*.js`, виключає build-артефакт `bundle.js`; `static/vendor/` не
+  мапиться жодним include-патерном, тож теж поза скоупом). CSS-лінтер у Biome
+  вбудований (стандартний CSS, без SCSS-діалектів) — окремий інструмент
+  (stylelint тощо) не заводили; CSS-форматтер лишається вимкненим (Biome-
+  дефолт), критерій — лише `lint`:
   ```
   npx --yes @biomejs/biome@2.5.5 lint static/game tests
   ```

@@ -1060,9 +1060,10 @@ class MainScene extends Phaser.Scene {
     statsLevelsEl.innerHTML = LEVELS.map((level) => {
       const s = allStats[level];
       const current = level === this.currentLevel ? ' current' : '';
+      const currentTag = current ? ` <span class="current-tag">← ${gettext('current')}</span>` : '';
       return `
         <div class="level-block${current}">
-          <h3>${LEVEL_LABELS[level]}</h3>
+          <h3>${LEVEL_LABELS[level]}${currentTag}</h3>
           <dl>
             <dt>${STATS_ROW_LABELS.started}</dt><dd>${s.gamesStarted}</dd>
             <dt>${STATS_ROW_LABELS.played}</dt><dd>${s.gamesPlayed}</dd>

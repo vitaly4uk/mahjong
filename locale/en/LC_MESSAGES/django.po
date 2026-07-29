@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: mahjong\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-28 17:45+0000\n"
+"POT-Creation-Date: 2026-07-29 07:02+0000\n"
 "PO-Revision-Date: 2026-07-26 08:34+0000\n"
 "Last-Translator: \n"
 "Language-Team: English\n"
@@ -27,48 +27,48 @@ msgstr ""
 msgid "too many requests, slow down"
 msgstr ""
 
-#: gameplay/api.py:108
+#: gameplay/api.py:122
 msgid "unknown level"
 msgstr ""
 
-#: gameplay/api.py:111
+#: gameplay/api.py:125
 msgid "unknown board"
 msgstr ""
 
-#: gameplay/api.py:258 gameplay/api.py:327 gameplay/api.py:376
+#: gameplay/api.py:293 gameplay/api.py:362 gameplay/api.py:411
 msgid "unknown session"
 msgstr ""
 
-#: gameplay/api.py:260 gameplay/api.py:329 gameplay/api.py:379
-#: gameplay/api.py:430
+#: gameplay/api.py:295 gameplay/api.py:364 gameplay/api.py:414
+#: gameplay/api.py:465
 msgid "session already claimed"
 msgstr ""
 
-#: gameplay/api.py:331 gameplay/api.py:384
+#: gameplay/api.py:366 gameplay/api.py:419
 msgid "session expired"
 msgstr ""
 
-#: gameplay/api.py:346 gameplay/api.py:391
+#: gameplay/api.py:381 gameplay/api.py:426
 msgid "illegal move"
 msgstr ""
 
-#: gameplay/api.py:348 gameplay/api.py:396
+#: gameplay/api.py:383 gameplay/api.py:431
 msgid "board is not deadlocked"
 msgstr ""
 
-#: gameplay/api.py:387
+#: gameplay/api.py:422
 msgid "unknown outcome"
 msgstr ""
 
-#: gameplay/api.py:394
+#: gameplay/api.py:429
 msgid "board not fully cleared"
 msgstr ""
 
-#: gameplay/api.py:428
+#: gameplay/api.py:463
 msgid "daily tournament already won today"
 msgstr ""
 
-#: gameplay/api.py:464
+#: gameplay/api.py:497
 msgid "already imported"
 msgstr ""
 
@@ -84,66 +84,62 @@ msgstr ""
 msgid "Cat"
 msgstr ""
 
-#: templates/game.html:14
+#: templates/game.html:15
 msgid "Mahjong"
 msgstr ""
 
-#: templates/game.html:129
-msgid "current"
-msgstr ""
-
-#: templates/game.html:151 templates/game.html:175
+#: templates/game.html:21 templates/game.html:45
 msgid "New game"
 msgstr ""
 
-#: templates/game.html:152
+#: templates/game.html:22
 msgid "Layout"
 msgstr ""
 
-#: templates/game.html:158
+#: templates/game.html:28
 msgid "Difficulty"
 msgstr ""
 
-#: templates/game.html:160
+#: templates/game.html:30
 msgid "Easy"
 msgstr ""
 
-#: templates/game.html:161
+#: templates/game.html:31
 msgid "Normal"
 msgstr ""
 
-#: templates/game.html:162
+#: templates/game.html:32
 msgid "Hard"
 msgstr ""
 
-#: templates/game.html:165
+#: templates/game.html:35
 msgid "Start"
 msgstr ""
 
-#: templates/game.html:166 templates/game.html:176 templates/game.html:197
+#: templates/game.html:36 templates/game.html:46 templates/game.html:67
 msgid "Close"
 msgstr ""
 
-#: templates/game.html:172
+#: templates/game.html:42
 msgid "Statistics"
 msgstr ""
 
-#: templates/game.html:182
+#: templates/game.html:52
 msgid "No moves left"
 msgstr ""
 
-#: templates/game.html:184
+#: templates/game.html:54
 msgid "Shuffle"
 msgstr ""
 
-#: templates/game.html:185
+#: templates/game.html:55
 msgid "Replay"
 msgstr ""
 
-#: templates/game.html:186
+#: templates/game.html:56
 msgid "Give up"
 msgstr ""
 
-#: templates/game.html:192
+#: templates/game.html:62
 msgid "Daily Tournament"
 msgstr ""
