@@ -43,12 +43,10 @@ export const STEP_Y_FRAC = 0.85;
 export const LAYER_DX_FRAC = 0.099;
 export const LAYER_DY_FRAC = 0.059;
 
-// UI bars (design-px, ×dpr in the scene): toolbar on top, status bar at the bottom, margins.
+// Board margin (design-px, ×dpr in the scene) — the toolbar/status bar are
+// DOM now (templates/game.html header/footer, styled by assets/tailwind.src.css),
+// not canvas objects, so the canvas only ever needs this one margin.
 export const MARGIN = 20;
-export const TOOLBAR_H = 60;
-export const STATUS_BAR_H = 52;
-export const STATUS_BAR_BG = 0x0d1a10;
-export const STATUS_BAR_BG_ALPHA = 0.6;
 
 export const SELECT_TINT = 0x77bbff;
 // Darkening of lower layers, so the 5 layers read as distinct (z=0..4, bottom to top).

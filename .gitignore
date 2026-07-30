@@ -7,6 +7,12 @@ db.sqlite3
 *.log
 staticfiles/
 static/game/bundle.js
+static/game/bundle.js.map
+static/game/tailwind.css
+# devDependencies only (tailwindcss/@tailwindcss/cli) — needed locally to run
+# the same build Dockerfile's jsbuild stage runs; package.json/-lock.json ARE
+# committed (pinned versions), only the installed tree is not.
+node_modules/
 # Compiled translation catalogs (compilemessages build artifact) — .po
 # sources are committed, .mo is regenerated at Docker build time.
 locale/**/*.mo

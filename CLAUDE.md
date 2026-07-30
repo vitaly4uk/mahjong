@@ -36,7 +36,8 @@ cross-file зв'язок), деталі лишай коду; для нової �
 - **django-ninja** — увесь JSON/HTTP API проєкту (жодного plain Django view/`JsonResponse` — лише `admin/` (стандартна Django-адмінка) і `''` (рендер HTML-сторінки гри) лишаються поза ninja, бо це не API).
 - Проєкт Django: `config/` (settings/urls/api/wsgi), `manage.py` в корені.
 - Продакшен-сервер: `gunicorn` (`config.wsgi:application`).
-- Фронтенд гри: **Phaser 3.90** vanilla JS ES-модулями. Phaser — локальний файл `static/vendor/phaser.min.js`. **Збірка JS**: локальна розробка вантажить сирі ES-модулі `static/game/*.js` напряму (жодного локального білда — редагуй `.js`, онови сторінку); прод віддає **один мініфікований `bundle.js`**, який `esbuild` склеює з графа модулів на етапі Docker-білда (окремий `node`-стейдж `jsbuild` у `Dockerfile`). Перемикання — `{% if debug %}` у `templates/game.html`. `bundle.js` — build-артефакт, у git не комітиться (`.gitignore`). **CSS** (`static/game/app.css`) через esbuild/`jsbuild` не проходить — свідомо: один невеликий файл, окремий build-стейдж заради нього не виправданий; віддається як звичайна статика, той самий `<link>` в dev і в prod. Кешбастинг — штатний `whitenoise.storage.CompressedManifestStaticFilesStorage` (хеш в імені файлу, працює однаково для JS і CSS); whitenoise на `collectstatic` генерує `.gz` **і `.br`** для кожного статик-файла (brotli — залежність `brotli` у `pyproject.toml`; без неї був би лише gzip) і за `Accept-Encoding` віддає найменший варіант.
+- Фронтенд гри: **Phaser 3.90** vanilla JS ES-модулями. Phaser — локальний файл `static/vendor/phaser.min.js`. **Збірка JS**: `templates/game.html` завжди вантажить **один** `static/game/bundle.js` (жодного `{% if debug %}`-розгалуження), який `esbuild` склеює з графа модулів `static/game/*.js`. Локально — `esbuild --watch` (`scripts/dev.sh`, без `--minify`, з `--sourcemap` заради читаних стектрейсів/брейкпоінтів у devtools на реальних вихідних файлах); прод — мінімізований, без sourcemap, на етапі Docker-білда (окремий `node`-стейдж `jsbuild` у `Dockerfile`). І `bundle.js`, і `bundle.js.map` — build-артефакти, у git не комітяться (`.gitignore`); dev-версія і prod-версія ніколи не існують одночасно (різні контексти запуску), тож конфлікту імені файлу нема.
+- **CSS — Tailwind CSS v4** (`assets/tailwind.src.css` → зібраний `static/game/tailwind.css`, теж build-артефакт поза git). На відміну від esbuild, Tailwind-CLI резолвить `@import "tailwindcss"` як звичайний Node-пакет, тож голого `npx --yes` (як для esbuild/Biome) не досить — у корені є мінімальний `package.json`/`package-lock.json` (лише `tailwindcss`+`@tailwindcss/cli`, запиновані версії; `node_modules/` у `.gitignore`). `Dockerfile: jsbuild`-стейдж робить `npm ci`, потім збирає обидва — і `bundle.js`, і `tailwind.css`; локально — `npx @tailwindcss/cli -i assets/tailwind.src.css -o static/game/tailwind.css --watch=always` поруч із `runserver` (див. Локальна розробка нижче). `@source` у `assets/tailwind.src.css` сканує і `templates/**/*.html`, і `static/game/*.js` (класи, що пишуться лише з JS — `.open`/`.you`/`.current-tag` тощо), тому `jsbuild`-стейдж копіює й `templates/`. Дизайн/пастки — `docs/superpowers/specs/2026-07-29-tailwind-dom-ui-migration.md`. Кешбастинг — штатний `whitenoise.storage.CompressedManifestStaticFilesStorage` (хеш в імені файлу, працює однаково для JS і CSS); whitenoise на `collectstatic` генерує `.gz` **і `.br`** для кожного статик-файла (brotli — залежність `brotli` у `pyproject.toml`; без неї був би лише gzip) і за `Accept-Encoding` віддає найменший варіант.
 
 ## Структура гри
 
@@ -53,7 +54,7 @@ cross-file зв'язок), деталі лишай коду; для нової �
   auth-заглушка, що пускає анонімів, але вимагає звичайний Django CSRF на
   unsafe-запитах; успадковується всіма підключеними роутерами.
   Версія білда (хеш `collectstatic`-маніфесту) звіряється клієнтом перед
-  стартом партії (`main.js: startGame()`) — фікс stale-кешу для
+  стартом партії (`scene.js: startGame()`) — фікс stale-кешу для
   standalone-PWA на iOS/macOS, де вікно може тижнями не оновлюватись;
   свідомо без service worker.
 - `config/schemas.py` — ninja-схеми для `config/api.py`.
@@ -80,7 +81,7 @@ cross-file зв'язок), деталі лишай коду; для нової �
   (рендер/кліки/undo/детекція глухого кута); авторитетна перевірка — на
   сервері (`gameplay/board.py`). Форми поля тут **не** зашито — позиції
   приходять із серверного `layout`, ширина/висота/шари виводяться з нього ж
-  (`main.js: applyBoardDims`), не з констант модуля. Чистий модуль, без
+  (`scene.js: applyBoardDims`), не з констант модуля. Чистий модуль, без
   Phaser/DOM.
 - `static/game/stats.js` — довічні показники тепер на сервері
   (`gameplay/models.py: Profile.stats`); модуль лишає презентаційні
@@ -90,26 +91,44 @@ cross-file зв'язок), деталі лишай коду; для нової �
   `gameplay/api.py`. Ідентичність гравця — кука `mahjong_player` (HttpOnly,
   підписана сервером), їде автоматично з кожним fetch; CSRF-токен — з
   `window.MAHJONG_CSRF`, заголовок `X-CSRFToken`.
-- `static/game/main.js` — Phaser-сцена: рендер, кліки, тулбар і смуга
-  статусу (canvas-об'єкти, не DOM), модалки старту/статистики/турніру/
-  глухого кута. Поле для нової партії завжди тягнеться з сервера (без
-  мережі гра не починається). Стан UI — Publisher/Subscriber через
-  `this.registry` (Phaser `DataManager`): бізнес-логіка ніде не викликає
-  методів на кшталт «відкрий модалку» — лише пише факт (`registry.set(...)`),
-  єдиний підписник (`renderModal()`) вирішує, що показати. Партія переживає
-  перезавантаження сторінки — знімок у `localStorage`
-  (`persistGame`/`tryResumeGame`), звіряється з сервером перед
-  відновленням. `window.mahjongGame` — доступ до гри для дебагу/тестів.
-- `templates/game.html` — сторінка гри (корінь `/`): `#game-container`
-  (канвас) + DOM-модалки (нової гри/статистики/турніру/глухого кута).
-  Тулбар і смуга статусу — **не DOM**, рендеряться в канвасі. Інжектить
-  `window.MAHJONG_CSRF`/`MAHJONG_VERSION`/`MAHJONG_LANG`. Стилі — в окремому
-  `static/game/app.css` (єдиний `<link>` без `{% if debug %}`, кешбастинг —
-  той самий whitenoise manifest storage, що й для JS/іншої статики); шаблон
-  свого `<style>` не містить — жоден `{% trans %}` усередині CSS неможливий
-  (статика не проходить через шаблонізатор), тож підпис "← current" у
-  статистиці рендерить `main.js: renderStatsModal()` через `gettext()`, а не
-  CSS `::after`.
+- `static/game/scene.js` — Phaser-сцена (`MainScene`): тайли, layout/resize,
+  сесія гри (start/resume/finish/shuffle/undo/hint). Канвас малює **лише
+  дошку** — тулбар/смуга статусу/кредит фотографа/модалки тепер DOM
+  (`templates/game.html`, `ui-dom.js`). Поле для нової партії завжди
+  тягнеться з сервера (без мережі гра не починається). Стан UI —
+  Publisher/Subscriber через `this.registry` (Phaser `DataManager`):
+  бізнес-логіка ніде не викликає методів на кшталт «відкрий модалку» — лише
+  пише факт (`registry.set(...)`), `ui-dom.js` підписаний і вирішує, що
+  показати. Партія переживає перезавантаження сторінки — знімок у
+  `localStorage` (`persistGame`/`tryResumeGame`), звіряється з сервером
+  перед відновленням. Ресайз ловиться через `ResizeObserver` на
+  `#game-container`, не `window.resize` — DOM-тулбар/статус-бар можуть
+  змінити висоту суто внутрішнім reflow (перенесення кнопки, зміна довжини
+  лейбла при зміні мови), без жодної події `window resize`.
+- `static/game/effects.js` — анімаційні хелпери для `scene.js`: кожна
+  функція бере `scene` першим аргументом (deal-in, політ пари в лічильник,
+  shuffle-flip, glow/hover/press/error, кінцевий ефект перемоги/програшу,
+  частинки) — винесені зі сцени, щоб `MainScene` лишався про сесію/layout,
+  не про tween-деталі.
+- `static/game/ui-dom.js` — DOM-контролер тулбару/смуги статусу/кредиту
+  фотографа/4 модалок (`templates/game.html`). Підписується на
+  `scene.registry` (**і `changedata`, і `setdata`** — Phaser шле
+  `changedata` лише від ДРУГОГО запису ключа, перший завжди йде як `setdata`
+  без пер-ключового варіанта; пропустити це — і початковий рендер кожного
+  щойно заведеного ключа реєстру мовчки не станеться).
+- `static/game/main.js` — тонка точка входу: збирає `Phaser.Game` з
+  `MainScene`, експортує `window.mahjongGame` (доступ до гри для
+  дебагу/тестів).
+- `templates/game.html` — сторінка гри (корінь `/`): `<header>`-тулбар +
+  `<main id="game-container">` (канвас, лише дошка) + `<footer>`-смуга
+  статусу, усі три — flex-колонка в `<body>`; далі 4 DOM-модалки (нової
+  гри/статистики/турніру/глухого кута). Інжектить
+  `window.MAHJONG_CSRF`/`MAHJONG_VERSION`/`MAHJONG_LANG`. Стилі — Tailwind
+  (`assets/tailwind.src.css` → зібраний `tailwind.css`, єдиний `<link>`
+  без `{% if debug %}`); шаблон свого `<style>` не містить — жоден
+  `{% trans %}` усередині CSS неможливий (статика не проходить через
+  шаблонізатор), тож підпис "← current" у статистиці рендерить
+  `ui-dom.js: renderStatsModal()` через `gettext()`, а не CSS `::after`.
 - `static/game/tiles/*.svg` — 42 oblique-3D тайли (Cangjie6, **CC BY-SA
   4.0**, атрибуція обов'язкова — див. `static/game/tiles/CREDITS.md`).
   Растеризуються з SVG у `CanvasTexture` в рантаймі, без текстурного
@@ -123,7 +142,8 @@ cross-file зв'язок), деталі лишай коду; для нової �
 ### Нюанси рендеру (не ламати)
 
 Деталі й обґрунтування — в коментарях безпосередньо біля відповідного коду
-в `static/game/main.js`; тут лише список, щоб не зламати випадково:
+в `static/game/scene.js`/`effects.js`; тут лише список, щоб не зламати
+випадково:
 
 - **Depth-формула** в `addTileSprite` (`z*10000 + (boardHeight-1-y) + x`,
   вага x/y **однакова**) — критична саме для діагональних пів-тайлових
@@ -140,16 +160,38 @@ cross-file зв'язок), деталі лишай коду; для нової �
 - **DOM-модалка НЕ блокує клік по канвасу під собою** — Phaser сам робить
   hit-test повз DOM z-index; єдиний захист — явний guard
   `if (this.registry.get('modal')) return;` у КОЖНОМУ обробнику кліку
-  (сценовому і в кожній кнопці тулбару окремо).
-- **`#game-container` має фіксований розмір**, не контент-залежний —
-  інакше зворотний зв'язок canvas↔container і ривки при resize.
+  (сценовому і в кожній кнопці тулбару окремо). Тулбар/смуга статусу цю
+  пастку взагалі оминають — вони DOM flex-сусіди канваса
+  (`templates/game.html`), а не оверлей поверх нього, тож жодна кістка під
+  ними ніколи не опиняється.
+- **`#game-container` не повинен мати власного `height`** у Tailwind-джерелі
+  (`assets/tailwind.src.css`) — розмір рахує flexbox (`<main class="flex-1
+  min-h-0">` між `<header>`/`<footer>`). Tailwind-каскадні layers
+  (`base`→`components`→`utilities`) визначають пріоритет ПОВЕРХ звичайної
+  специфічності CSS: явний `height` у `base`, навіть застарілий/помилковий,
+  завжди переміг би `flex-1` з `utilities`.
 
 ## Локальна розробка
 
 ```
 uv sync                      # встановити залежності з uv.lock
+npm install                  # один раз — devDependencies для esbuild/Tailwind watchers
 uv run manage.py migrate
+./scripts/dev.sh             # runserver + esbuild --watch + Tailwind --watch, один Ctrl-C
+```
+
+`scripts/dev.sh` — тонка обгортка: піднімає esbuild- і Tailwind-watcher у
+фоні (trap на EXIT гасить обидва), а `runserver` лишає на передньому плані
+— Ctrl-C зупиняє все. `static/game/bundle.js`/`tailwind.css` без цього
+скрипту не існують (build-артефакти, `.gitignore`), тож просто
+`manage.py runserver` без `dev.sh` віддасть 404 на JS/CSS. Якщо потрібен
+лише один із watcher'ів нарізно — команди:
+
+```
 uv run manage.py runserver
+npx --yes esbuild@0.24.2 static/game/main.js \
+  --bundle --sourcemap --format=esm --outfile=static/game/bundle.js --watch=forever
+npx @tailwindcss/cli -i assets/tailwind.src.css -o static/game/tailwind.css --watch=always
 ```
 
 Додавання залежностей: `uv add <package>` (прод) / `uv add --dev <package>` (dev-інструменти, лінтери, тести).
@@ -160,8 +202,9 @@ uv run manage.py runserver
 переклади — `locale/{uk,en}/LC_MESSAGES/{django,djangojs}.po`. Дефолт для нового
 відвідувача без куки й без збігу `Accept-Language` — українська (`LANGUAGE_CODE = 'uk'`,
 `config/settings.py`). Перемикач мови — кнопка `🌐 UA`/`🌐 EN` у самому тулбарі
-(`static/game/main.js: createToolbar()`, той самий канвасний ряд, що й «Нова гра»/
-«Підказка»/«Скасувати»/«Статистика», п'ята кнопка), не в модалці. Лише дві мови
+(`templates/game.html: #btn-lang`, той самий DOM-рядок, що й «Нова гра»/
+«Підказка»/«Скасувати»/«Статистика»/«Турнір», шоста кнопка; лейбл поточної мови
+пише `ui-dom.js`), не в модалці. Лише дві мови
 (`config/settings.py: LANGUAGES`), тож це простий тоггл (`OTHER_LANG`), а не пікер:
 показує ПОТОЧНУ мову, клік перемикає на іншу. `window.MAHJONG_LANG` (з
 `{% get_current_language %}`, `templates/game.html`) — джерело поточної мови для
@@ -171,12 +214,17 @@ JS. Клік шле POST у Django `set_language` (`static/game/sync.js: setLang
 standalone-PWA/`start_url`). Активна партія переживає перезавантаження без втрат
 (`tryResumeGame()` — той самий шлях, що й для звичайного reload/resume).
 
-Більшість тексту рендериться на Phaser-канвасі (`static/game/main.js`), тож основний
-канал перекладу — Django **`JavaScriptCatalog`** (`config/urls.py:
+Динамічний текст (лічильник підказок/скасувань, "Залишилось: N", рядки статистики,
+турнірна інформація — `ui-dom.js`/`scene.js`) і досі йде через Django
+**`JavaScriptCatalog`** (`config/urls.py:
 path('jsi18n/', JavaScriptCatalog.as_view())`, без `packages=` — каталог живе в
 проєктному `locale/`, не всередині `gameplay/locale/`), підключений у `game.html`
 **класичним** `<script>` (не `type="module"`) **перед** модульним бандлом — глобальні
 `gettext`/`interpolate` мають бути визначені до виконання `main.js`/`bundle.js`.
+Статичні лейбли тулбару/модалок (окрім лічильників) — тепер звичайний Django
+`{% trans %}` прямо в `templates/game.html` (domain `django`, окремий від
+`djangojs` — той самий текст в обох каталогах потребує окремого перекладу в
+кожному).
 Емодзі-префікси (`🆕`, `💡`, `🏆`, ...) свідомо лишаються **поза** `gettext()`/
 `{% trans %}` — вони мовонезалежні, перекладати нема чого.
 
@@ -194,10 +242,10 @@ path('jsi18n/', JavaScriptCatalog.as_view())`, без `packages=` — катал
 ```
 uv run manage.py makemessages -l uk -l en \
   --ignore='static/vendor/*' --ignore='static/game/bundle.js' \
-  --ignore='staticfiles/*' --ignore='.venv/*'
+  --ignore='staticfiles/*' --ignore='.venv/*' --ignore='node_modules/*'
 uv run manage.py makemessages -d djangojs -l uk -l en \
   --ignore='static/vendor/*' --ignore='static/game/bundle.js' \
-  --ignore='staticfiles/*' --ignore='.venv/*'
+  --ignore='staticfiles/*' --ignore='.venv/*' --ignore='node_modules/*'
 uv run manage.py compilemessages --locale=uk --locale=en   # для локальної перевірки
 ```
 
@@ -209,7 +257,7 @@ uv run manage.py compilemessages --locale=uk --locale=en   # для локаль
 node --test 'tests/*.test.js'
 ```
 
-(Форма `node --test tests/` не працює — node трактує каталог як модуль.) Покрито: правило вільності, матчинг/undo, глухий кут, replay лога ходів, трансформери й localStorage-обгортку статистики (`stats.js`). Форма поля (яка розкладка, розв'язність генерації) клієнтськими тестами більше не покривається — вона повністю на сервері (нижче), `board.js` тепер знає лише координатну систему, не конкретну фігуру. `main.js` (Phaser) юніт-тестами не покривається — перевіряти в браузері.
+(Форма `node --test tests/` не працює — node трактує каталог як модуль.) Покрито: правило вільності, матчинг/undo, глухий кут, replay лога ходів, трансформери й localStorage-обгортку статистики (`stats.js`). Форма поля (яка розкладка, розв'язність генерації) клієнтськими тестами більше не покривається — вона повністю на сервері (нижче), `board.js` тепер знає лише координатну систему, не конкретну фігуру. `scene.js`/`effects.js`/`ui-dom.js` (Phaser + DOM) юніт-тестами не покриваються — перевіряти в браузері.
 
 Серверна логіка (`gameplay/`: парсер `.layout`-файлів, генерація поля для кожної розкладки, правило вільності, валідація партії через API; `config/`: background-ендпоінт):
 
@@ -233,14 +281,17 @@ uv run manage.py test
   ```
   Автофікс безпечних (сортування імпортів, pyupgrade): `uv run ruff check --fix .`
 
-- **JS + CSS (`Biome`)** — без локального `node_modules`, гониться через `npx`
-  з піном версії (той самий підхід, що й `esbuild` у `Dockerfile: jsbuild`),
-  конфіг — `biome.json` (лінтить `static/game/**/*.js`, `static/game/**/*.css`
-  і `tests/**/*.js`, виключає build-артефакт `bundle.js`; `static/vendor/` не
-  мапиться жодним include-патерном, тож теж поза скоупом). CSS-лінтер у Biome
-  вбудований (стандартний CSS, без SCSS-діалектів) — окремий інструмент
-  (stylelint тощо) не заводили; CSS-форматтер лишається вимкненим (Biome-
-  дефолт), критерій — лише `lint`:
+- **JS + CSS (`Biome`)** — гониться через `npx` з піном версії (той самий
+  підхід, що й `esbuild` у `Dockerfile: jsbuild`; Biome сам по собі не
+  потребує локального `node_modules` — на відміну від Tailwind, див. Стек
+  вище), конфіг — `biome.json` (лінтить `static/game/**/*.js`,
+  `static/game/**/*.css` і `tests/**/*.js`, виключає build-артефакти
+  `bundle.js`/`tailwind.css` і джерело `assets/tailwind.src.css` — останнє
+  використовує Tailwind-специфічні at-rules (`@source`/`@theme`/`@apply`),
+  яких Biome's CSS-лінтер (стандартний CSS, без діалектів) не знає;
+  `static/vendor/` не мапиться жодним include-патерном, тож теж поза
+  скоупом). Окремий CSS-інструмент (stylelint тощо) не заводили; CSS-
+  форматтер лишається вимкненим (Biome-дефолт), критерій — лише `lint`:
   ```
   npx --yes @biomejs/biome@2.5.5 lint static/game tests
   ```

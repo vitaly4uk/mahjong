@@ -1,0 +1,347 @@
+// DOM UI controller for the game chrome (toolbar, status bar, photographer
+// credit, the 4 modals) — templates/game.html, styled by
+// static/game/tailwind.src.css. The canvas (main.js: MainScene) draws only
+// the board (tiles/effects/background) now; everything here is a
+// Publisher/Subscriber view on the SAME `scene.registry` (Phaser
+// DataManager) the canvas UI used to render from directly — game logic
+// still just writes facts to the registry, this module is the one that
+// happens to render them as DOM instead of canvas Text. See
+// docs/superpowers/specs/2026-07-29-tailwind-dom-ui-migration.md.
+import {
+  fetchDaily, setLanguage,
+} from './sync.js';
+import { winRate, fmtTime, LEVELS } from './stats.js';
+
+const { gettext, interpolate } = window;
+
+const LEVEL_LABELS = {
+  easy: `😌 ${gettext('Easy')}`,
+  normal: `🙂 ${gettext('Normal')}`,
+  hard: `😈 ${gettext('Hard')}`,
+};
+
+const HINT_LABEL = `💡 ${gettext('Hint')}`;
+const HINT_TEMPLATE = gettext('Hint (%(n)s)');
+const UNDO_LABEL = `↩️ ${gettext('Undo')}`;
+const UNDO_TEMPLATE = gettext('Undo (%(n)s)');
+
+const STATS_ROW_LABELS = {
+  started: `🎲 ${gettext('Games started')}`,
+  played: `📋 ${gettext('Games played')}`,
+  wins: `🏆 ${gettext('Wins')}`,
+  winRate: `📈 ${gettext('Win rate')}`,
+  currentStreak: `🔥 ${gettext('Current streak')}`,
+  bestStreak: `⭐ ${gettext('Best streak')}`,
+  bestTime: `⏱️ ${gettext('Best time')}`,
+  totalHints: `💡 ${gettext('Total hints')}`,
+  totalUndos: `↩️ ${gettext('Total undos')}`,
+  totalPairs: `🀄 ${gettext('Total pairs removed')}`,
+  totalShuffles: `🔀 ${gettext('Total shuffles')}`,
+};
+
+// Only uk/en ship for now (config/settings.py: LANGUAGES) — a single toggle
+// button is simpler than a picker for two options.
+const LANG_BTN_LABEL = { uk: 'UA', en: 'EN' };
+
+// Sets up the DOM toolbar/status-bar/modals and wires them to `scene`
+// (main.js: MainScene) — scene methods for actions (hint/undo/startGame/...),
+// scene.registry for state. Returns a small handle the scene calls into for
+// the two things that still originate on the canvas side: the photographer
+// credit (loadBackground) and the "fly to the counter" animation's target
+// (flightTarget).
+export function createUiDom(scene) {
+  const btnNew = document.getElementById('btn-new');
+  const btnHint = document.getElementById('btn-hint');
+  const btnUndo = document.getElementById('btn-undo');
+  const btnStats = document.getElementById('btn-stats');
+  const btnDaily = document.getElementById('btn-daily');
+  const btnLang = document.getElementById('btn-lang');
+  const langLabel = document.getElementById('lang-label');
+
+  const statusText = document.getElementById('status-text');
+  const statusDifficulty = document.getElementById('status-difficulty');
+  const statusSummary = document.getElementById('status-summary');
+  const bgCredit = document.getElementById('bg-credit');
+
+  const statsModal = document.getElementById('stats-modal');
+  const statsTitleEl = document.getElementById('stats-title');
+  const statsLevelsEl = document.getElementById('stats-levels');
+  const newgameModal = document.getElementById('newgame-modal');
+  const newgameLevelButtons = [...newgameModal.querySelectorAll('[data-level]')];
+  const newgameBoardButtons = [...newgameModal.querySelectorAll('[data-board]')];
+  const newgameStartBtn = document.getElementById('btn-newgame-start');
+  const newgameCloseBtn = document.getElementById('btn-newgame-close');
+  const deadlockModal = document.getElementById('deadlock-modal');
+  const deadlockShuffleBtn = document.getElementById('btn-deadlock-shuffle');
+  const deadlockReplayBtn = document.getElementById('btn-deadlock-replay');
+  const deadlockGiveupBtn = document.getElementById('btn-deadlock-giveup');
+  const dailyModal = document.getElementById('daily-modal');
+  const dailyInfoEl = document.getElementById('daily-info');
+  const dailyBoardEl = document.getElementById('daily-board');
+  const dailyPlayBtn = document.getElementById('btn-daily-play');
+  const dailyCloseBtn = document.getElementById('btn-daily-close');
+
+  // Static base labels — set once, immediately (mirrors the old canvas
+  // toolbar's construction-time text: createToolbar() baked HINT_LABEL/
+  // UNDO_LABEL/the lang label in directly, renderStats() only ever
+  // overwrites hint/undo with the "(N)" variant once a game has counters).
+  btnHint.textContent = HINT_LABEL;
+  btnUndo.textContent = UNDO_LABEL;
+  langLabel.textContent = LANG_BTN_LABEL[window.MAHJONG_LANG] || window.MAHJONG_LANG;
+
+  function renderStats() {
+    statusText.textContent = scene.registry.get('status') || '';
+
+    const hints = scene.registry.get('gameHints') || 0;
+    const undos = scene.registry.get('gameUndos') || 0;
+    btnHint.textContent = hints > 0
+      ? `💡 ${interpolate(HINT_TEMPLATE, { n: hints }, true)}`
+      : HINT_LABEL;
+    btnUndo.textContent = undos > 0
+      ? `↩️ ${interpolate(UNDO_TEMPLATE, { n: undos }, true)}`
+      : UNDO_LABEL;
+    // scene.currentLevel isn't assigned until later in create() (after the
+    // first 'allStats' registry.set, which this listener already reacts to
+    // — attached earlier here than the old canvas code attached it) — guard
+    // so an early tick doesn't render the literal string "undefined".
+    if (scene.currentLevel) statusDifficulty.textContent = LEVEL_LABELS[scene.currentLevel];
+
+    const stats = scene.currentLevel && scene.registry.get('allStats')?.[scene.currentLevel];
+    const elapsed = scene.registry.get('gameElapsedMs') || 0;
+    if (stats) {
+      statusSummary.textContent = `🏆 ${stats.gamesWon}/${stats.gamesPlayed} · 🔥 ${stats.currentStreak} · ⏱️ ${fmtTime(elapsed)}`;
+    }
+  }
+
+  // The stats-modal HTML (3 levels × 9 rows) — split out from renderStats()
+  // since it's far more expensive to rebuild (innerHTML) and doesn't need to
+  // run on every registry tick, only when allStats changes or the modal opens.
+  function renderStatsModal() {
+    const allStats = scene.registry.get('allStats');
+    if (!allStats) return;
+    statsLevelsEl.innerHTML = LEVELS.map((level) => {
+      const s = allStats[level];
+      const current = level === scene.currentLevel ? ' current' : '';
+      const currentTag = current ? ` <span class="current-tag">← ${gettext('current')}</span>` : '';
+      return `
+        <div class="level-block${current}">
+          <h3>${LEVEL_LABELS[level]}${currentTag}</h3>
+          <dl>
+            <dt>${STATS_ROW_LABELS.started}</dt><dd>${s.gamesStarted}</dd>
+            <dt>${STATS_ROW_LABELS.played}</dt><dd>${s.gamesPlayed}</dd>
+            <dt>${STATS_ROW_LABELS.wins}</dt><dd>${s.gamesWon}</dd>
+            <dt>${STATS_ROW_LABELS.winRate}</dt><dd>${winRate(s)}%</dd>
+            <dt>${STATS_ROW_LABELS.currentStreak}</dt><dd>${s.currentStreak}</dd>
+            <dt>${STATS_ROW_LABELS.bestStreak}</dt><dd>${s.bestStreak}</dd>
+            <dt>${STATS_ROW_LABELS.bestTime}</dt><dd>${s.bestTimeMs == null ? '—' : fmtTime(s.bestTimeMs)}</dd>
+            <dt>${STATS_ROW_LABELS.totalHints}</dt><dd>${s.hintsTotal}</dd>
+            <dt>${STATS_ROW_LABELS.totalUndos}</dt><dd>${s.undosTotal}</dd>
+            <dt>${STATS_ROW_LABELS.totalPairs}</dt><dd>${s.pairsTotal}</dd>
+            <dt>${STATS_ROW_LABELS.totalShuffles}</dt><dd>${s.shufflesTotal}</dd>
+          </dl>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Fills the daily-tournament modal: today's board/level, the caller's own
+  // status/rank, and the leaderboard (gameplay/api.py: daily_info). Fetched
+  // fresh on every open — the standings change as other players finish.
+  async function renderDailyModal() {
+    dailyInfoEl.textContent = gettext('Loading…');
+    dailyBoardEl.innerHTML = '';
+    dailyPlayBtn.disabled = true;
+    dailyPlayBtn.style.display = '';
+
+    let info;
+    try {
+      info = await fetchDaily();
+    } catch {
+      dailyInfoEl.textContent = `⚠️ ${gettext('Failed to load the daily tournament')}`;
+      dailyPlayBtn.disabled = false;
+      dailyPlayBtn.textContent = `🔄 ${gettext('Retry')}`;
+      return;
+    }
+    scene.dailyInfo = info;
+    dailyPlayBtn.disabled = false;
+
+    // A WIN closes the tournament for the day — the result (score/rank) and
+    // the leaderboard below already show it inline, so a "view result"
+    // action would just close the modal again, which read as a dead button.
+    // A LOSS is retryable (gameplay/api.py: start_daily mints a fresh
+    // session whenever there's no win on record — see daily tournament
+    // design spec's retry-after-loss), so 'lost' still gets a Play action.
+    const finished = info.yourStatus === 'won';
+    dailyPlayBtn.style.display = finished ? 'none' : '';
+    const playLabels = {
+      new: `▶️ ${gettext('Play')}`,
+      active: `▶️ ${gettext('Resume')}`,
+      lost: `🔁 ${gettext('Play again')}`,
+    };
+    dailyPlayBtn.textContent = playLabels[info.yourStatus] || playLabels.new;
+
+    // The daily tournament is always a single difficulty (gameplay/daily.py:
+    // DAILY_LEVEL) — nothing to disambiguate, so unlike the regular-game
+    // status bar, level is deliberately not shown here.
+    const lines = [
+      info.boardName,
+      interpolate(gettext('Participants: %(n)s'), { n: info.totalParticipants }, true),
+    ];
+    if (info.yourStatus === 'won' && info.yourScoreMs != null) {
+      lines.push(interpolate(
+        gettext('Your score: %(time)s (rank #%(rank)s)'),
+        { time: fmtTime(info.yourScoreMs), rank: info.yourRank }, true,
+      ));
+    } else if (info.yourStatus === 'lost') {
+      lines.push(gettext("You didn't finish — try again!"));
+    }
+    dailyInfoEl.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
+
+    dailyBoardEl.innerHTML = info.leaderboard.length
+      ? info.leaderboard.map((entry) => `
+        <li class="${entry.rank === info.yourRank ? 'you' : ''}">
+          <span class="rank">#${entry.rank}</span>
+          <span class="nickname">${entry.nickname}</span>
+          <span class="time">${fmtTime(entry.scoreMs)}</span>
+        </li>
+      `).join('')
+      : `<li class="empty">${gettext('No winners yet today')}</li>`;
+  }
+
+  function renderModal(modal) {
+    const showStats = modal?.type === 'stats' || modal?.type === 'result';
+    statsModal.classList.toggle('open', showStats);
+    newgameModal.classList.toggle('open', modal?.type === 'newgame');
+    deadlockModal.classList.toggle('open', modal?.type === 'deadlock');
+    dailyModal.classList.toggle('open', modal?.type === 'daily');
+
+    if (showStats) {
+      let title = `📊 ${gettext('Statistics')}`;
+      if (modal.type === 'result') {
+        if (modal.error) {
+          title = `⚠️ ${gettext('The game was not confirmed by the server')}`;
+        } else if (modal.won) {
+          // A daily win never reaches here — finishGame() routes it to the
+          // {type:'daily'} modal instead (see there for why).
+          title = `🎉 ${gettext('Victory!')}`;
+        } else {
+          title = `🚫 ${gettext('Dead end — no moves left')}`;
+        }
+      }
+      statsTitleEl.textContent = title;
+      // Not just relying on the changedata-allStats listener: currentLevel
+      // (which controls the "current" highlight) can change without a fresh
+      // allStats push, so refresh the content on every open too.
+      renderStatsModal();
+    }
+    if (modal?.type === 'newgame') {
+      for (const btn of newgameLevelButtons) {
+        btn.classList.toggle('selected', btn.dataset.level === scene.currentLevel);
+      }
+      for (const btn of newgameBoardButtons) {
+        btn.classList.toggle('selected', btn.dataset.board === scene.currentBoard);
+      }
+      newgameCloseBtn.style.display = modal.canClose ? '' : 'none';
+    }
+    if (modal?.type === 'daily') renderDailyModal();
+  }
+
+  scene.registry.events.on('changedata', renderStats);
+  scene.registry.events.on('changedata-allStats', renderStatsModal);
+  scene.registry.events.on('changedata-modal', (_parent, value) => renderModal(value));
+  // Phaser's DataManager only fires 'changedata'/'changedata-<key>' from the
+  // SECOND write to a given key onward — the very first-ever .set() for a
+  // key fires the separate 'setdata' event instead (and, unlike
+  // 'changedata-<key>', there is no per-key 'setdata-<key>' variant at all).
+  // Every registry key this module cares about (status, gameHints, allStats,
+  // modal, ...) is written for the first time somewhere during boot/game
+  // start, so without this, the very first render of each would silently
+  // never happen — the old canvas UI never hit this because it hardcoded its
+  // initial text at construction and only needed 'changedata' for updates
+  // after that.
+  scene.registry.events.on('setdata', (_parent, key) => {
+    renderStats();
+    if (key === 'allStats') renderStatsModal();
+    if (key === 'modal') renderModal(scene.registry.get('modal'));
+  });
+
+  btnNew.addEventListener('click', () => {
+    if (scene.registry.get('modal')) return;
+    scene.registry.set('modal', { type: 'newgame', canClose: true });
+  });
+  btnHint.addEventListener('click', () => { if (!scene.registry.get('modal')) scene.hint(); });
+  btnUndo.addEventListener('click', () => { if (!scene.registry.get('modal')) scene.undo(); });
+  btnStats.addEventListener('click', () => {
+    if (scene.registry.get('modal')) return;
+    const open = scene.registry.get('modal')?.type === 'stats';
+    scene.registry.set('modal', open ? null : { type: 'stats' });
+  });
+  btnDaily.addEventListener('click', () => {
+    if (scene.registry.get('modal')) return;
+    const open = scene.registry.get('modal')?.type === 'daily';
+    scene.registry.set('modal', open ? null : { type: 'daily' });
+  });
+  // Toggles straight to the other language — no picker needed for just two
+  // options. The button label shows the CURRENT language; reloading after
+  // the switch flips it to the new current one.
+  btnLang.addEventListener('click', () => {
+    if (scene.registry.get('modal')) return;
+    setLanguage(window.MAHJONG_LANG === 'uk' ? 'en' : 'uk').finally(() => location.reload());
+  });
+
+  document.getElementById('btn-stats-close').addEventListener('click', () => scene.registry.set('modal', null));
+  document.getElementById('btn-stats-new').addEventListener('click', () => {
+    scene.registry.set('modal', { type: 'newgame', canClose: true });
+  });
+  newgameCloseBtn.addEventListener('click', () => scene.registry.set('modal', null));
+  for (const btn of newgameBoardButtons) {
+    btn.addEventListener('click', () => {
+      scene.currentBoard = btn.dataset.board;
+      scene.saveBoardPref(scene.currentBoard);
+      renderModal(scene.registry.get('modal'));
+    });
+  }
+  for (const btn of newgameLevelButtons) {
+    btn.addEventListener('click', () => {
+      scene.currentLevel = btn.dataset.level;
+      scene.saveDifficultyPref(scene.currentLevel);
+      renderModal(scene.registry.get('modal'));
+    });
+  }
+  newgameStartBtn.addEventListener('click', () => {
+    scene.registry.set('modal', null);
+    scene.startGame(scene.currentLevel, scene.currentBoard);
+  });
+  deadlockShuffleBtn.addEventListener('click', () => scene.shuffleGame());
+  deadlockReplayBtn.addEventListener('click', () => scene.replayGame());
+  deadlockGiveupBtn.addEventListener('click', () => scene.finishGame(false));
+  dailyPlayBtn.addEventListener('click', () => scene.playDaily());
+  dailyCloseBtn.addEventListener('click', () => scene.registry.set('modal', null));
+
+  return {
+    // Called from main.js: playDaily() when the server reports the attempt
+    // was already claimed/forfeited between the modal's last fetch and the
+    // click — refreshes the daily modal in place to show that result.
+    renderDailyModal,
+    // Called from main.js: loadBackground() when a new background photo
+    // arrives — replaces the old canvas setBgCredit().
+    setBgCredit(photographer, photographerUrl) {
+      if (!photographer) {
+        bgCredit.classList.add('hidden');
+        return;
+      }
+      bgCredit.textContent = interpolate(gettext('Photo: %(name)s · Pexels'), { name: photographer }, true);
+      // Harmless no-op target (stays on the page) when the API didn't send a
+      // photographer URL — same tolerance the old canvas credit had (it only
+      // attached a click handler when photographerUrl was present).
+      bgCredit.href = photographerUrl || '#';
+      bgCredit.classList.remove('hidden');
+    },
+    // The "Remaining: N" counter's on-screen rect — main.js: flightTarget()
+    // maps this into canvas world-space (device-px) for the pair-flies-to-
+    // the-counter animation.
+    getCounterRect() {
+      return statusText.getBoundingClientRect();
+    },
+  };
+}

@@ -1,12 +1,30 @@
-# --- JS bundle stage ---
+# --- JS/CSS bundle stage ---
 # esbuild склеює граф ES-модулів static/game/*.js в один мініфікований bundle.js.
 # Живе лише тут (у прод-образ node не тягнеться), локальна розробка вантажить сирі
 # модулі напряму — див. templates/game.html ({% if debug %}).
+#
+# Tailwind (tailwind.src.css → static/game/tailwind.css) збирається тут же —
+# на відміну від esbuild, Tailwind v4's `@import "tailwindcss"` резолвиться
+# як звичайний Node-пакет (не bare npx: 'tailwindcss' має бути в node_modules,
+# звідси package.json/-lock.json + npm ci), і `@source` сканує templates/*.html
+# на реальні класи — тому templates/ теж копіюється в цей стейдж.
+# assets/tailwind.src.css живе поза static/ — інакше whitenoise's
+# collectstatic post-processor (Python-стейдж нижче) намагається
+# переписати url()-подібні токени в кожному .css під static/, включно з
+# `@import "tailwindcss"` у джерелі, і падає з MissingFileError (задокументована
+# пастка WhiteNoise+Tailwind, не власний винахід — те саме радять доки
+# django-tailwind-cli).
 FROM node:20-slim AS jsbuild
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY assets/ ./assets/
 COPY static/game/ ./static/game/
+COPY templates/ ./templates/
 RUN npx --yes esbuild@0.24.2 static/game/main.js \
     --bundle --minify --format=esm --outfile=static/game/bundle.js
+RUN npx tailwindcss -i assets/tailwind.src.css \
+    -o static/game/tailwind.css --minify
 
 # --- Python stage ---
 FROM python:3.12-slim
@@ -29,9 +47,10 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-install-project --no-dev
 
 COPY . .
-# Свіжозбудований bundle.js кладемо поверх (у git його немає — .gitignore), щоб саме
-# він потрапив у collectstatic-маніфест.
+# Свіжозбудовані bundle.js/tailwind.css кладемо поверх (у git їх немає —
+# .gitignore), щоб саме вони потрапили у collectstatic-маніфест.
 COPY --from=jsbuild /app/static/game/bundle.js static/game/bundle.js
+COPY --from=jsbuild /app/static/game/tailwind.css static/game/tailwind.css
 RUN uv sync --locked --no-dev
 
 # -l/--locale scoped to our own catalogs — without it compilemessages also

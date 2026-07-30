@@ -5,7 +5,8 @@
       "static/game/**/*.js",
       "static/game/**/*.css",
       "tests/**/*.js",
-      "!static/game/bundle.js"
+      "!static/game/bundle.js",
+      "!static/game/tailwind.css"
     ]
   },
   "formatter": {

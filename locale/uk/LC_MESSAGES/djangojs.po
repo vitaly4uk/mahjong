@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: mahjong\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-29 07:02+0000\n"
+"POT-Creation-Date: 2026-07-30 16:04+0000\n"
 "PO-Revision-Date: 2026-07-26 08:34+0000\n"
 "Last-Translator: \n"
 "Language-Team: Ukrainian\n"
@@ -15,177 +15,182 @@ msgstr ""
 "100 > 14) ? 1 : n % 1 == 0 && (n % 10 ==0 || (n % 10 >=5 && n % 10 <=9) || "
 "(n % 100 >=11 && n % 100 <=14 )) ? 2: 3);\n"
 
-#: static/game/main.js:37
-msgid "Easy"
-msgstr "Легко"
-
-#: static/game/main.js:38
-msgid "Normal"
-msgstr "Нормально"
-
-#: static/game/main.js:39
-msgid "Hard"
-msgstr "Складно"
-
-#: static/game/main.js:47
-msgid "Hint"
-msgstr "Підказка"
-
-#: static/game/main.js:48
-msgid "Hint (%(n)s)"
-msgstr "Підказка (%(n)s)"
-
-#: static/game/main.js:49
-msgid "Undo"
-msgstr "Скасувати"
-
-#: static/game/main.js:50
-msgid "Undo (%(n)s)"
-msgstr "Скасувати (%(n)s)"
-
-#: static/game/main.js:56
-msgid "Games started"
-msgstr "Розпочато партій"
-
-#: static/game/main.js:57
-msgid "Games played"
-msgstr "Зіграно партій"
-
-#: static/game/main.js:58
-msgid "Wins"
-msgstr "Перемог"
-
-#: static/game/main.js:59
-msgid "Win rate"
-msgstr "% перемог"
-
-#: static/game/main.js:60
-msgid "Current streak"
-msgstr "Поточна серія"
-
-#: static/game/main.js:61
-msgid "Best streak"
-msgstr "Рекордна серія"
-
-#: static/game/main.js:62
-msgid "Best time"
-msgstr "Найкращий час"
-
-#: static/game/main.js:63
-msgid "Total hints"
-msgstr "Підказок усього"
-
-#: static/game/main.js:64
-msgid "Total undos"
-msgstr "Скасувань усього"
-
-#: static/game/main.js:65
-msgid "Total pairs removed"
-msgstr "Знято пар усього"
-
-#: static/game/main.js:66
-msgid "Total shuffles"
-msgstr "Перемішувань усього"
-
-#: static/game/main.js:305
+#: static/game/scene.js:219
 msgid "Failed to load statistics"
 msgstr "Не вдалося завантажити статистику"
 
-#: static/game/main.js:590
-msgid "New game"
-msgstr "Нова гра"
-
-#: static/game/main.js:595 static/game/main.js:941
-msgid "Statistics"
-msgstr "Статистика"
-
-#: static/game/main.js:603
-msgid "Daily"
-msgstr "Турнір"
-
-#: static/game/main.js:760
-msgid "Photo: %(name)s · Pexels"
-msgstr "Фото: %(name)s · Pexels"
-
-#: static/game/main.js:944 static/game/main.js:1224
-msgid "The game was not confirmed by the server"
-msgstr "Партія не підтверджена сервером"
-
-#: static/game/main.js:948 static/game/main.js:1792
-msgid "Victory!"
-msgstr "Перемога!"
-
-#: static/game/main.js:950
-msgid "Dead end — no moves left"
-msgstr "Глухий кут — немає ходів"
-
-#: static/game/main.js:975
-msgid "Loading…"
-msgstr "Завантаження…"
-
-#: static/game/main.js:984
-msgid "Failed to load the daily tournament"
-msgstr "Не вдалося завантажити турнір дня"
-
-#: static/game/main.js:986
-msgid "Retry"
-msgstr "Повторити"
-
-#: static/game/main.js:999
-msgid "Play"
-msgstr "Грати"
-
-#: static/game/main.js:1000
-msgid "Resume"
-msgstr "Продовжити"
-
-#: static/game/main.js:1009
-msgid "Participants: %(n)s"
-msgstr "Учасників: %(n)s"
-
-#: static/game/main.js:1013
-msgid "Your score: %(time)s (rank #%(rank)s)"
-msgstr "Ваш результат: %(time)s (місце #%(rank)s)"
-
-#: static/game/main.js:1017
-msgid "Today's attempt is over"
-msgstr "Сьогоднішня спроба вичерпана"
-
-#: static/game/main.js:1029
-msgid "No winners yet today"
-msgstr "Сьогодні ще немає переможців"
-
-#: static/game/main.js:1063
-msgid "current"
-msgstr "поточний"
-
-#: static/game/main.js:1104
+#: static/game/scene.js:698
 msgid "Generating layout…"
 msgstr "Генерую розклад…"
 
-#: static/game/main.js:1111
+#: static/game/scene.js:705
 msgid "Failed to start the game — check your connection"
 msgstr "Не вдалося почати гру — перевірте з'єднання"
 
-#: static/game/main.js:1146
+#: static/game/scene.js:745
 msgid "Failed to start the daily tournament — check your connection"
 msgstr "Не вдалося почати турнір дня — перевірте з'єднання"
 
-#: static/game/main.js:1218
+#: static/game/scene.js:820
 msgid "Failed to confirm the game result"
 msgstr "Не вдалося підтвердити результат партії"
 
-#: static/game/main.js:1296
+#: static/game/scene.js:826 static/game/ui-dom.js:222
+msgid "The game was not confirmed by the server"
+msgstr "Партія не підтверджена сервером"
+
+#: static/game/scene.js:898
 msgid "Failed to shuffle — check your connection"
 msgstr "Не вдалося перемішати — перевірте з'єднання"
 
-#: static/game/main.js:1795
+#: static/game/scene.js:1035 static/game/ui-dom.js:226
+msgid "Victory!"
+msgstr "Перемога!"
+
+#: static/game/scene.js:1038
 msgid "No moves left"
 msgstr "Немає ходів"
 
-#: static/game/main.js:1800
+#: static/game/scene.js:1043
 msgid "Remaining: %(n)s"
 msgstr "Залишилось: %(n)s"
+
+#: static/game/ui-dom.js:18
+msgid "Easy"
+msgstr "Легко"
+
+#: static/game/ui-dom.js:19
+msgid "Normal"
+msgstr "Нормально"
+
+#: static/game/ui-dom.js:20
+msgid "Hard"
+msgstr "Складно"
+
+#: static/game/ui-dom.js:23
+msgid "Hint"
+msgstr "Підказка"
+
+#: static/game/ui-dom.js:24
+msgid "Hint (%(n)s)"
+msgstr "Підказка (%(n)s)"
+
+#: static/game/ui-dom.js:25
+msgid "Undo"
+msgstr "Скасувати"
+
+#: static/game/ui-dom.js:26
+msgid "Undo (%(n)s)"
+msgstr "Скасувати (%(n)s)"
+
+#: static/game/ui-dom.js:29
+msgid "Games started"
+msgstr "Розпочато партій"
+
+#: static/game/ui-dom.js:30
+msgid "Games played"
+msgstr "Зіграно партій"
+
+#: static/game/ui-dom.js:31
+msgid "Wins"
+msgstr "Перемог"
+
+#: static/game/ui-dom.js:32
+msgid "Win rate"
+msgstr "% перемог"
+
+#: static/game/ui-dom.js:33
+msgid "Current streak"
+msgstr "Поточна серія"
+
+#: static/game/ui-dom.js:34
+msgid "Best streak"
+msgstr "Рекордна серія"
+
+#: static/game/ui-dom.js:35
+msgid "Best time"
+msgstr "Найкращий час"
+
+#: static/game/ui-dom.js:36
+msgid "Total hints"
+msgstr "Підказок усього"
+
+#: static/game/ui-dom.js:37
+msgid "Total undos"
+msgstr "Скасувань усього"
+
+#: static/game/ui-dom.js:38
+msgid "Total pairs removed"
+msgstr "Знято пар усього"
+
+#: static/game/ui-dom.js:39
+msgid "Total shuffles"
+msgstr "Перемішувань усього"
+
+#: static/game/ui-dom.js:125
+msgid "current"
+msgstr "поточний"
+
+#: static/game/ui-dom.js:151
+msgid "Loading…"
+msgstr "Завантаження…"
+
+#: static/game/ui-dom.js:160
+msgid "Failed to load the daily tournament"
+msgstr "Не вдалося завантажити турнір дня"
+
+#: static/game/ui-dom.js:162
+msgid "Retry"
+msgstr "Повторити"
+
+#: static/game/ui-dom.js:177
+msgid "Play"
+msgstr "Грати"
+
+#: static/game/ui-dom.js:178
+msgid "Resume"
+msgstr "Продовжити"
+
+#: static/game/ui-dom.js:179
+msgid "Play again"
+msgstr "Переграти"
+
+#: static/game/ui-dom.js:188
+msgid "Participants: %(n)s"
+msgstr "Учасників: %(n)s"
+
+#: static/game/ui-dom.js:192
+msgid "Your score: %(time)s (rank #%(rank)s)"
+msgstr "Ваш результат: %(time)s (місце #%(rank)s)"
+
+#: static/game/ui-dom.js:196
+msgid "You didn't finish — try again!"
+msgstr "Не завершено — спробуй ще раз!"
+
+#: static/game/ui-dom.js:208
+msgid "No winners yet today"
+msgstr "Сьогодні ще немає переможців"
+
+#: static/game/ui-dom.js:219
+msgid "Statistics"
+msgstr "Статистика"
+
+#: static/game/ui-dom.js:228
+msgid "Dead end — no moves left"
+msgstr "Глухий кут — немає ходів"
+
+#: static/game/ui-dom.js:333
+msgid "Photo: %(name)s · Pexels"
+msgstr "Фото: %(name)s · Pexels"
+
+#~ msgid "Today's attempt is over"
+#~ msgstr "Сьогоднішня спроба вичерпана"
+
+#~ msgid "New game"
+#~ msgstr "Нова гра"
+
+#~ msgid "Daily"
+#~ msgstr "Турнір"
 
 #~ msgid "daily rank #%(rank)s"
 #~ msgstr "місце в турнірі #%(rank)s"

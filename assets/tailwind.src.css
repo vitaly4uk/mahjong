@@ -1,0 +1,191 @@
+/* Tailwind entry point for the game's DOM chrome (toolbar/status-bar/modals).
+   Lives in assets/, deliberately outside static/ — this is a documented
+   WhiteNoise+Tailwind gotcha, not a one-off workaround: whitenoise's
+   CompressedManifestStaticFilesStorage post-processes every .css file
+   collectstatic finds under static/, rewriting url()-like tokens, and chokes
+   on `@import "tailwindcss"` as if it were a broken relative url() reference
+   (MissingFileError: game/tailwindcss). django-tailwind-cli's own docs give
+   the same advice: "do not place your custom Tailwind configuration file
+   within static file directories... store custom configurations elsewhere
+   in your project." This file is a build INPUT, never served — only the
+   built static/game/tailwind.css is.
+   Built by @tailwindcss/cli (Dockerfile: jsbuild stage) into
+   static/game/tailwind.css — a gitignored artifact, same shape as bundle.js.
+   Locally: `npx @tailwindcss/cli -i assets/tailwind.src.css -o
+   static/game/tailwind.css --watch`. */
+@import "tailwindcss";
+
+/* Where Tailwind scans for class names — the DOM lives in templates/*.html,
+   but a few classes (`.open`, `.you`, `.empty`, `.current-tag`, ...) are only
+   ever written from JS via classList/innerHTML, so the JS source needs
+   scanning too. */
+@source "../templates/**/*.html";
+@source "../static/game/*.js";
+
+@theme {
+  /* The game's existing palette (was: app.css literals) — named so utility
+     classes (bg-panel, text-muted, ...) read the same as the old rules did. */
+  --color-app-bg: #1d2b1f;
+  --color-app-fg: #eee;
+  --color-panel: #24352a;
+  --color-btn: #3a5a40;
+  --color-btn-hover: #4c7454;
+  --color-btn-selected: #6ea56f;
+  --color-muted: #9bb;
+  --color-info: #cde;
+  --color-you-bg: rgb(110 165 111 / 0.25);
+}
+
+@layer base {
+  :root {
+    /* Standalone-window titlebar overlay (macOS) or safe-area (iOS) — 0 in a
+       normal browser tab. */
+    --safe-top: max(env(safe-area-inset-top, 0px), env(titlebar-area-height, 0px));
+  }
+  body {
+    background: var(--color-app-bg);
+    color: var(--color-app-fg);
+    font-family: system-ui, sans-serif;
+    padding-top: var(--safe-top);
+    /* Lets the standalone-window titlebar area be dragged; interactive
+       elements opt back out with no-drag (see below). */
+    -webkit-app-region: drag;
+  }
+  /* #game-container's SIZE comes from flexbox now (templates/game.html:
+     `<main id="game-container" class="min-h-0 flex-1">`, sandwiched between
+     the header toolbar and footer status bar) — deliberately no explicit
+     height rule here, that would fight the flex layout (a `height` in this
+     layer isn't contested by any utility class on the element, so it would
+     win outright regardless of flex-1/min-h-0). Still needs no-drag: it sits
+     between the two drag regions above/below it. */
+  #game-container {
+    -webkit-app-region: no-drag;
+  }
+}
+
+@layer components {
+  /* .open is toggled from JS (main.js: renderModal — classList.toggle('open', ...)).
+     Deliberately NOT the Tailwind `hidden` utility for the closed state:
+     `hidden` lives in Tailwind's `utilities` layer, which always wins over
+     `components` regardless of selector specificity — a plain `.open`
+     override here could never beat it. Both rules below share this layer
+     instead, so normal specificity (two classes > one) decides. */
+  .modal-overlay {
+    display: none;
+    animation: stats-overlay-in 0.18s ease;
+  }
+  .modal-overlay.open {
+    display: flex;
+  }
+  .modal-panel {
+    animation: stats-panel-in 0.2s ease;
+  }
+  /* Same tactile press/hover recipe as the canvas toolbar buttons
+     (main.js: createToolbar) — slightly larger on hover, "pressed in" on
+     :active, springs back on release. */
+  .tactile-btn {
+    transition: background 0.15s ease, transform 0.12s ease;
+  }
+  .tactile-btn:hover {
+    transform: scale(1.05);
+  }
+  .tactile-btn:active {
+    background-color: var(--color-btn-hover);
+    transform: scale(0.93) translateY(2px);
+    transition: background 0.15s ease, transform 0.08s ease;
+  }
+
+  /* newgame-modal's board/difficulty pickers (radio-button style, per project
+     convention — not <select>) — JS toggles .selected on click
+     (main.js: newgameBoardButtons/newgameLevelButtons click handlers). */
+  .newgame-option.selected {
+    background-color: var(--color-btn-selected);
+    box-shadow: 0 0 0 2px rgb(255 255 255 / 0.3) inset;
+  }
+
+  /* stats-modal's per-difficulty breakdown — built by
+     main.js: renderStatsModal() via innerHTML; class names below are
+     literal strings in that template, so no @source scanning of the JS is
+     needed for THESE (hand-named selectors, not Tailwind utilities). */
+  .level-block {
+    margin-bottom: 22px;
+  }
+  .level-block h3 {
+    margin: 0 0 10px;
+    font-size: 15px;
+    color: var(--color-info);
+  }
+  .level-block.current h3 {
+    color: #fff;
+  }
+  .current-tag {
+    margin-left: 4px;
+    font-size: 12px;
+    color: var(--color-muted);
+  }
+  #stats-levels dl {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 9px 20px;
+    margin: 0 0 12px;
+    font-size: 14px;
+  }
+  #stats-levels dt {
+    color: var(--color-muted);
+  }
+  #stats-levels dd {
+    margin: 0;
+    text-align: right;
+    font-weight: 600;
+  }
+
+  /* daily-modal's leaderboard — built by main.js: renderDailyModal(). */
+  .daily-info div {
+    margin-bottom: 4px;
+  }
+  .daily-board-list li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 6px;
+    font-size: 14px;
+    border-radius: 4px;
+  }
+  .daily-board-list li.you {
+    background: var(--color-you-bg);
+    font-weight: 600;
+  }
+  .daily-board-list li.empty {
+    justify-content: center;
+    color: var(--color-muted);
+  }
+  .daily-board-list .rank {
+    width: 28px;
+    flex: none;
+    color: var(--color-muted);
+  }
+  .daily-board-list .nickname {
+    flex: 1;
+  }
+}
+
+@keyframes stats-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes stats-panel-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay, .modal-panel {
+    animation: none;
+  }
+  .tactile-btn {
+    transition: background 0.15s ease;
+  }
+  .tactile-btn:hover, .tactile-btn:active {
+    transform: none;
+  }
+}

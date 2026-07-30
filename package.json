@@ -1,0 +1,10 @@
+{
+  "name": "mahjong",
+  "private": true,
+  "type": "module",
+  "description": "Dev/build-time-only Node dependencies. No client-side JS ships from node_modules — the game bundle is esbuild-built from static/game/*.js (Dockerfile: jsbuild), and Tailwind's CSS build (assets/tailwind.src.css — deliberately outside static/, see its own header comment: a documented WhiteNoise+Tailwind gotcha, not a one-off workaround) is the one thing here that genuinely needs npm-style module resolution (@import \"tailwindcss\"), unlike esbuild/Biome which run fine via bare npx.",
+  "devDependencies": {
+    "@tailwindcss/cli": "4.3.3",
+    "tailwindcss": "4.3.3"
+  }
+}
