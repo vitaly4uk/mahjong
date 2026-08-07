@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: mahjong\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-29 08:52+0000\n"
+"POT-Creation-Date: 2026-08-07 16:38+0000\n"
 "PO-Revision-Date: 2026-07-26 08:34+0000\n"
 "Last-Translator: \n"
 "Language-Team: Ukrainian\n"
@@ -84,66 +84,74 @@ msgstr "Дракон"
 msgid "Cat"
 msgstr "Кіт"
 
-#: templates/game.html:15
+#: gameplay/layouts.py:46
+msgid "Spider"
+msgstr "Павук"
+
+#: gameplay/layouts.py:47
+msgid "Crab"
+msgstr "Краб"
+
+#: templates/game.html:16
 msgid "Mahjong"
 msgstr "Маджонг"
 
-#: templates/game.html:19 templates/game.html:36 templates/game.html:60
+#: templates/game.html:20 templates/game.html:37 templates/game.html:61
 msgid "New game"
 msgstr "Нова гра"
 
-#: templates/game.html:22 templates/game.html:57
+#: templates/game.html:23 templates/game.html:58
 msgid "Statistics"
 msgstr "Статистика"
 
-#: templates/game.html:23
+#: templates/game.html:24
 msgid "Daily"
 msgstr "Турнір"
 
-#: templates/game.html:37
+#: templates/game.html:38
 msgid "Layout"
 msgstr "Розкладка"
 
-#: templates/game.html:43
+#: templates/game.html:44
 msgid "Difficulty"
 msgstr "Складність"
 
-#: templates/game.html:45
+#: templates/game.html:46
 msgid "Easy"
 msgstr "Легко"
 
-#: templates/game.html:46
+#: templates/game.html:47
 msgid "Normal"
 msgstr "Нормально"
 
-#: templates/game.html:47
+#: templates/game.html:48
 msgid "Hard"
 msgstr "Складно"
 
-#: templates/game.html:50
+#: templates/game.html:51
 msgid "Start"
 msgstr "Почати"
 
-#: templates/game.html:51 templates/game.html:61 templates/game.html:82
+#: templates/game.html:52 templates/game.html:62 templates/game.html:83
 msgid "Close"
 msgstr "Закрити"
 
-#: templates/game.html:67
+#: templates/game.html:68
 msgid "No moves left"
 msgstr "Немає ходів"
 
-#: templates/game.html:69
+#: templates/game.html:70
 msgid "Shuffle"
 msgstr "Перемішати"
 
-#: templates/game.html:70
+#: templates/game.html:71
 msgid "Replay"
 msgstr "Переграти"
 
-#: templates/game.html:71
+#: templates/game.html:72
 msgid "Give up"
 msgstr "Здатися"
 
-#: templates/game.html:77
+#: templates/game.html:78
 msgid "Daily Tournament"
 msgstr "Турнір дня"

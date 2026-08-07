@@ -43,6 +43,8 @@ _TOTAL_TILES = 144
 gettext_noop('Turtle')
 gettext_noop('Dragon')
 gettext_noop('Cat')
+gettext_noop('Spider')
+gettext_noop('Crab')
 
 
 class Layout(Schema):
