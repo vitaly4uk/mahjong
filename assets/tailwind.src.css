@@ -41,6 +41,19 @@
     /* Standalone-window titlebar overlay (macOS) or safe-area (iOS) — 0 in a
        normal browser tab. */
     --safe-top: max(env(safe-area-inset-top, 0px), env(titlebar-area-height, 0px));
+    --safe-left: 0px;
+  }
+  /* Desktop standalone window: the OS draws its window controls over the
+     top-left of the page (body is -webkit-app-region: drag, so the toolbar
+     deliberately sits in the titlebar strip). Chromium reports the real
+     offset via env(titlebar-area-x); Safari has no such env var at all,
+     hence the literal fallback — the macOS traffic lights plus their
+     margin. `pointer: fine` keeps iOS/Android home-screen PWAs
+     (display-mode: standalone but no window controls) at 0. */
+  @media (display-mode: standalone) and (pointer: fine) {
+    :root {
+      --safe-left: env(titlebar-area-x, 78px);
+    }
   }
   body {
     background: var(--color-app-bg);
