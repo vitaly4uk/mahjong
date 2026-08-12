@@ -37,6 +37,14 @@ const DEFAULT_DIFFICULTY = 'normal';
 
 const BOARD_KEY = 'mahjong.board';
 const DEFAULT_BOARD = 'turtle';
+// Separate pref for the newgame modal's picker — unlike BOARD_KEY (always a
+// real slug: the active/resumed game's actual board), this one records what
+// the player last PICKED in the modal, which can be the 'random' sentinel.
+// Keeping the two apart means BOARD_KEY/currentBoard never needs to know
+// about 'random' at all — it's resolved to a real slug at Start-click time
+// (ui-dom.js) before anything downstream (startGame(), the server) sees it.
+const BOARD_CHOICE_KEY = 'mahjong.boardChoice';
+const RANDOM_BOARD = 'random';
 // Board dimensions before any game has loaded a real `layout` from the
 // server (scene.js: applyBoardDims) — Turtle's own shape, so the very first
 // canvas sizing (create(), before the new-game modal is even shown) matches
@@ -92,6 +100,17 @@ function loadBoardPref(validSlugs) {
 
 function saveBoardPref(slug) {
   writePref(BOARD_KEY, slug);
+}
+
+// this.boardChoice (the newgame modal's picker selection) persists the same
+// way, but also accepts the 'random' sentinel — see BOARD_CHOICE_KEY above.
+function loadBoardChoicePref(validSlugs) {
+  const stored = readPref(BOARD_CHOICE_KEY);
+  return stored === RANDOM_BOARD || validSlugs.includes(stored) ? stored : DEFAULT_BOARD;
+}
+
+function saveBoardChoicePref(choice) {
+  writePref(BOARD_CHOICE_KEY, choice);
 }
 
 // With no explicitly saved choice — if data was just migrated from v1 (it
@@ -239,12 +258,14 @@ export class MainScene extends Phaser.Scene {
     // 'changedata-allStats'/'changedata-modal'/'setdata' and wired every
     // modal/toolbar button — see ui-dom.js: createUiDom().
 
-    const boardSlugs = [...document.querySelectorAll('#newgame-modal [data-board]')]
-      .map((btn) => btn.dataset.board);
     this.currentLevel = loadDifficultyPref(allStats);
     saveDifficultyPref(this.currentLevel);
-    this.currentBoard = loadBoardPref(boardSlugs);
+    this.currentBoard = loadBoardPref(this.ui.realBoardSlugs);
     saveBoardPref(this.currentBoard);
+    // The newgame modal's own picker state — independent of currentBoard
+    // (which tryResumeGame(), below, is about to overwrite with whatever
+    // board the resumed game actually uses).
+    this.boardChoice = loadBoardChoicePref(this.ui.realBoardSlugs);
     this.registry.set('gameFinished', true);
 
     this.time.addEvent({
@@ -296,8 +317,8 @@ export class MainScene extends Phaser.Scene {
   // Thin wrappers so ui-dom.js's newgame board/level picker click handlers
   // (which only hold a `scene` reference) can persist a choice without
   // importing the module-level pref helpers directly.
-  saveBoardPref(slug) {
-    saveBoardPref(slug);
+  saveBoardChoicePref(choice) {
+    saveBoardChoicePref(choice);
   }
 
   saveDifficultyPref(level) {

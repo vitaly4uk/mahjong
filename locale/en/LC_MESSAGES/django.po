@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: mahjong\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-07 16:38+0000\n"
+"POT-Creation-Date: 2026-08-12 07:27+0000\n"
 "PO-Revision-Date: 2026-07-26 08:34+0000\n"
 "Last-Translator: \n"
 "Language-Team: English\n"
@@ -96,11 +96,11 @@ msgstr ""
 msgid "Mahjong"
 msgstr ""
 
-#: templates/game.html:20 templates/game.html:37 templates/game.html:61
+#: templates/game.html:20 templates/game.html:37 templates/game.html:62
 msgid "New game"
 msgstr ""
 
-#: templates/game.html:23 templates/game.html:58
+#: templates/game.html:23 templates/game.html:59
 msgid "Statistics"
 msgstr ""
 
@@ -112,46 +112,50 @@ msgstr ""
 msgid "Layout"
 msgstr ""
 
-#: templates/game.html:44
+#: templates/game.html:43
+msgid "Random"
+msgstr "Random"
+
+#: templates/game.html:45
 msgid "Difficulty"
 msgstr ""
 
-#: templates/game.html:46
+#: templates/game.html:47
 msgid "Easy"
 msgstr ""
 
-#: templates/game.html:47
+#: templates/game.html:48
 msgid "Normal"
 msgstr ""
 
-#: templates/game.html:48
+#: templates/game.html:49
 msgid "Hard"
 msgstr ""
 
-#: templates/game.html:51
+#: templates/game.html:52
 msgid "Start"
 msgstr ""
 
-#: templates/game.html:52 templates/game.html:62 templates/game.html:83
+#: templates/game.html:53 templates/game.html:63 templates/game.html:84
 msgid "Close"
 msgstr ""
 
-#: templates/game.html:68
+#: templates/game.html:69
 msgid "No moves left"
 msgstr ""
 
-#: templates/game.html:70
+#: templates/game.html:71
 msgid "Shuffle"
 msgstr ""
 
-#: templates/game.html:71
+#: templates/game.html:72
 msgid "Replay"
 msgstr ""
 
-#: templates/game.html:72
+#: templates/game.html:73
 msgid "Give up"
 msgstr ""
 
-#: templates/game.html:78
+#: templates/game.html:79
 msgid "Daily Tournament"
 msgstr ""

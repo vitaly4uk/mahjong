@@ -69,6 +69,11 @@ export function createUiDom(scene) {
   const newgameModal = document.getElementById('newgame-modal');
   const newgameLevelButtons = [...newgameModal.querySelectorAll('[data-level]')];
   const newgameBoardButtons = [...newgameModal.querySelectorAll('[data-board]')];
+  // Real (non-"random") board slugs — computed once here, the single source
+  // scene.js reuses for pref validation instead of each re-querying the DOM.
+  const realBoardSlugs = newgameBoardButtons
+    .map((btn) => btn.dataset.board)
+    .filter((slug) => slug !== 'random');
   const newgameStartBtn = document.getElementById('btn-newgame-start');
   const newgameCloseBtn = document.getElementById('btn-newgame-close');
   const deadlockModal = document.getElementById('deadlock-modal');
@@ -239,7 +244,7 @@ export function createUiDom(scene) {
         btn.classList.toggle('selected', btn.dataset.level === scene.currentLevel);
       }
       for (const btn of newgameBoardButtons) {
-        btn.classList.toggle('selected', btn.dataset.board === scene.currentBoard);
+        btn.classList.toggle('selected', btn.dataset.board === scene.boardChoice);
       }
       newgameCloseBtn.style.display = modal.canClose ? '' : 'none';
     }
@@ -296,8 +301,8 @@ export function createUiDom(scene) {
   newgameCloseBtn.addEventListener('click', () => scene.registry.set('modal', null));
   for (const btn of newgameBoardButtons) {
     btn.addEventListener('click', () => {
-      scene.currentBoard = btn.dataset.board;
-      scene.saveBoardPref(scene.currentBoard);
+      scene.boardChoice = btn.dataset.board;
+      scene.saveBoardChoicePref(scene.boardChoice);
       renderModal(scene.registry.get('modal'));
     });
   }
@@ -310,7 +315,10 @@ export function createUiDom(scene) {
   }
   newgameStartBtn.addEventListener('click', () => {
     scene.registry.set('modal', null);
-    scene.startGame(scene.currentLevel, scene.currentBoard);
+    const board = scene.boardChoice === 'random'
+      ? realBoardSlugs[Math.floor(Math.random() * realBoardSlugs.length)]
+      : scene.boardChoice;
+    scene.startGame(scene.currentLevel, board);
   });
   deadlockShuffleBtn.addEventListener('click', () => scene.shuffleGame());
   deadlockReplayBtn.addEventListener('click', () => scene.replayGame());
@@ -323,6 +331,9 @@ export function createUiDom(scene) {
     // was already claimed/forfeited between the modal's last fetch and the
     // click — refreshes the daily modal in place to show that result.
     renderDailyModal,
+    // The real (non-"random") board slugs, computed once above — scene.js
+    // uses this for board-pref validation instead of re-querying the DOM.
+    realBoardSlugs,
     // Called from main.js: loadBackground() when a new background photo
     // arrives — replaces the old canvas setBgCredit().
     setBgCredit(photographer, photographerUrl) {
