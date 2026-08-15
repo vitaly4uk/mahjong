@@ -108,9 +108,11 @@
     transition: background 0.15s ease, transform 0.08s ease;
   }
 
-  /* newgame-modal's board/difficulty pickers (radio-button style, per project
-     convention — not <select>) — JS toggles .selected on click
-     (main.js: newgameBoardButtons/newgameLevelButtons click handlers). */
+  /* Radio-button-style pickers (per project convention — not <select>): the
+     newgame-modal's board/difficulty pickers, and the profile-modal's sound
+     on/off and language pickers. JS toggles .selected on click
+     (ui-dom.js: newgameBoardButtons/newgameLevelButtons/soundButtons/
+     langButtons click handlers). */
   .newgame-option.selected {
     background-color: var(--color-btn-selected);
     box-shadow: 0 0 0 2px rgb(255 255 255 / 0.3) inset;

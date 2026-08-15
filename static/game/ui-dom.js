@@ -12,6 +12,7 @@ import {
 } from './sync.js';
 import { winRate, fmtTime, LEVELS } from './stats.js';
 import { avatarDataUri } from './avatar.js';
+import { setSoundOn } from './audio.js';
 
 const { gettext, interpolate } = window;
 
@@ -40,10 +41,6 @@ const STATS_ROW_LABELS = {
   totalShuffles: `🔀 ${gettext('Total shuffles')}`,
 };
 
-// Only uk/en ship for now (config/settings.py: LANGUAGES) — a single toggle
-// button is simpler than a picker for two options.
-const LANG_BTN_LABEL = { uk: 'UA', en: 'EN' };
-
 // Sets up the DOM toolbar/status-bar/modals and wires them to `scene`
 // (main.js: MainScene) — scene methods for actions (hint/undo/startGame/...),
 // scene.registry for state. Returns a small handle the scene calls into for
@@ -56,8 +53,6 @@ export function createUiDom(scene) {
   const btnUndo = document.getElementById('btn-undo');
   const btnStats = document.getElementById('btn-stats');
   const btnDaily = document.getElementById('btn-daily');
-  const btnLang = document.getElementById('btn-lang');
-  const langLabel = document.getElementById('lang-label');
   const btnProfile = document.getElementById('btn-profile');
   const profileAvatarEl = document.getElementById('profile-avatar');
   const profileNameEl = document.getElementById('profile-name');
@@ -95,14 +90,15 @@ export function createUiDom(scene) {
   const profileErrorEl = document.getElementById('profile-error');
   const profileSaveBtn = document.getElementById('btn-profile-save');
   const profileCloseBtn = document.getElementById('btn-profile-close');
+  const soundButtons = [...profileModal.querySelectorAll('[data-sound]')];
+  const langButtons = [...profileModal.querySelectorAll('[data-lang]')];
 
   // Static base labels — set once, immediately (mirrors the old canvas
   // toolbar's construction-time text: createToolbar() baked HINT_LABEL/
-  // UNDO_LABEL/the lang label in directly, renderStats() only ever
-  // overwrites hint/undo with the "(N)" variant once a game has counters).
+  // UNDO_LABEL in directly, renderStats() only ever overwrites hint/undo
+  // with the "(N)" variant once a game has counters).
   btnHint.textContent = HINT_LABEL;
   btnUndo.textContent = UNDO_LABEL;
-  langLabel.textContent = LANG_BTN_LABEL[window.MAHJONG_LANG] || window.MAHJONG_LANG;
 
   function renderStats() {
     statusText.textContent = scene.registry.get('status') || '';
@@ -301,6 +297,13 @@ export function createUiDom(scene) {
       profileNameInput.value = name;
       profileModalAvatarEl.src = avatarDataUri(name || ' ', 72);
       profileErrorEl.classList.add('hidden');
+      const soundOn = scene.registry.get('soundOn');
+      for (const btn of soundButtons) {
+        btn.classList.toggle('selected', (btn.dataset.sound === 'on') === soundOn);
+      }
+      for (const btn of langButtons) {
+        btn.classList.toggle('selected', btn.dataset.lang === window.MAHJONG_LANG);
+      }
     }
   }
 
@@ -340,13 +343,6 @@ export function createUiDom(scene) {
     if (scene.registry.get('modal')) return;
     const open = scene.registry.get('modal')?.type === 'daily';
     scene.registry.set('modal', open ? null : { type: 'daily' });
-  });
-  // Toggles straight to the other language — no picker needed for just two
-  // options. The button label shows the CURRENT language; reloading after
-  // the switch flips it to the new current one.
-  btnLang.addEventListener('click', () => {
-    if (scene.registry.get('modal')) return;
-    setLanguage(window.MAHJONG_LANG === 'uk' ? 'en' : 'uk').finally(() => location.reload());
   });
   btnProfile.addEventListener('click', () => {
     if (scene.registry.get('modal')) return;
@@ -402,6 +398,20 @@ export function createUiDom(scene) {
     }
   });
   profileCloseBtn.addEventListener('click', () => scene.registry.set('modal', null));
+  for (const btn of soundButtons) {
+    btn.addEventListener('click', () => {
+      const on = btn.dataset.sound === 'on';
+      setSoundOn(on);
+      scene.registry.set('soundOn', on);
+      renderModal(scene.registry.get('modal'));
+    });
+  }
+  for (const btn of langButtons) {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.lang === window.MAHJONG_LANG) return;
+      setLanguage(btn.dataset.lang).finally(() => location.reload());
+    });
+  }
 
   return {
     // Called from main.js: playDaily() when the server reports the attempt

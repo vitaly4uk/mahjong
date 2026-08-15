@@ -22,6 +22,7 @@ import {
 } from './render-constants.js';
 import { createUiDom } from './ui-dom.js';
 import * as fx from './effects.js';
+import { playSound, isSoundOn } from './audio.js';
 
 // Provided globally by Django's JavaScriptCatalog (config/urls.py:
 // javascript-catalog) — templates/game.html loads it as a classic <script>
@@ -229,6 +230,12 @@ export class MainScene extends Phaser.Scene {
 
     this.reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     this.webgl = this.renderer.type === Phaser.WEBGL;
+
+    // Sound preference — a separate axis from reducedMotion (visual vs.
+    // audio comfort settings shouldn't be conflated). Toggled from the
+    // profile modal (ui-dom.js), persisted via audio.js's own localStorage
+    // key.
+    this.registry.set('soundOn', isSoundOn());
 
     let bootstrapped;
     try {
@@ -858,6 +865,7 @@ export class MainScene extends Phaser.Scene {
     this.registry.set('gameElapsedMs', result.elapsedMs);
     this.registry.set('allStats', result.stats);
     if (result.won) this.loadBackground();
+    playSound(result.won ? 'win' : 'lose');
     fx.playEndEffect(this, result.won, () => {
       if (this.isDaily) {
         // A daily win/loss doesn't touch lifetime per-difficulty stats
@@ -937,6 +945,7 @@ export class MainScene extends Phaser.Scene {
     });
     this.shuffles.push({ afterMoves: this.movesLog.length, kinds: result.kinds });
     this.registry.set('allStats', result.stats);
+    playSound('shuffle');
     this.persistGame();
     this.registry.set('modal', null);
     this.updateStatus();
@@ -970,6 +979,7 @@ export class MainScene extends Phaser.Scene {
     if (this.dealing) return;
     if (!this.board.isFree(tile)) {
       fx.playError(this, tile);
+      playSound('error');
       return;
     }
     fx.playPress(this, tile);
@@ -985,6 +995,7 @@ export class MainScene extends Phaser.Scene {
     this.selected = tile;
     fx.clearHover(this, this.sprites.get(tile));
     fx.applyGlow(this, tile);
+    playSound('select');
   }
 
   removePair(a, b) {
@@ -992,6 +1003,7 @@ export class MainScene extends Phaser.Scene {
     this.movesLog.push([a.idx, b.idx]);
     this.selected = null;
     this.bumpCounter('gamePairs', 'pair');
+    playSound('match');
 
     let pending = 0;
     const onTileGone = () => {
@@ -1025,6 +1037,7 @@ export class MainScene extends Phaser.Scene {
     this.deselect();
     for (const tile of pair) fx.animateUndoTile(this, tile);
     this.bumpCounter('gameUndos', 'undo');
+    playSound('undo');
     this.updateStatus();
   }
 
@@ -1053,6 +1066,7 @@ export class MainScene extends Phaser.Scene {
       }
     }
     this.bumpCounter('gameHints', 'hint');
+    playSound('hint');
   }
 
   updateStatus() {

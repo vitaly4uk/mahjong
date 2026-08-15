@@ -22,7 +22,6 @@
   <button id="btn-undo" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover"></button>
   <button id="btn-stats" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">📊 {% trans "Statistics" %}</button>
   <button id="btn-daily" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">🏆 {% trans "Daily" %}</button>
-  <button id="btn-lang" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">🌐 <span id="lang-label"></span></button>
   <button id="btn-profile" class="tactile-btn ml-auto flex flex-none items-center gap-2 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">
     <img id="profile-avatar" width="24" height="24" alt="" class="rounded-full">
     <span id="profile-name"></span>
@@ -99,6 +98,16 @@
     <input id="profile-name-input" type="text" maxlength="24" placeholder="{% trans 'Leave empty for an auto-generated name' %}"
            class="mb-1 w-full rounded-md border-0 bg-btn px-3 py-2 text-center text-[15px] text-white placeholder:text-white/50 [-webkit-app-region:no-drag] focus:outline focus:outline-2 focus:outline-white/40">
     <div id="profile-error" class="mb-1 hidden text-center text-sm text-[#ff9d9d]"></div>
+    <h3 class="mb-2.5 mt-4 text-center text-[13px] uppercase tracking-[.04em] text-muted">{% trans "Sound" %}</h3>
+    <div class="mb-1 flex flex-col gap-2.5">
+      <button data-sound="on" class="newgame-option tactile-btn min-w-[180px] rounded-md border-0 bg-btn px-5 py-2.5 text-[15px] font-medium text-white hover:bg-btn-hover">🔊 {% trans "On" %}</button>
+      <button data-sound="off" class="newgame-option tactile-btn min-w-[180px] rounded-md border-0 bg-btn px-5 py-2.5 text-[15px] font-medium text-white hover:bg-btn-hover">🔇 {% trans "Off" %}</button>
+    </div>
+    <h3 class="mb-2.5 mt-4 text-center text-[13px] uppercase tracking-[.04em] text-muted">{% trans "Language" %}</h3>
+    <div class="mb-1 flex flex-col gap-2.5">
+      <button data-lang="uk" class="newgame-option tactile-btn min-w-[180px] rounded-md border-0 bg-btn px-5 py-2.5 text-[15px] font-medium text-white hover:bg-btn-hover">🌐 UA</button>
+      <button data-lang="en" class="newgame-option tactile-btn min-w-[180px] rounded-md border-0 bg-btn px-5 py-2.5 text-[15px] font-medium text-white hover:bg-btn-hover">🌐 EN</button>
+    </div>
     <div class="modal-actions mt-3 border-t border-white/[.08] pt-4 text-center">
       <button id="btn-profile-save" class="tactile-btn min-w-[120px] rounded-md border-0 bg-btn px-5 py-1.5 text-sm font-medium text-white hover:bg-btn-hover">💾 {% trans "Save" %}</button>
       <button id="btn-profile-close" class="tactile-btn min-w-[120px] rounded-md border-0 bg-btn px-5 py-1.5 text-sm font-medium text-white hover:bg-btn-hover">✖ {% trans "Close" %}</button>

@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: mahjong\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-15 10:33+0000\n"
+"POT-Creation-Date: 2026-08-15 12:12+0000\n"
 "PO-Revision-Date: 2026-07-26 08:34+0000\n"
 "Last-Translator: \n"
 "Language-Team: English\n"
@@ -96,11 +96,11 @@ msgstr ""
 msgid "Mahjong"
 msgstr ""
 
-#: templates/game.html:20 templates/game.html:41 templates/game.html:66
+#: templates/game.html:20 templates/game.html:40 templates/game.html:65
 msgid "New game"
 msgstr ""
 
-#: templates/game.html:23 templates/game.html:63
+#: templates/game.html:23 templates/game.html:62
 msgid "Statistics"
 msgstr ""
 
@@ -108,71 +108,87 @@ msgstr ""
 msgid "Daily"
 msgstr ""
 
-#: templates/game.html:42
+#: templates/game.html:41
 msgid "Layout"
 msgstr ""
 
-#: templates/game.html:47
+#: templates/game.html:46
 msgid "Random"
 msgstr "Random"
 
-#: templates/game.html:49
+#: templates/game.html:48
 msgid "Difficulty"
 msgstr ""
 
-#: templates/game.html:51
+#: templates/game.html:50
 msgid "Easy"
 msgstr ""
 
-#: templates/game.html:52
+#: templates/game.html:51
 msgid "Normal"
 msgstr ""
 
-#: templates/game.html:53
+#: templates/game.html:52
 msgid "Hard"
 msgstr ""
 
-#: templates/game.html:56
+#: templates/game.html:55
 msgid "Start"
 msgstr ""
 
-#: templates/game.html:57 templates/game.html:67 templates/game.html:88
-#: templates/game.html:104
+#: templates/game.html:56 templates/game.html:66 templates/game.html:87
+#: templates/game.html:113
 msgid "Close"
 msgstr ""
 
-#: templates/game.html:73
+#: templates/game.html:72
 msgid "No moves left"
 msgstr ""
 
-#: templates/game.html:75
+#: templates/game.html:74
 msgid "Shuffle"
 msgstr ""
 
-#: templates/game.html:76
+#: templates/game.html:75
 msgid "Replay"
 msgstr ""
 
-#: templates/game.html:77
+#: templates/game.html:76
 msgid "Give up"
 msgstr ""
 
-#: templates/game.html:83
+#: templates/game.html:82
 msgid "Daily Tournament"
 msgstr ""
 
-#: templates/game.html:94
+#: templates/game.html:93
 msgid "Player"
 msgstr "Player"
 
-#: templates/game.html:98
+#: templates/game.html:97
 msgid "Name"
 msgstr "Name"
 
-#: templates/game.html:99
+#: templates/game.html:98
 msgid "Leave empty for an auto-generated name"
 msgstr "Leave empty for an auto-generated name"
 
+#: templates/game.html:101
+msgid "Sound"
+msgstr "Sound"
+
 #: templates/game.html:103
+msgid "On"
+msgstr "On"
+
+#: templates/game.html:104
+msgid "Off"
+msgstr "Off"
+
+#: templates/game.html:106
+msgid "Language"
+msgstr "Language"
+
+#: templates/game.html:112
 msgid "Save"
 msgstr "Save"
