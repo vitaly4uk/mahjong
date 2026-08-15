@@ -23,6 +23,10 @@
   <button id="btn-stats" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">📊 {% trans "Statistics" %}</button>
   <button id="btn-daily" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">🏆 {% trans "Daily" %}</button>
   <button id="btn-lang" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">🌐 <span id="lang-label"></span></button>
+  <button id="btn-profile" class="tactile-btn ml-auto flex flex-none items-center gap-2 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">
+    <img id="profile-avatar" width="24" height="24" alt="" class="rounded-full">
+    <span id="profile-name"></span>
+  </button>
 </header>
 <main id="game-container" class="min-h-0 flex-1"></main>
 <footer id="status-bar" class="flex flex-none items-center gap-3 bg-[rgba(13,26,16,.6)] px-5 py-2 text-sm text-[#dfeaff]">
@@ -82,6 +86,22 @@
     <div class="modal-actions mt-1 flex flex-wrap justify-center gap-3">
       <button id="btn-daily-play" class="tactile-btn min-w-[120px] rounded-md border-0 bg-btn px-5 py-1.5 text-sm font-medium text-white hover:bg-btn-hover"></button>
       <button id="btn-daily-close" class="tactile-btn min-w-[120px] rounded-md border-0 bg-btn px-5 py-1.5 text-sm font-medium text-white hover:bg-btn-hover">✖ {% trans "Close" %}</button>
+    </div>
+  </div>
+</div>
+<div id="profile-modal" class="modal-overlay fixed inset-0 z-10 items-center justify-center bg-black/50 backdrop-blur-[2px] [-webkit-app-region:no-drag]">
+  <div class="modal-panel max-h-[calc(100vh-40px)] min-w-[260px] overflow-y-auto rounded-[10px] border border-white/[.06] bg-panel px-7 py-6 shadow-[0_8px_30px_rgba(0,0,0,.4)]">
+    <h2 class="mb-5 text-center text-xl">👤 {% trans "Player" %}</h2>
+    <div class="mb-4 flex justify-center">
+      <img id="profile-modal-avatar" width="72" height="72" alt="" class="rounded-full">
+    </div>
+    <label for="profile-name-input" class="mb-1 block text-center text-[13px] uppercase tracking-[.04em] text-muted">{% trans "Name" %}</label>
+    <input id="profile-name-input" type="text" maxlength="24" placeholder="{% trans 'Leave empty for an auto-generated name' %}"
+           class="mb-1 w-full rounded-md border-0 bg-btn px-3 py-2 text-center text-[15px] text-white placeholder:text-white/50 [-webkit-app-region:no-drag] focus:outline focus:outline-2 focus:outline-white/40">
+    <div id="profile-error" class="mb-1 hidden text-center text-sm text-[#ff9d9d]"></div>
+    <div class="modal-actions mt-3 border-t border-white/[.08] pt-4 text-center">
+      <button id="btn-profile-save" class="tactile-btn min-w-[120px] rounded-md border-0 bg-btn px-5 py-1.5 text-sm font-medium text-white hover:bg-btn-hover">💾 {% trans "Save" %}</button>
+      <button id="btn-profile-close" class="tactile-btn min-w-[120px] rounded-md border-0 bg-btn px-5 py-1.5 text-sm font-medium text-white hover:bg-btn-hover">✖ {% trans "Close" %}</button>
     </div>
   </div>
 </div>

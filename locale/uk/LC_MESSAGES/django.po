@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: mahjong\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-12 07:27+0000\n"
+"POT-Creation-Date: 2026-08-15 10:33+0000\n"
 "PO-Revision-Date: 2026-07-26 08:34+0000\n"
 "Last-Translator: \n"
 "Language-Team: Ukrainian\n"
@@ -23,52 +23,52 @@ msgstr "Українська"
 msgid "English"
 msgstr "Англійська"
 
-#: gameplay/api.py:87
+#: gameplay/api.py:96
 msgid "too many requests, slow down"
 msgstr "забагато запитів, зачекайте"
 
-#: gameplay/api.py:122
+#: gameplay/api.py:131
 msgid "unknown level"
 msgstr "невідома складність"
 
-#: gameplay/api.py:125
+#: gameplay/api.py:134
 msgid "unknown board"
 msgstr "невідома розкладка"
 
-#: gameplay/api.py:293 gameplay/api.py:362 gameplay/api.py:411
+#: gameplay/api.py:302 gameplay/api.py:371 gameplay/api.py:420
 msgid "unknown session"
 msgstr "невідома сесія"
 
-#: gameplay/api.py:295 gameplay/api.py:364 gameplay/api.py:414
-#: gameplay/api.py:465
+#: gameplay/api.py:304 gameplay/api.py:373 gameplay/api.py:423
+#: gameplay/api.py:474
 msgid "session already claimed"
 msgstr "сесія вже закрита"
 
-#: gameplay/api.py:366 gameplay/api.py:419
+#: gameplay/api.py:375 gameplay/api.py:428
 msgid "session expired"
 msgstr "сесія протермінована"
 
-#: gameplay/api.py:381 gameplay/api.py:426
+#: gameplay/api.py:390 gameplay/api.py:435
 msgid "illegal move"
 msgstr "недозволений хід"
 
-#: gameplay/api.py:383 gameplay/api.py:431
+#: gameplay/api.py:392 gameplay/api.py:440
 msgid "board is not deadlocked"
 msgstr "у полі ще є доступні ходи"
 
-#: gameplay/api.py:422
+#: gameplay/api.py:431
 msgid "unknown outcome"
 msgstr "невідомий результат"
 
-#: gameplay/api.py:429
+#: gameplay/api.py:438
 msgid "board not fully cleared"
 msgstr "поле не повністю очищене"
 
-#: gameplay/api.py:463
+#: gameplay/api.py:472
 msgid "daily tournament already won today"
 msgstr "турнір дня вже виграно сьогодні"
 
-#: gameplay/api.py:497
+#: gameplay/api.py:529
 msgid "already imported"
 msgstr "вже перенесено"
 
@@ -96,11 +96,11 @@ msgstr "Краб"
 msgid "Mahjong"
 msgstr "Маджонг"
 
-#: templates/game.html:20 templates/game.html:37 templates/game.html:62
+#: templates/game.html:20 templates/game.html:41 templates/game.html:66
 msgid "New game"
 msgstr "Нова гра"
 
-#: templates/game.html:23 templates/game.html:59
+#: templates/game.html:23 templates/game.html:63
 msgid "Statistics"
 msgstr "Статистика"
 
@@ -108,54 +108,71 @@ msgstr "Статистика"
 msgid "Daily"
 msgstr "Турнір"
 
-#: templates/game.html:38
+#: templates/game.html:42
 msgid "Layout"
 msgstr "Розкладка"
 
-#: templates/game.html:43
+#: templates/game.html:47
 msgid "Random"
 msgstr "Випадкова"
 
-#: templates/game.html:45
+#: templates/game.html:49
 msgid "Difficulty"
 msgstr "Складність"
 
-#: templates/game.html:47
+#: templates/game.html:51
 msgid "Easy"
 msgstr "Легко"
 
-#: templates/game.html:48
+#: templates/game.html:52
 msgid "Normal"
 msgstr "Нормально"
 
-#: templates/game.html:49
+#: templates/game.html:53
 msgid "Hard"
 msgstr "Складно"
 
-#: templates/game.html:52
+#: templates/game.html:56
 msgid "Start"
 msgstr "Почати"
 
-#: templates/game.html:53 templates/game.html:63 templates/game.html:84
+#: templates/game.html:57 templates/game.html:67 templates/game.html:88
+#: templates/game.html:104
 msgid "Close"
 msgstr "Закрити"
 
-#: templates/game.html:69
+#: templates/game.html:73
 msgid "No moves left"
 msgstr "Немає ходів"
 
-#: templates/game.html:71
+#: templates/game.html:75
 msgid "Shuffle"
 msgstr "Перемішати"
 
-#: templates/game.html:72
+#: templates/game.html:76
 msgid "Replay"
 msgstr "Переграти"
 
-#: templates/game.html:73
+#: templates/game.html:77
 msgid "Give up"
 msgstr "Здатися"
 
-#: templates/game.html:79
+#: templates/game.html:83
 msgid "Daily Tournament"
 msgstr "Турнір дня"
+
+#: templates/game.html:94
+msgid "Player"
+msgstr "Гравець"
+
+#: templates/game.html:98
+msgid "Name"
+msgstr "Ім'я"
+
+#: templates/game.html:99
+msgid "Leave empty for an auto-generated name"
+msgstr "Залиште порожнім для автогенерованого імені"
+
+#: templates/game.html:103
+msgid "Save"
+msgstr "Зберегти"

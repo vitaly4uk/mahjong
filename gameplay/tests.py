@@ -1114,6 +1114,49 @@ class StatsEndpointTests(TestCase):
         self.assertEqual(response.status_code, 422)
 
 
+class ProfileEndpointTests(TestCase):
+    """Coverage for gameplay/api.py: update_profile (POST /api/game/profile)
+    and gameplay/daily.py: nickname_for — the player's chosen display name
+    (also the client-side DiceBear avatar seed, static/game/avatar.js)."""
+
+    def setUp(self):
+        cache.clear()  # see GameApiTests.setUp for why
+
+    def test_update_profile_sets_name_and_stats_reports_it(self):
+        response = self.client.post(
+            '/api/game/profile', data={'name': 'Vitaly'}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['name'], 'Vitaly')
+
+        stats = self.client.get('/api/game/stats')
+        self.assertEqual(stats.json()['player_name'], 'Vitaly')
+
+    def test_update_profile_trims_whitespace(self):
+        response = self.client.post(
+            '/api/game/profile', data={'name': '  Vitaly  '}, content_type='application/json',
+        )
+        self.assertEqual(response.json()['name'], 'Vitaly')
+
+    def test_update_profile_empty_name_falls_back_to_auto_nickname(self):
+        response = self.client.post(
+            '/api/game/profile', data={'name': '   '}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertRegex(response.json()['name'], r'^Player #[0-9a-f]{4}$')
+
+    def test_update_profile_truncates_long_name(self):
+        response = self.client.post(
+            '/api/game/profile', data={'name': 'x' * 100}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['name'], 'x' * 24)
+
+    def test_get_stats_defaults_to_auto_nickname_before_any_name_chosen(self):
+        response = self.client.get('/api/game/stats')
+        self.assertRegex(response.json()['player_name'], r'^Player #[0-9a-f]{4}$')
+
+
 class DailyTournamentTests(TestCase):
     """Coverage for gameplay/daily.py (deterministic board/level/seed
     selection) and the /api/game/daily* endpoints (gameplay/api.py:
@@ -1389,6 +1432,19 @@ class DailyTournamentTests(TestCase):
         body = self.client.get('/api/game/daily').json()
         self.assertEqual([e['score_ms'] for e in body['leaderboard']], [3000, 3000, 5000])
         self.assertEqual(body['total_participants'], 3)
+
+    def test_leaderboard_nickname_uses_chosen_display_name_or_auto_fallback(self):
+        named = self._make_winner(score_ms=1000)
+        named.user.profile.display_name = 'Vitaly'
+        named.user.profile.save(update_fields=['display_name'])
+        unnamed = self._make_winner(score_ms=2000)
+
+        body = self.client.get('/api/game/daily').json()
+        by_score = {e['score_ms']: e['nickname'] for e in body['leaderboard']}
+        self.assertEqual(by_score[1000], 'Vitaly')
+        self.assertEqual(
+            by_score[2000], f'Player #{unnamed.user.profile.public_id.hex[:4]}',
+        )
 
     def test_your_rank_reflects_standing_among_wins(self):
         data = self.client.post(

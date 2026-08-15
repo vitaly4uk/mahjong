@@ -253,6 +253,10 @@ export class MainScene extends Phaser.Scene {
       }
     }
     this.registry.set('allStats', allStats);
+    // Left unset on a fetch failure (the catch above) — the toolbar simply
+    // shows no name/avatar until the next successful boot, same tolerance as
+    // the other bootstrapped: * fields.
+    if (bootstrapped.playerName) this.registry.set('player', bootstrapped.playerName);
     this.registry.set('modal', null);
     // this.ui (created above) already subscribed to 'changedata'/
     // 'changedata-allStats'/'changedata-modal'/'setdata' and wired every

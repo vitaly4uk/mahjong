@@ -180,6 +180,12 @@
   .daily-board-list .nickname {
     flex: 1;
   }
+  .daily-board-list .avatar {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    border-radius: 50%;
+  }
 }
 
 @keyframes stats-overlay-in {

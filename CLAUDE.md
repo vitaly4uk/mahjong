@@ -37,7 +37,8 @@ cross-file зв'язок), деталі лишай коду; для нової �
 - Проєкт Django: `config/` (settings/urls/api/wsgi), `manage.py` в корені.
 - Продакшен-сервер: `gunicorn` (`config.wsgi:application`).
 - Фронтенд гри: **Phaser 3.90** vanilla JS ES-модулями. Phaser — локальний файл `static/vendor/phaser.min.js`. **Збірка JS**: `templates/game.html` завжди вантажить **один** `static/game/bundle.js` (жодного `{% if debug %}`-розгалуження), який `esbuild` склеює з графа модулів `static/game/*.js`. Локально — `esbuild --watch` (`scripts/dev.sh`, без `--minify`, з `--sourcemap` заради читаних стектрейсів/брейкпоінтів у devtools на реальних вихідних файлах); прод — мінімізований, без sourcemap, на етапі Docker-білда (окремий `node`-стейдж `jsbuild` у `Dockerfile`). І `bundle.js`, і `bundle.js.map` — build-артефакти, у git не комітяться (`.gitignore`); dev-версія і prod-версія ніколи не існують одночасно (різні контексти запуску), тож конфлікту імені файлу нема.
-- **CSS — Tailwind CSS v4** (`assets/tailwind.src.css` → зібраний `static/game/tailwind.css`, теж build-артефакт поза git). На відміну від esbuild, Tailwind-CLI резолвить `@import "tailwindcss"` як звичайний Node-пакет, тож голого `npx --yes` (як для esbuild/Biome) не досить — у корені є мінімальний `package.json`/`package-lock.json` (лише `tailwindcss`+`@tailwindcss/cli`, запиновані версії; `node_modules/` у `.gitignore`). `Dockerfile: jsbuild`-стейдж робить `npm ci`, потім збирає обидва — і `bundle.js`, і `tailwind.css`; локально — `npx @tailwindcss/cli -i assets/tailwind.src.css -o static/game/tailwind.css --watch=always` поруч із `runserver` (див. Локальна розробка нижче). `@source` у `assets/tailwind.src.css` сканує і `templates/**/*.html`, і `static/game/*.js` (класи, що пишуться лише з JS — `.open`/`.you`/`.current-tag` тощо), тому `jsbuild`-стейдж копіює й `templates/`. Дизайн/пастки — `docs/superpowers/specs/2026-07-29-tailwind-dom-ui-migration.md`. Кешбастинг — штатний `whitenoise.storage.CompressedManifestStaticFilesStorage` (хеш в імені файлу, працює однаково для JS і CSS); whitenoise на `collectstatic` генерує `.gz` **і `.br`** для кожного статик-файла (brotli — залежність `brotli` у `pyproject.toml`; без неї був би лише gzip) і за `Accept-Encoding` віддає найменший варіант.
+- **CSS — Tailwind CSS v4** (`assets/tailwind.src.css` → зібраний `static/game/tailwind.css`, теж build-артефакт поза git). На відміну від esbuild, Tailwind-CLI резолвить `@import "tailwindcss"` як звичайний Node-пакет, тож голого `npx --yes` (як для esbuild/Biome) не досить — у корені є мінімальний `package.json`/`package-lock.json` (`node_modules/` у `.gitignore`). `Dockerfile: jsbuild`-стейдж робить `npm ci`, потім збирає обидва — і `bundle.js`, і `tailwind.css`; локально — `npx @tailwindcss/cli -i assets/tailwind.src.css -o static/game/tailwind.css --watch=always` поруч із `runserver` (див. Локальна розробка нижче). `@source` у `assets/tailwind.src.css` сканує і `templates/**/*.html`, і `static/game/*.js` (класи, що пишуться лише з JS — `.open`/`.you`/`.current-tag` тощо), тому `jsbuild`-стейдж копіює й `templates/`. Дизайн/пастки — `docs/superpowers/specs/2026-07-29-tailwind-dom-ui-migration.md`. Кешбастинг — штатний `whitenoise.storage.CompressedManifestStaticFilesStorage` (хеш в імені файлу, працює однаково для JS і CSS); whitenoise на `collectstatic` генерує `.gz` **і `.br`** для кожного статик-файла (brotli — залежність `brotli` у `pyproject.toml`; без неї був би лише gzip) і за `Accept-Encoding` віддає найменший варіант.
+- **`package.json` має і `devDependencies` (Tailwind — build-time, у прод-образ не входить), і `dependencies`** (`@dicebear/core`+`@dicebear/collection` — реально ship-иться в `bundle.js`, `static/game/avatar.js` їх імпортує). `npm install` тому обов'язковий і для локальної розробки, не лише для Docker-білда.
 
 ## Структура гри
 
@@ -77,6 +78,11 @@ cross-file зв'язок), деталі лишай коду; для нової �
   — `REMOTE_ADDR` бачив би саму адресу проксі). Дизайн/план:
   `docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md`,
   `docs/superpowers/specs/2026-07-28-daily-tournament-design.md`.
+  `Profile.display_name` — вільне (без унікальності) ім'я гравця; `daily.py:
+  nickname_for(profile)` — єдине джерело "як показати гравця" (тулбар +
+  лідерборд турніру), з фолбеком на `Player #xxxx`, якщо ім'я не задане.
+  Те саме ім'я — і сід клієнтського DiceBear-аватара (`static/game/
+  avatar.js`), окремого поля-сіда нема.
 - `static/game/board.js` — модель поля для клієнтського інтерактиву
   (рендер/кліки/undo/детекція глухого кута); авторитетна перевірка — на
   сервері (`gameplay/board.py`). Форми поля тут **не** зашито — позиції
@@ -87,6 +93,11 @@ cross-file зв'язок), деталі лишай коду; для нової �
   (`gameplay/models.py: Profile.stats`); модуль лишає презентаційні
   хелпери й одноразовий читач legacy `localStorage`-блоба для переносу на
   сервер. Чистий модуль, без Phaser/DOM.
+- `static/game/avatar.js` — рендер DiceBear-аватара (`@dicebear/core` +
+  стиль `thumbs` з `@dicebear/collection`, npm-залежності, реально
+  бандляться в `bundle.js` — не HTTP API). Seed = ім'я гравця
+  (`gameplay/daily.py: nickname_for` — той самий рядок, що показаний як
+  ім'я). Мемоізація SVG за `ім'я|розмір`. Чистий модуль, без Phaser/DOM.
 - `static/game/sync.js` — тонкий HTTP-клієнт до `config/api.py`/
   `gameplay/api.py`. Ідентичність гравця — кука `mahjong_player` (HttpOnly,
   підписана сервером), їде автоматично з кожним fetch; CSRF-токен — з
@@ -111,7 +122,11 @@ cross-file зв'язок), деталі лишай коду; для нової �
   частинки) — винесені зі сцени, щоб `MainScene` лишався про сесію/layout,
   не про tween-деталі.
 - `static/game/ui-dom.js` — DOM-контролер тулбару/смуги статусу/кредиту
-  фотографа/4 модалок (`templates/game.html`). Підписується на
+  фотографа/5 модалок (`templates/game.html`). Лідерборд турніру будує
+  `<li>` через DOM API (`createElement`/`textContent`), не `innerHTML` —
+  `entry.nickname` тепер довільний текст, обраний гравцем (POST
+  `/api/game/profile`), тож інтерполяція в HTML-рядок була б stored XSS.
+  Підписується на
   `scene.registry` (**і `changedata`, і `setdata`** — Phaser шле
   `changedata` лише від ДРУГОГО запису ключа, перший завжди йде як `setdata`
   без пер-ключового варіанта; пропустити це — і початковий рендер кожного
@@ -121,8 +136,11 @@ cross-file зв'язок), деталі лишай коду; для нової �
   дебагу/тестів).
 - `templates/game.html` — сторінка гри (корінь `/`): `<header>`-тулбар +
   `<main id="game-container">` (канвас, лише дошка) + `<footer>`-смуга
-  статусу, усі три — flex-колонка в `<body>`; далі 4 DOM-модалки (нової
-  гри/статистики/турніру/глухого кута). Інжектить
+  статусу, усі три — flex-колонка в `<body>`; далі 5 DOM-модалок (нової
+  гри/статистики/турніру/глухого кута/гравця). Остання кнопка тулбару
+  (`#btn-profile`, аватар+ім'я) — єдина не `flex-1`: `ml-auto` притискає її
+  до правого краю, решта шість кнопок ліворуч ділять простір порівну.
+  Інжектить
   `window.MAHJONG_CSRF`/`MAHJONG_VERSION`/`MAHJONG_LANG`. Стилі — Tailwind
   (`assets/tailwind.src.css` → зібраний `tailwind.css`, єдиний `<link>`
   без `{% if debug %}`); шаблон свого `<style>` не містить — жоден

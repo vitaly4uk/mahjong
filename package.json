@@ -2,9 +2,13 @@
   "name": "mahjong",
   "private": true,
   "type": "module",
-  "description": "Dev/build-time-only Node dependencies. No client-side JS ships from node_modules — the game bundle is esbuild-built from static/game/*.js (Dockerfile: jsbuild), and Tailwind's CSS build (assets/tailwind.src.css — deliberately outside static/, see its own header comment: a documented WhiteNoise+Tailwind gotcha, not a one-off workaround) is the one thing here that genuinely needs npm-style module resolution (@import \"tailwindcss\"), unlike esbuild/Biome which run fine via bare npx.",
+  "description": "Node dependencies for the JS/CSS build (Dockerfile: jsbuild). devDependencies are Tailwind's CSS build (assets/tailwind.src.css — deliberately outside static/, see its own header comment: a documented WhiteNoise+Tailwind gotcha, not a one-off workaround) — the one thing here that genuinely needs npm-style module resolution (@import \"tailwindcss\"), unlike esbuild/Biome which run fine via bare npx. dependencies DO ship client-side: @dicebear/* is imported by static/game/avatar.js and gets bundled into static/game/bundle.js by esbuild (which also runs via npm ci, not bare npx, for the same node_modules access).",
   "devDependencies": {
     "@tailwindcss/cli": "4.3.3",
     "tailwindcss": "4.3.3"
+  },
+  "dependencies": {
+    "@dicebear/collection": "^9.4.2",
+    "@dicebear/core": "^9.4.3"
   }
 }

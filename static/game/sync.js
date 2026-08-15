@@ -89,7 +89,21 @@ export async function bumpStat(token, counter) {
 // the client hasn't transferred its localStorage blob to this profile yet.
 export async function fetchStats() {
   const data = await requestJson('/api/game/stats');
-  return { stats: data.stats, legacyImportAvailable: data.legacy_import_available };
+  return {
+    stats: data.stats,
+    legacyImportAvailable: data.legacy_import_available,
+    playerName: data.player_name,
+  };
+}
+
+// Sets the player's chosen display name (gameplay/api.py: update_profile) —
+// free-form, not unique, also doubles as the client-side DiceBear avatar
+// seed (avatar.js). Returns the resolved name: the server already applies
+// the auto-generated fallback (gameplay/daily.py: nickname_for) if `name`
+// trims to empty, so the client never computes that fallback itself.
+export async function saveProfile(name) {
+  const data = await postJson('/api/game/profile', { name });
+  return data.name;
 }
 
 // A one-time transfer of the old localStorage blob to the server.

@@ -8,9 +8,10 @@
 // happens to render them as DOM instead of canvas Text. See
 // docs/superpowers/specs/2026-07-29-tailwind-dom-ui-migration.md.
 import {
-  fetchDaily, setLanguage,
+  fetchDaily, saveProfile, setLanguage,
 } from './sync.js';
 import { winRate, fmtTime, LEVELS } from './stats.js';
+import { avatarDataUri } from './avatar.js';
 
 const { gettext, interpolate } = window;
 
@@ -57,6 +58,9 @@ export function createUiDom(scene) {
   const btnDaily = document.getElementById('btn-daily');
   const btnLang = document.getElementById('btn-lang');
   const langLabel = document.getElementById('lang-label');
+  const btnProfile = document.getElementById('btn-profile');
+  const profileAvatarEl = document.getElementById('profile-avatar');
+  const profileNameEl = document.getElementById('profile-name');
 
   const statusText = document.getElementById('status-text');
   const statusDifficulty = document.getElementById('status-difficulty');
@@ -85,6 +89,12 @@ export function createUiDom(scene) {
   const dailyBoardEl = document.getElementById('daily-board');
   const dailyPlayBtn = document.getElementById('btn-daily-play');
   const dailyCloseBtn = document.getElementById('btn-daily-close');
+  const profileModal = document.getElementById('profile-modal');
+  const profileModalAvatarEl = document.getElementById('profile-modal-avatar');
+  const profileNameInput = document.getElementById('profile-name-input');
+  const profileErrorEl = document.getElementById('profile-error');
+  const profileSaveBtn = document.getElementById('btn-profile-save');
+  const profileCloseBtn = document.getElementById('btn-profile-close');
 
   // Static base labels — set once, immediately (mirrors the old canvas
   // toolbar's construction-time text: createToolbar() baked HINT_LABEL/
@@ -116,6 +126,16 @@ export function createUiDom(scene) {
     if (stats) {
       statusSummary.textContent = `🏆 ${stats.gamesWon}/${stats.gamesPlayed} · 🔥 ${stats.currentStreak} · ⏱️ ${fmtTime(elapsed)}`;
     }
+  }
+
+  // Toolbar's own name+avatar (top-right, templates/game.html: #btn-profile).
+  // The avatar seed IS the name (gameplay/daily.py: nickname_for is the
+  // single source of both, server-side) — no separate seed anywhere.
+  function renderPlayer() {
+    const name = scene.registry.get('player');
+    if (!name) return;
+    profileNameEl.textContent = name;
+    profileAvatarEl.src = avatarDataUri(name, 24);
   }
 
   // The stats-modal HTML (3 levels × 9 rows) — split out from renderStats()
@@ -202,15 +222,41 @@ export function createUiDom(scene) {
     }
     dailyInfoEl.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
 
-    dailyBoardEl.innerHTML = info.leaderboard.length
-      ? info.leaderboard.map((entry) => `
-        <li class="${entry.rank === info.yourRank ? 'you' : ''}">
-          <span class="rank">#${entry.rank}</span>
-          <span class="nickname">${entry.nickname}</span>
-          <span class="time">${fmtTime(entry.scoreMs)}</span>
-        </li>
-      `).join('')
-      : `<li class="empty">${gettext('No winners yet today')}</li>`;
+    dailyBoardEl.innerHTML = '';
+    if (info.leaderboard.length) {
+      for (const entry of info.leaderboard) {
+        // Built via DOM API, not innerHTML — entry.nickname is a player-
+        // chosen display name (gameplay/api.py: update_profile), so it must
+        // never be interpolated into an HTML string (stored XSS otherwise).
+        const li = document.createElement('li');
+        if (entry.rank === info.yourRank) li.className = 'you';
+
+        const rank = document.createElement('span');
+        rank.className = 'rank';
+        rank.textContent = `#${entry.rank}`;
+
+        const avatar = document.createElement('img');
+        avatar.className = 'avatar';
+        avatar.alt = '';
+        avatar.src = avatarDataUri(entry.nickname, 22);
+
+        const nickname = document.createElement('span');
+        nickname.className = 'nickname';
+        nickname.textContent = entry.nickname;
+
+        const time = document.createElement('span');
+        time.className = 'time';
+        time.textContent = fmtTime(entry.scoreMs);
+
+        li.append(rank, avatar, nickname, time);
+        dailyBoardEl.appendChild(li);
+      }
+    } else {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = gettext('No winners yet today');
+      dailyBoardEl.appendChild(li);
+    }
   }
 
   function renderModal(modal) {
@@ -219,6 +265,7 @@ export function createUiDom(scene) {
     newgameModal.classList.toggle('open', modal?.type === 'newgame');
     deadlockModal.classList.toggle('open', modal?.type === 'deadlock');
     dailyModal.classList.toggle('open', modal?.type === 'daily');
+    profileModal.classList.toggle('open', modal?.type === 'profile');
 
     if (showStats) {
       let title = `📊 ${gettext('Statistics')}`;
@@ -249,11 +296,18 @@ export function createUiDom(scene) {
       newgameCloseBtn.style.display = modal.canClose ? '' : 'none';
     }
     if (modal?.type === 'daily') renderDailyModal();
+    if (modal?.type === 'profile') {
+      const name = scene.registry.get('player') || '';
+      profileNameInput.value = name;
+      profileModalAvatarEl.src = avatarDataUri(name || ' ', 72);
+      profileErrorEl.classList.add('hidden');
+    }
   }
 
   scene.registry.events.on('changedata', renderStats);
   scene.registry.events.on('changedata-allStats', renderStatsModal);
   scene.registry.events.on('changedata-modal', (_parent, value) => renderModal(value));
+  scene.registry.events.on('changedata-player', renderPlayer);
   // Phaser's DataManager only fires 'changedata'/'changedata-<key>' from the
   // SECOND write to a given key onward — the very first-ever .set() for a
   // key fires the separate 'setdata' event instead (and, unlike
@@ -268,6 +322,7 @@ export function createUiDom(scene) {
     renderStats();
     if (key === 'allStats') renderStatsModal();
     if (key === 'modal') renderModal(scene.registry.get('modal'));
+    if (key === 'player') renderPlayer();
   });
 
   btnNew.addEventListener('click', () => {
@@ -292,6 +347,10 @@ export function createUiDom(scene) {
   btnLang.addEventListener('click', () => {
     if (scene.registry.get('modal')) return;
     setLanguage(window.MAHJONG_LANG === 'uk' ? 'en' : 'uk').finally(() => location.reload());
+  });
+  btnProfile.addEventListener('click', () => {
+    if (scene.registry.get('modal')) return;
+    scene.registry.set('modal', { type: 'profile' });
   });
 
   document.getElementById('btn-stats-close').addEventListener('click', () => scene.registry.set('modal', null));
@@ -325,6 +384,24 @@ export function createUiDom(scene) {
   deadlockGiveupBtn.addEventListener('click', () => scene.finishGame(false));
   dailyPlayBtn.addEventListener('click', () => scene.playDaily());
   dailyCloseBtn.addEventListener('click', () => scene.registry.set('modal', null));
+
+  // Live avatar preview as the player types — the seed IS the name, so this
+  // doubles as visual feedback for that rule (no separate "reroll" control).
+  profileNameInput.addEventListener('input', () => {
+    profileModalAvatarEl.src = avatarDataUri(profileNameInput.value.trim() || ' ', 72);
+  });
+  profileSaveBtn.addEventListener('click', async () => {
+    profileErrorEl.classList.add('hidden');
+    try {
+      const name = await saveProfile(profileNameInput.value);
+      scene.registry.set('player', name);
+      scene.registry.set('modal', null);
+    } catch {
+      profileErrorEl.textContent = `⚠️ ${gettext('Failed to save — check your connection')}`;
+      profileErrorEl.classList.remove('hidden');
+    }
+  });
+  profileCloseBtn.addEventListener('click', () => scene.registry.set('modal', null));
 
   return {
     // Called from main.js: playDaily() when the server reports the attempt

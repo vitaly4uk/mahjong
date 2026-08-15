@@ -30,7 +30,12 @@ def daily_challenge(date):
     return board_slug, DAILY_LEVEL, seed
 
 
-def nickname_for(public_id):
-    """Auto-generated display name for the anonymous leaderboard — no login,
-    no user-chosen nickname (gameplay/models.py: Profile.public_id)."""
-    return f'Player #{public_id.hex[:4]}'
+def nickname_for(profile):
+    """Display name for the leaderboard/toolbar: the player's own choice
+    (gameplay/models.py: Profile.display_name) if set, else an
+    auto-generated one derived from public_id. This is the single source of
+    truth for "what name is shown" — it's also the DiceBear avatar seed
+    (static/game/avatar.js), so the client never needs a separate seed."""
+    if profile.display_name:
+        return profile.display_name
+    return f'Player #{profile.public_id.hex[:4]}'

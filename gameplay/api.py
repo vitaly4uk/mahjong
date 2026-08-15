@@ -36,6 +36,8 @@ from .schemas import (
     FinishResponse,
     ImportRequest,
     ImportResponse,
+    ProfileResponse,
+    ProfileUpdateRequest,
     SessionStateResponse,
     ShuffleRequest,
     ShuffleResponse,
@@ -55,6 +57,13 @@ RATE_LIMIT_MAX_STARTS = 30
 RATE_LIMIT_MAX_FINISHES = 60
 RATE_LIMIT_MAX_IMPORTS = 10
 RATE_LIMIT_MAX_SHUFFLES = 60
+RATE_LIMIT_MAX_PROFILE_UPDATES = 10
+
+# Control characters (incl. newlines/tabs) stripped from a chosen display
+# name — cosmetic only, keeps it to a single visual line in the toolbar/
+# leaderboard. HTML is not sanitized here: the client always renders names
+# via textContent, never innerHTML (static/game/ui-dom.js).
+_DISPLAY_NAME_MAX_LENGTH = 24
 
 
 def _client_ip(request):
@@ -205,7 +214,7 @@ def daily_info(request):
     ranked = wins.select_related('user__profile').order_by('score_ms', 'claimed_at')
     top = list(ranked[:DAILY_LEADERBOARD_SIZE])
     leaderboard = [
-        {'rank': i + 1, 'nickname': nickname_for(s.user.profile.public_id), 'score_ms': s.score_ms}
+        {'rank': i + 1, 'nickname': nickname_for(s.user.profile), 'score_ms': s.score_ms}
         for i, s in enumerate(top)
     ]
     # The slice length IS the total whenever it didn't hit the cap — only a
@@ -485,7 +494,30 @@ def get_stats(request):
     return {
         'stats': AllStats.model_validate(profile.stats),
         'legacy_import_available': not profile.legacy_imported,
+        'player_name': nickname_for(profile),
     }
+
+
+def _sanitize_display_name(raw):
+    # Strip control characters (incl. newlines/tabs) so the name stays a
+    # single visual line, then trim to the field's max length. An empty
+    # result is valid input — it means "reset to the auto-generated name"
+    # (gameplay/daily.py: nickname_for).
+    cleaned = ''.join(ch for ch in raw.strip() if ch.isprintable())
+    return cleaned[:_DISPLAY_NAME_MAX_LENGTH]
+
+
+@router.post('/profile', response=ProfileResponse)
+def update_profile(request, payload: ProfileUpdateRequest):
+    """Sets the player's chosen display name — free-form, not unique (this
+    isn't a login). Also doubles as the DiceBear avatar seed client-side
+    (static/game/avatar.js), so no separate seed field exists."""
+    _enforce_rate_limit(request, 'profile', RATE_LIMIT_MAX_PROFILE_UPDATES)
+
+    profile = request.profile
+    profile.display_name = _sanitize_display_name(payload.name)
+    profile.save(update_fields=['display_name', 'updated_at'])
+    return {'name': nickname_for(profile)}
 
 
 @router.post('/stats/import', response=ImportResponse)

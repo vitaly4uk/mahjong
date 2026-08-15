@@ -112,6 +112,19 @@ class BumpResponse(Schema):
 class StatsResponse(Schema):
     stats: AllStats
     legacy_import_available: bool
+    # Already resolved (gameplay/daily.py: nickname_for) — the auto-generated
+    # fallback if the player hasn't picked a name yet.
+    player_name: str
+
+
+class ProfileUpdateRequest(Schema):
+    name: str
+
+
+class ProfileResponse(Schema):
+    # Resolved name (gameplay/daily.py: nickname_for) — the client never
+    # computes the auto-generated fallback itself.
+    name: str
 
 
 class ImportRequest(Schema):

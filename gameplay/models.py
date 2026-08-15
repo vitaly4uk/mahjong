@@ -20,6 +20,11 @@ class Profile(models.Model):
     # Value of the mahjong_player cookie, not User.pk — avoids exposing a sequential ID.
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     stats = models.JSONField(default=empty_all_stats)  # AllStats.model_dump(by_alias=True)
+    # Player-chosen display name; '' = fall back to the auto-generated
+    # nickname (gameplay/daily.py: nickname_for). Deliberately NOT unique —
+    # this is cosmetic, not a login. It also doubles as the DiceBear avatar
+    # seed (static/game/avatar.js) — whatever is shown as the name IS the seed.
+    display_name = models.CharField(max_length=24, blank=True, default='')
     legacy_imported = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
