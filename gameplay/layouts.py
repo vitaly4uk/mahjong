@@ -14,9 +14,10 @@ fixed 72 pairs (see gameplay/generator.py), so every board must have exactly
 144 target positions.
 """
 import re
-from functools import lru_cache
+from functools import cache, lru_cache
 from pathlib import Path
 
+from django.utils.safestring import mark_safe
 from django.utils.translation import gettext, gettext_noop
 from ninja import Schema
 
@@ -33,6 +34,16 @@ _ANCHOR = '1'
 _OTHER_QUADRANTS = {'2': (1, 0), '3': (1, 1), '4': (0, 1)}
 
 _TOTAL_TILES = 144
+
+# Per-layer oblique shift for board_thumbnail()'s SVG, in the same half-tile
+# grid units as Layout.positions — mirrors static/game/render-constants.js:
+# LAYER_DX_FRAC/LAYER_DY_FRAC (fraction of ONE tile's width/height), doubled
+# because a tile there is 1 unit while here it's 2 half-tile units. Kept
+# approximate (no TILE_ASPECT correction) — this is a small picker icon, not
+# a pixel match of the real board render.
+_THUMB_LAYER_DX = 0.099 * 2
+_THUMB_LAYER_DY = 0.059 * 2
+_THUMB_PADDING = 1
 
 # Board names come from `.layout` file comments (English, see parse_layout
 # below) and are cached process-wide by load_layouts() — so they can't carry
@@ -177,14 +188,68 @@ def get_layout(slug):
     return load_layouts().get(slug)
 
 
+@cache
+def board_thumbnail(slug):
+    """A small oblique-view SVG (as a string) of the board's shape, for the
+    new-game modal's icon grid (templates/game.html) — built purely from
+    Layout.positions (numeric half-tile coordinates), never user input.
+    Cached per-slug: language-independent, unlike list_boards()'s name."""
+    layout = get_layout(slug)
+    if layout is None:
+        return None
+
+    # Same painter's-order depth formula as static/game/scene.js:
+    # addTileSprite (z*10000 + (height-1-y) + x) — without it, diagonal
+    # half-tile neighbours would overlap in the wrong order.
+    positions = sorted(
+        layout.positions,
+        key=lambda p: p[2] * 10000 + (layout.height - 1 - p[1]) + p[0],
+    )
+
+    min_x = min_y = float('inf')
+    max_x = max_y = float('-inf')
+    rects = []
+    for x, y, z in positions:
+        draw_x = x - z * _THUMB_LAYER_DX
+        draw_y = y + z * _THUMB_LAYER_DY
+        min_x, max_x = min(min_x, draw_x), max(max_x, draw_x + 2)
+        min_y, max_y = min(min_y, draw_y), max(max_y, draw_y + 2)
+        rects.append(
+            f'<rect x="{draw_x:.3f}" y="{draw_y:.3f}" width="2" height="2" rx="0.3" '
+            'fill="currentColor" fill-opacity="0.85" stroke="currentColor" stroke-opacity="0.4" '
+            'stroke-width="0.08"/>',
+        )
+
+    view_x = min_x - _THUMB_PADDING
+    view_y = min_y - _THUMB_PADDING
+    view_w = (max_x - min_x) + 2 * _THUMB_PADDING
+    view_h = (max_y - min_y) + 2 * _THUMB_PADDING
+
+    svg = (
+        f'<svg viewBox="{view_x:.3f} {view_y:.3f} {view_w:.3f} {view_h:.3f}" '
+        'preserveAspectRatio="xMidYMid meet" role="presentation" aria-hidden="true">'
+        + ''.join(rects)
+        + '</svg>'
+    )
+    return svg
+
+
 def list_boards():
-    """[{'slug', 'name'}, ...] for the client's board-picker UI — config/urls.py
-    passes this into templates/game.html's context, which renders it as
-    `[data-board]` buttons (no separate JS global; main.js reads the
-    attributes straight off the DOM, same as the difficulty buttons).
-    gettext(layout.name) here (not baked into the cached Layout) — translates
-    for the *current* request's active language; falls back to the English
-    name itself if it isn't a registered msgid (see gettext_noop above)."""
+    """[{'slug', 'name', 'thumbnail'}, ...] for the client's board-picker UI —
+    config/urls.py passes this into templates/game.html's context, which
+    renders it as `[data-board]` icon buttons (no separate JS global;
+    main.js reads the attributes straight off the DOM, same as the
+    difficulty buttons). gettext(layout.name) here (not baked into the
+    cached Layout) — translates for the *current* request's active language;
+    falls back to the English name itself if it isn't a registered msgid
+    (see gettext_noop above). `thumbnail` is mark_safe'd raw SVG markup —
+    board_thumbnail() builds it from numeric coordinates only, never from
+    request/user input, so it's safe to skip template auto-escaping."""
     return [
-        {'slug': layout.slug, 'name': gettext(layout.name)} for layout in load_layouts().values()
+        {
+            'slug': layout.slug,
+            'name': gettext(layout.name),
+            'thumbnail': mark_safe(board_thumbnail(layout.slug)),
+        }
+        for layout in load_layouts().values()
     ]

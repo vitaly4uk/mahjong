@@ -16,10 +16,21 @@ import { setSoundOn } from './audio.js';
 
 const { gettext, interpolate } = window;
 
+// The ONE place a difficulty's icon is picked — templates/game.html's
+// #newgame-modal buttons render an empty `.text-2xl` span (see
+// createUiDom below, which fills it from here), and LEVEL_LABELS (status
+// bar / stats modal) is built from this same object, so the new-game
+// modal, the status bar and the stats modal can never show three
+// different icons for the same level.
+const DIFFICULTY_ICONS = { easy: '👶', normal: '🧑', hard: '😈' };
+// gettext() calls stay literal (not looked up via a variable) — makemessages
+// extracts djangojs msgids by statically scanning for gettext('...') calls,
+// so a computed key here would silently drop 'Easy'/'Normal'/'Hard' from
+// locale/*/LC_MESSAGES/djangojs.po.
 const LEVEL_LABELS = {
-  easy: `😌 ${gettext('Easy')}`,
-  normal: `🙂 ${gettext('Normal')}`,
-  hard: `😈 ${gettext('Hard')}`,
+  easy: `${DIFFICULTY_ICONS.easy} ${gettext('Easy')}`,
+  normal: `${DIFFICULTY_ICONS.normal} ${gettext('Normal')}`,
+  hard: `${DIFFICULTY_ICONS.hard} ${gettext('Hard')}`,
 };
 
 const HINT_LABEL = `💡 ${gettext('Hint')}`;
@@ -67,6 +78,12 @@ export function createUiDom(scene) {
   const statsLevelsEl = document.getElementById('stats-levels');
   const newgameModal = document.getElementById('newgame-modal');
   const newgameLevelButtons = [...newgameModal.querySelectorAll('[data-level]')];
+  // The modal's own icon spans start empty (templates/game.html) — fill them
+  // from DIFFICULTY_ICONS so this module is the only place the glyph is
+  // written, matching how btnHint/btnUndo's labels below are JS-driven too.
+  for (const btn of newgameLevelButtons) {
+    btn.querySelector('.text-2xl').textContent = DIFFICULTY_ICONS[btn.dataset.level];
+  }
   const newgameBoardButtons = [...newgameModal.querySelectorAll('[data-board]')];
   // Real (non-"random") board slugs — computed once here, the single source
   // scene.js reuses for pref validation instead of each re-querying the DOM.

@@ -39,17 +39,18 @@
   <div class="modal-panel max-h-[calc(100vh-40px)] min-w-[260px] overflow-y-auto rounded-[10px] border border-white/[.06] bg-panel px-7 py-6 shadow-[0_8px_30px_rgba(0,0,0,.4)]">
     <h2 class="mb-5 text-center text-xl">🆕 {% trans "New game" %}</h2>
     <h3 class="mb-2.5 text-center text-[13px] uppercase tracking-[.04em] text-muted">{% trans "Layout" %}</h3>
-    <div class="mb-4.5 flex flex-col gap-2.5">
+    <div class="mb-4.5 grid grid-cols-3 justify-items-center gap-2.5">
       {% for board in boards %}
-      <button data-board="{{ board.slug }}" class="newgame-option tactile-btn min-w-[180px] rounded-md border-0 bg-btn px-5 py-2.5 text-[15px] font-medium text-white hover:bg-btn-hover">🀄 {{ board.name }}</button>
+      <button data-board="{{ board.slug }}" title="{{ board.name }}" aria-label="{{ board.name }}" class="newgame-option tactile-btn flex h-20 w-20 items-center justify-center rounded-md border-0 bg-btn p-2 text-white hover:bg-btn-hover">{{ board.thumbnail }}</button>
       {% endfor %}
-      <button data-board="random" class="newgame-option tactile-btn min-w-[180px] rounded-md border-0 bg-btn px-5 py-2.5 text-[15px] font-medium text-white hover:bg-btn-hover">🎲 {% trans "Random" %}</button>
+      <button data-board="random" title="{% trans "Random" %}" aria-label="{% trans "Random" %}" class="newgame-option tactile-btn flex h-20 w-20 items-center justify-center rounded-md border-0 bg-btn text-4xl text-white hover:bg-btn-hover">🎲</button>
     </div>
     <h3 class="mb-2.5 text-center text-[13px] uppercase tracking-[.04em] text-muted">{% trans "Difficulty" %}</h3>
-    <div class="mb-1 flex flex-col gap-2.5">
-      <button data-level="easy" class="newgame-option tactile-btn min-w-[180px] rounded-md border-0 bg-btn px-5 py-2.5 text-[15px] font-medium text-white hover:bg-btn-hover">😌 {% trans "Easy" %}</button>
-      <button data-level="normal" class="newgame-option tactile-btn min-w-[180px] rounded-md border-0 bg-btn px-5 py-2.5 text-[15px] font-medium text-white hover:bg-btn-hover">🙂 {% trans "Normal" %}</button>
-      <button data-level="hard" class="newgame-option tactile-btn min-w-[180px] rounded-md border-0 bg-btn px-5 py-2.5 text-[15px] font-medium text-white hover:bg-btn-hover">😈 {% trans "Hard" %}</button>
+    <div class="mb-1 grid grid-cols-3 gap-2.5">
+      {# The icon span starts empty — ui-dom.js: DIFFICULTY_ICONS is the one place that picks it, filled in on load. #}
+      <button data-level="easy" class="newgame-option tactile-btn flex flex-col items-center gap-1 rounded-md border-0 bg-btn px-2 py-2.5 text-white hover:bg-btn-hover"><span class="text-2xl"></span><span class="text-xs font-medium">{% trans "Easy" %}</span></button>
+      <button data-level="normal" class="newgame-option tactile-btn flex flex-col items-center gap-1 rounded-md border-0 bg-btn px-2 py-2.5 text-white hover:bg-btn-hover"><span class="text-2xl"></span><span class="text-xs font-medium">{% trans "Normal" %}</span></button>
+      <button data-level="hard" class="newgame-option tactile-btn flex flex-col items-center gap-1 rounded-md border-0 bg-btn px-2 py-2.5 text-white hover:bg-btn-hover"><span class="text-2xl"></span><span class="text-xs font-medium">{% trans "Hard" %}</span></button>
     </div>
     <div class="modal-actions -mt-1 border-t border-white/[.08] pt-4 text-center">
       <button id="btn-newgame-start" class="tactile-btn min-w-[120px] rounded-md border-0 bg-btn px-5 py-1.5 text-sm font-medium text-white hover:bg-btn-hover">▶️ {% trans "Start" %}</button>

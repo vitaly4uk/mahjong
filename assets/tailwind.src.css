@@ -118,6 +118,15 @@
     box-shadow: 0 0 0 2px rgb(255 255 255 / 0.3) inset;
   }
 
+  /* Board-shape thumbnails (gameplay/layouts.py: board_thumbnail) are inline
+     SVG with no width/height attribute — without this they'd render at the
+     SVG spec's default intrinsic size instead of filling their button. */
+  .newgame-option svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
   /* stats-modal's per-difficulty breakdown — built by
      main.js: renderStatsModal() via innerHTML; class names below are
      literal strings in that template, so no @source scanning of the JS is

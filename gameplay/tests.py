@@ -17,7 +17,15 @@ from .api import (  # noqa: F401 (SESSION_TTL import also registers the router w
 from .board import Board, Tile, is_free_position, match_key
 from .daily import HINT_PENALTY_MS, UNDO_PENALTY_MS, daily_challenge
 from .generator import DIFFICULTIES, generate_for_difficulty, reshuffle_layout
-from .layouts import LAYOUTS_DIR, LayoutError, get_layout, list_boards, load_layouts, parse_layout
+from .layouts import (
+    LAYOUTS_DIR,
+    LayoutError,
+    board_thumbnail,
+    get_layout,
+    list_boards,
+    load_layouts,
+    parse_layout,
+)
 from .middleware import PLAYER_COOKIE_NAME
 from .models import GameSession, Profile
 from .schemas import AllStats, LevelStats
@@ -66,6 +74,20 @@ class LayoutParserTests(TestCase):
 
     def test_get_layout_unknown_slug_returns_none(self):
         self.assertIsNone(get_layout('does-not-exist'))
+
+    def test_board_thumbnail_renders_one_rect_per_tile(self):
+        for slug in load_layouts():
+            svg = board_thumbnail(slug)
+            self.assertTrue(svg.startswith('<svg'), slug)
+            self.assertIn('viewBox', svg)
+            self.assertEqual(svg.count('<rect'), 144, slug)
+
+    def test_board_thumbnail_unknown_slug_returns_none(self):
+        self.assertIsNone(board_thumbnail('does-not-exist'))
+
+    def test_list_boards_includes_thumbnail(self):
+        for board in list_boards():
+            self.assertIn('<svg', board['thumbnail'])
 
     def test_parse_layout_rejects_unknown_header(self):
         with self.assertRaises(LayoutError):
