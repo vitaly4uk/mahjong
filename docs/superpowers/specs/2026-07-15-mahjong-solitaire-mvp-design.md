@@ -1,81 +1,81 @@
 # Mahjong Solitaire MVP — Design
 
-Дата: 2026-07-15
-Статус: затверджено користувачем
+Date: 2026-07-15
+Status: approved by user
 
-## Мета
+## Goal
 
-MVP браузерної гри «маджонг-пасьянс» на Phaser 3, вбудованої в наявний Django-проєкт. Поле 9×9×3, розклад **гарантовано розв'язний**. Тайли — riichi-набір з [FluffyStuff/riichi-mahjong-tiles](https://github.com/FluffyStuff/riichi-mahjong-tiles) (CC0).
+MVP of a browser-based "mahjong solitaire" game on Phaser 3, embedded in the existing Django project. Board 9×9×3, layout **guaranteed solvable**. Tiles — the riichi set from [FluffyStuff/riichi-mahjong-tiles](https://github.com/FluffyStuff/riichi-mahjong-tiles) (CC0).
 
-## Ігрове поле та правила
+## Board and rules
 
-- Сітка 9×9, 3 повні шари, **мінус центральна клітина верхнього шару** (x=4, y=4, z=2) → 242 тайли = 121 пара.
-- Координати тайла: `(x, y, z)`, x,y ∈ 0..8, z ∈ 0..2. Сітка вирівняна (без half-offset).
-- Тайл **вільний**, якщо:
-  - клітина `(x, y, z+1)` порожня (ніхто не лежить зверху), **і**
-  - хоча б одна з клітин `(x-1, y, z)` / `(x+1, y, z)` порожня (вільний бік).
-- Хід: клік по вільному тайлу → виділення; клік по другому вільному тайлу **того самого виду** → пара знімається. Клік по тому ж тайлу — зняти виділення; клік по іншому вільному — перевибір.
-- Перемога: поле порожнє.
-- Глухий кут: серед вільних тайлів немає жодної пари → повідомлення «Немає ходів» + кнопка «Нова гра».
+- Grid 9×9, 3 full layers, **minus the center cell of the top layer** (x=4, y=4, z=2) → 242 tiles = 121 pairs.
+- Tile coordinates: `(x, y, z)`, x,y ∈ 0..8, z ∈ 0..2. The grid is aligned (no half-offset).
+- A tile is **free** if:
+  - the cell `(x, y, z+1)` is empty (nothing lies on top), **and**
+  - at least one of the cells `(x-1, y, z)` / `(x+1, y, z)` is empty (a free side).
+- Move: click a free tile → select it; click a second free tile of **the same kind** → the pair is removed. Click the same tile again — deselect; click a different free tile — reselect.
+- Win: the board is empty.
+- Dead end: among the free tiles there is no matching pair → message "No moves" + "New game" button.
 
-## Набір тайлів
+## Tile set
 
-34 види: Man1–9, Pin1–9, Sou1–9, вітри (Ton, Nan, Shaa, Pei), дракони (Haku, Hatsu, Chun).
-121 пара = 19 видів × 4 пари (8 копій) + 15 видів × 3 пари (6 копій); розподіл видів по групах — випадковий при генерації.
-Збіг — тільки точний збіг виду.
+34 kinds: Man1–9, Pin1–9, Sou1–9, winds (Ton, Nan, Shaa, Pei), dragons (Haku, Hatsu, Chun).
+121 pairs = 19 kinds × 4 pairs (8 copies) + 15 kinds × 3 pairs (6 copies); the distribution of kinds across groups is random at generation time.
+Matching is exact-kind-only.
 
-## Генерація розкладу (гарантія розв'язності)
+## Layout generation (solvability guarantee)
 
-**Зворотна генерація**: починаємо з порожнього поля, знаємо цільову форму (список 242 позицій). На кожному кроці:
+**Reverse generation**: start from an empty board, knowing the target shape (a list of 242 positions). At each step:
 
-1. Обчислюємо позиції, «доступні для укладання»: позиція цільової форми, ще не заповнена, у якої клітина під нею (z-1) вже заповнена (або z=0), **і** яка після укладання була б «вільною» за правилом зняття (ніхто зверху — гарантовано порядком укладання знизу вгору; вільний бік — перевіряємо серед уже покладених).
-2. Беремо дві випадкові різні доступні позиції, кладемо пару однакових тайлів (вид — з пулу пар).
-3. Повторюємо, доки форма не заповнена.
+1. Compute the positions "available for placing": a position of the target shape, not yet filled, whose cell underneath (z-1) is already filled (or z=0), **and** which, once placed, would be "free" under the removal rule (nothing on top — guaranteed by the bottom-up placement order; a free side — checked among tiles already placed).
+2. Take two random distinct available positions, place a pair of identical tiles (kind — from the pair pool).
+3. Repeat until the shape is filled.
 
-Розв'язок існує за побудовою: зняття у зворотному порядку укладання завжди легальне. Якщо на якомусь кроці доступна лише одна позиція (глухий кут генерації) — повний рестарт генерації (це мілісекунди).
+A solution exists by construction: removing tiles in the reverse order of placement is always legal. If at some step only one position is available (a generation dead end) — restart generation from scratch (this takes milliseconds).
 
-Важлива деталь коректності: пара, покладена на кроці i, при знятті у зворотному порядку вільна, бо всі тайли, покладені пізніше, вже зняті, а вони — єдині, хто міг заблокувати її зверху чи з боків після кроку i.
+An important correctness detail: a pair placed at step i, when removed in reverse order, is free, because all tiles placed later have already been removed, and they are the only ones that could have blocked it from above or from the sides after step i.
 
-## Технології та структура
+## Technology and structure
 
-- **Vanilla JS (ES-модулі), без npm/білда.** Phaser 3 — один мініфікований файл у `static/vendor/phaser.min.js`.
-- PNG-тайли з `Export/Regular` репозиторію FluffyStuff → `static/game/tiles/` (34 види + `Front.png` як підкладка).
-- Файли:
-  - `static/game/board.js` — модель поля: стан клітин, правило вільності, зняття/повернення пари, пошук доступних пар (для підказки та детекції глухого кута). Чистий модуль без Phaser.
-  - `static/game/generator.js` — зворотна генерація розкладу. Чистий модуль без Phaser.
-  - `static/game/main.js` — Phaser-сцена: рендер, інпут, UI.
-  - `templates/game.html` — сторінка гри (замінює coming-soon на `/`).
+- **Vanilla JS (ES modules), no npm/build.** Phaser 3 — a single minified file at `static/vendor/phaser.min.js`.
+- PNG tiles from the `Export/Regular` folder of the FluffyStuff repo → `static/game/tiles/` (34 kinds + `Front.png` as backing).
+- Files:
+  - `static/game/board.js` — board model: cell state, the freedom rule, removing/returning a pair, finding available pairs (for hints and dead-end detection). A pure module, no Phaser.
+  - `static/game/generator.js` — reverse layout generation. A pure module, no Phaser.
+  - `static/game/main.js` — Phaser scene: rendering, input, UI.
+  - `templates/game.html` — the game page (replaces the coming-soon page at `/`).
 
-## Рендеринг (Phaser-сцена)
+## Rendering (Phaser scene)
 
-- Кожен тайл — `Phaser.GameObjects.Image` (Front як підкладка + спрайт виду; або композитна текстура). Розмір тайла підбирається так, щоб поле 9×9 вміщалося в екран (масштабування через Phaser Scale Manager, режим FIT).
-- Псевдо-3D: шар z малюється зі зсувом `(-offsetX*z, -offsetY*z)` (кілька px вгору-вліво), depth = `z*1000 + y*10 + x` — верхні/нижчі за екраном тайли перекривають правильно.
-- Виділення — tint; підказка — короткочасне блимання/tint знайденої пари; невільний тайл на клік — легке «трясіння» або без реакції.
+- Each tile is a `Phaser.GameObjects.Image` (Front as backing + kind sprite; or a composite texture). Tile size is chosen so the 9×9 board fits the screen (scaling via Phaser Scale Manager, FIT mode).
+- Pseudo-3D: layer z is drawn with an offset `(-offsetX*z, -offsetY*z)` (a few px up-left), depth = `z*1000 + y*10 + x` — tiles higher/lower on screen overlap correctly.
+- Selection — tint; hint — a brief blink/tint of the found pair; clicking a non-free tile — a light "shake" or no reaction.
 
 ## UI (MVP)
 
-- «Нова гра» — повна регенерація.
-- «Підказка» — знайти будь-яку доступну пару, підсвітити. Якщо пар немає — показати «Немає ходів».
-- «Скасувати» — стек знятих пар, повернення останньої пари на місце (undo необмежений).
-- Лічильник тайлів, що залишилися.
-- Автоматична детекція глухого кута після кожного ходу.
+- "New game" — full regeneration.
+- "Hint" — find any available pair, highlight it. If there are no pairs — show "No moves".
+- "Undo" — a stack of removed pairs, returns the last pair to its place (unlimited undo).
+- Counter of remaining tiles.
+- Automatic dead-end detection after every move.
 
-## Інтеграція в Django
+## Django integration
 
-- `config/urls.py`: `/` → `TemplateView(template_name='game.html')` (coming_soon більше не використовується).
-- Статика через whitenoise (вже налаштовано). Dockerfile, Procfile, залежності — без змін.
+- `config/urls.py`: `/` → `TemplateView(template_name='game.html')` (coming_soon is no longer used).
+- Static files via whitenoise (already configured). Dockerfile, Procfile, dependencies — unchanged.
 
-## Тестування
+## Testing
 
-Логіка (board.js, generator.js) — чисті ES-модулі, тести через вбудований `node:test` (без package.json): `node --test 'tests/*.test.js'`.
+Logic (board.js, generator.js) — pure ES modules, tested via the built-in `node:test` (no package.json): `node --test 'tests/*.test.js'`.
 
-Ключові тести:
-- Правило вільності (зверху зайнято / обидва боки зайняті / крайові випадки).
-- Генератор: рівно 242 тайли, кожен вид у парній кількості, форма відповідає цільовій.
-- Розв'язність: симуляція — знімати пари у зворотному порядку генерації до порожнього поля (і/або жадібний солвер на кількох сідах).
-- Undo: зняти пару → undo → стан ідентичний.
-- Детекція глухого кута та пошук підказки.
+Key tests:
+- The freedom rule (occupied on top / both sides occupied / edge cases).
+- Generator: exactly 242 tiles, every kind in an even count, shape matches the target.
+- Solvability: simulation — remove pairs in the reverse order of generation down to an empty board (and/or a greedy solver over several seeds).
+- Undo: remove a pair → undo → state is identical.
+- Dead-end detection and hint search.
 
-## Поза межами MVP
+## Out of scope for MVP
 
-Таймер, рахунок, перемішування залишків при глухому куті, збереження прогресу, звук, анімації польоту тайлів, вибір розкладок.
+Timer, score, reshuffling the remainder on a dead end, saving progress, sound, tile-flight animations, layout selection.

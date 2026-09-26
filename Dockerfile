@@ -1,19 +1,21 @@
 # --- JS/CSS bundle stage ---
-# esbuild склеює граф ES-модулів static/game/*.js в один мініфікований bundle.js.
-# Живе лише тут (у прод-образ node не тягнеться), локальна розробка вантажить сирі
-# модулі напряму — див. templates/game.html ({% if debug %}).
+# esbuild assembles the ES-module graph in static/game/*.js into one
+# minified bundle.js. Lives only here (node isn't pulled into the prod
+# image); templates/game.html loads that same single bundle.js in both dev
+# and prod — dev is just built/watched locally instead (scripts/dev.sh).
 #
-# Tailwind (tailwind.src.css → static/game/tailwind.css) збирається тут же —
-# на відміну від esbuild, Tailwind v4's `@import "tailwindcss"` резолвиться
-# як звичайний Node-пакет (не bare npx: 'tailwindcss' має бути в node_modules,
-# звідси package.json/-lock.json + npm ci), і `@source` сканує templates/*.html
-# на реальні класи — тому templates/ теж копіюється в цей стейдж.
-# assets/tailwind.src.css живе поза static/ — інакше whitenoise's
-# collectstatic post-processor (Python-стейдж нижче) намагається
-# переписати url()-подібні токени в кожному .css під static/, включно з
-# `@import "tailwindcss"` у джерелі, і падає з MissingFileError (задокументована
-# пастка WhiteNoise+Tailwind, не власний винахід — те саме радять доки
-# django-tailwind-cli).
+# Tailwind (tailwind.src.css → static/game/tailwind.css) is built in this
+# same stage — unlike esbuild, Tailwind v4's `@import "tailwindcss"`
+# resolves as a regular Node package (not bare npx: 'tailwindcss' has to be
+# in node_modules, hence package.json/-lock.json + npm ci), and `@source`
+# scans templates/*.html for the actual classes used — so templates/ is
+# also copied into this stage.
+# assets/tailwind.src.css lives outside static/ — otherwise whitenoise's
+# collectstatic post-processor (the Python stage below) tries to rewrite
+# url()-like tokens in every .css under static/, including
+# `@import "tailwindcss"` in the source, and fails with MissingFileError (a
+# documented WhiteNoise+Tailwind pitfall, not our own invention — the same
+# thing the django-tailwind-cli docs recommend around).
 FROM node:20-slim AS jsbuild
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -47,8 +49,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-install-project --no-dev
 
 COPY . .
-# Свіжозбудовані bundle.js/tailwind.css кладемо поверх (у git їх немає —
-# .gitignore), щоб саме вони потрапили у collectstatic-маніфест.
+# Overlay the freshly built bundle.js/tailwind.css (they aren't in git —
+# .gitignore), so it's these that end up in the collectstatic manifest.
 COPY --from=jsbuild /app/static/game/bundle.js static/game/bundle.js
 COPY --from=jsbuild /app/static/game/tailwind.css static/game/tailwind.css
 RUN uv sync --locked --no-dev

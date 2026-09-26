@@ -124,10 +124,10 @@
 <script src="{% url 'javascript-catalog' %}"></script>
 <script src="{% static 'vendor/phaser.min.js' %}"></script>
 {% comment %}
-Той самий bundle.js в dev і в prod — локально його на льоту перебудовує
-esbuild --watch (scripts/dev.sh, без --minify + --sourcemap для читаних
-стектрейсів), прод збирає мінімізований у Dockerfile: jsbuild-стейдж.
-Файл — build-артефакт, у git не комітиться (.gitignore).
+The same bundle.js in dev and in prod — locally it's rebuilt on the fly by
+esbuild --watch (scripts/dev.sh, no --minify + --sourcemap for readable
+stack traces), prod builds a minified one in Dockerfile: jsbuild stage.
+The file is a build artifact, not committed to git (.gitignore).
 {% endcomment %}
 <script type="module" src="{% static 'game/bundle.js' %}"></script>
 </body>

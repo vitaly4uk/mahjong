@@ -2,28 +2,28 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Браузерний маджонг-пасьянс на Phaser 3 з полем 9×9×3 (мінус центр верхнього шару, 242 тайли) і гарантовано розв'язною генерацією, вбудований у наявний Django-проєкт.
+**Goal:** A browser-based mahjong solitaire on Phaser 3 with a 9×9×3 board (minus the center of the top layer, 242 tiles) and a guaranteed-solvable generation, embedded into the existing Django project.
 
-**Architecture:** Чиста ігрова логіка в ES-модулях `static/game/board.js` (модель поля) та `static/game/generator.js` (розв'язна генерація через симуляцію зворотної гри), тестована через `node:test` без npm. Рендер і ввід — Phaser 3 (один vendor-файл) у `static/game/main.js`, сторінка — Django-шаблон `templates/game.html` на корені `/`. UI-кнопки — DOM-елементи над канвасом.
+**Architecture:** Pure game logic in ES modules `static/game/board.js` (board model) and `static/game/generator.js` (solvable generation via reverse-game simulation), tested via `node:test` without npm. Rendering and input — Phaser 3 (a single vendor file) in `static/game/main.js`, the page — Django template `templates/game.html` at the root `/`. UI buttons — DOM elements above the canvas.
 
-**Tech Stack:** Django 6.0 (без змін залежностей), Phaser 3.90.0 (мініфікований файл у static), vanilla JS ES-модулі, node:test (node v26 локально), тайли CC0 з FluffyStuff/riichi-mahjong-tiles.
+**Tech Stack:** Django 6.0 (no dependency changes), Phaser 3.90.0 (minified file in static), vanilla JS ES modules, node:test (node v26 locally), CC0 tiles from FluffyStuff/riichi-mahjong-tiles.
 
 **Spec:** `docs/superpowers/specs/2026-07-15-mahjong-solitaire-mvp-design.md`
 
 ## Global Constraints
 
-- Без npm/package.json/білд-системи. Phaser — статичний файл `static/vendor/phaser.min.js`.
-- Логіка (board.js, generator.js) не імпортує Phaser і не торкається DOM.
-- Поле: 9×9×3 мінус (x=4, y=4, z=2) = 242 тайли. Координати x,y ∈ 0..8, z ∈ 0..2.
-- Тайл вільний ⇔ клітина (x,y,z+1) порожня І (x−1,y,z) або (x+1,y,z) порожня.
-- 34 види тайлів: Man1–9, Pin1–9, Sou1–9, Ton, Nan, Shaa, Pei, Haku, Hatsu, Chun. Імена = імена PNG-файлів.
-- 121 пара = 19 випадкових видів × 4 пари + 15 видів × 3 пари.
-- Dockerfile, Procfile, pyproject.toml — не змінювати.
-- Тести: `node --test 'tests/*.test.js'` з кореня репо.
+- No npm/package.json/build system. Phaser — static file `static/vendor/phaser.min.js`.
+- Logic (board.js, generator.js) does not import Phaser and does not touch the DOM.
+- Board: 9×9×3 minus (x=4, y=4, z=2) = 242 tiles. Coordinates x,y ∈ 0..8, z ∈ 0..2.
+- A tile is free ⇔ the cell (x,y,z+1) is empty AND (x−1,y,z) or (x+1,y,z) is empty.
+- 34 tile kinds: Man1–9, Pin1–9, Sou1–9, Ton, Nan, Shaa, Pei, Haku, Hatsu, Chun. Names = PNG file names.
+- 121 pairs = 19 random kinds × 4 pairs + 15 kinds × 3 pairs.
+- Dockerfile, Procfile, pyproject.toml — do not change.
+- Tests: `node --test 'tests/*.test.js'` from the repo root.
 
 ---
 
-### Task 1: Модель поля (board.js)
+### Task 1: Board model (board.js)
 
 **Files:**
 - Create: `static/game/board.js`
@@ -31,25 +31,25 @@
 
 **Interfaces:**
 - Produces:
-  - `WIDTH = 9`, `HEIGHT = 9`, `LAYERS = 3` (числові константи)
-  - `posKey(x, y, z)` → рядок `"x,y,z"`
-  - `targetPositions()` → масив 242 об'єктів `{x, y, z}` (без `{4,4,2}`)
-  - `isFreePosition(occupied, x, y, z)` → boolean; `occupied` — будь-що з методом `.has(key)` (Map/Set з ключами `posKey`)
+  - `WIDTH = 9`, `HEIGHT = 9`, `LAYERS = 3` (numeric constants)
+  - `posKey(x, y, z)` → string `"x,y,z"`
+  - `targetPositions()` → array of 242 objects `{x, y, z}` (without `{4,4,2}`)
+  - `isFreePosition(occupied, x, y, z)` → boolean; `occupied` — anything with a `.has(key)` method (Map/Set with `posKey` keys)
   - `class Board`:
-    - `constructor(tiles)` — tiles: масив об'єктів `{x, y, z, kind}` (зберігаються за посиланням)
-    - `tiles()` → масив тайлів, що лишилися
+    - `constructor(tiles)` — tiles: array of objects `{x, y, z, kind}` (stored by reference)
+    - `tiles()` → array of remaining tiles
     - `isFree(tile)` → boolean
-    - `canMatch(a, b)` → boolean (різні об'єкти, однаковий kind, обидва вільні)
-    - `removePair(a, b)` → boolean (false якщо не canMatch; при true — знімає і пише в undo-стек)
-    - `undo()` → `[a, b]` або `null`
-    - `findMatchingPair()` → `[a, b]` або `null` (серед вільних)
-    - `get remaining` → число
+    - `canMatch(a, b)` → boolean (different objects, same kind, both free)
+    - `removePair(a, b)` → boolean (false if not canMatch; if true — removes and pushes to the undo stack)
+    - `undo()` → `[a, b]` or `null`
+    - `findMatchingPair()` → `[a, b]` or `null` (among free tiles)
+    - `get remaining` → number
     - `isWon()` → boolean
-    - `isDeadlocked()` → boolean (`remaining > 0` і немає пар)
+    - `isDeadlocked()` → boolean (`remaining > 0` and no pairs)
 
-- [x] **Step 1: Написати падаючі тести**
+- [x] **Step 1: Write failing tests**
 
-Створити `tests/board.test.js`:
+Create `tests/board.test.js`:
 
 ```js
 import test from 'node:test';
@@ -105,7 +105,7 @@ test('Board.isFree matches the rules', () => {
   assert.equal(board.isFree(covered), false);
   assert.equal(board.isFree(cover), true);
   assert.equal(board.isFree(mid), false);
-  assert.equal(board.isFree(t(7, 7, 0, 'Chun')), false); // не на дошці
+  assert.equal(board.isFree(t(7, 7, 0, 'Chun')), false); // not on the board
 });
 
 test('removePair: rejects non-matching, same tile, blocked tiles', () => {
@@ -113,12 +113,12 @@ test('removePair: rejects non-matching, same tile, blocked tiles', () => {
   const b = t(3, 0, 0, 'Man1');
   const other = t(5, 0, 0, 'Pin1');
   const board = new Board([a, b, other]);
-  assert.equal(board.removePair(a, other), false); // різний вид
-  assert.equal(board.removePair(a, a), false); // той самий тайл
+  assert.equal(board.removePair(a, other), false); // different kind
+  assert.equal(board.removePair(a, a), false); // the same tile
   assert.equal(board.remaining, 3);
   assert.equal(board.removePair(a, b), true);
   assert.equal(board.remaining, 1);
-  assert.equal(board.isFree(a), false); // знятий тайл більше не на дошці
+  assert.equal(board.isFree(a), false); // removed tile is no longer on the board
 });
 
 test('undo restores the last removed pair, returns null on empty stack', () => {
@@ -136,7 +136,7 @@ test('undo restores the last removed pair, returns null on empty stack', () => {
 });
 
 test('findMatchingPair, isDeadlocked, isWon', () => {
-  // Man1 у центрі ряду заблокований з боків, другий Man1 вільний → пари немає
+  // Man1 in the middle of the row is blocked on both sides, the second Man1 is free → no pair
   const blockedMan = t(1, 0, 0, 'Man1');
   const freeMan = t(4, 4, 0, 'Man1');
   const board = new Board([
@@ -164,14 +164,14 @@ test('tiles() returns remaining tiles', () => {
 });
 ```
 
-- [x] **Step 2: Переконатися, що тести падають**
+- [x] **Step 2: Verify that the tests fail**
 
 Run: `node --test 'tests/*.test.js'`
 Expected: FAIL — `Cannot find module .../static/game/board.js`
 
-- [x] **Step 3: Реалізувати board.js**
+- [x] **Step 3: Implement board.js**
 
-Створити `static/game/board.js`:
+Create `static/game/board.js`:
 
 ```js
 export const WIDTH = 9;
@@ -180,7 +180,7 @@ export const LAYERS = 3;
 
 export const posKey = (x, y, z) => `${x},${y},${z}`;
 
-// Цільова форма: 3 повні шари 9×9 мінус центр верхнього шару → 242 позиції.
+// Target shape: 3 full 9×9 layers minus the center of the top layer → 242 positions.
 export function targetPositions() {
   const out = [];
   for (let z = 0; z < LAYERS; z++) {
@@ -194,7 +194,7 @@ export function targetPositions() {
   return out;
 }
 
-// occupied — будь-який об'єкт з .has(posKey(...)): Set або Map.
+// occupied — any object with .has(posKey(...)): Set or Map.
 export function isFreePosition(occupied, x, y, z) {
   if (occupied.has(posKey(x, y, z + 1))) return false;
   return !occupied.has(posKey(x - 1, y, z)) || !occupied.has(posKey(x + 1, y, z));
@@ -260,10 +260,10 @@ export class Board {
 }
 ```
 
-- [x] **Step 4: Переконатися, що тести проходять**
+- [x] **Step 4: Verify that the tests pass**
 
 Run: `node --test 'tests/*.test.js'`
-Expected: PASS, 10 тестів.
+Expected: PASS, 10 tests.
 
 - [x] **Step 5: Commit**
 
@@ -274,23 +274,23 @@ git commit -m "feat: mahjong board model with free-tile rule, match/undo, deadlo
 
 ---
 
-### Task 2: Розв'язна генерація (generator.js)
+### Task 2: Solvable generation (generator.js)
 
 **Files:**
 - Create: `static/game/generator.js`
 - Test: `tests/generator.test.js`
 
 **Interfaces:**
-- Consumes: `targetPositions()`, `posKey`, `isFreePosition` з `./board.js`
+- Consumes: `targetPositions()`, `posKey`, `isFreePosition` from `./board.js`
 - Produces:
-  - `KINDS` — масив 34 рядків (імена видів = імена PNG)
-  - `generateLayout(rng = Math.random)` → масив 242 тайлів `{x, y, z, kind}`, **упорядкований парами в порядку розв'язку**: пара i — елементи `[2i]` та `[2i+1]`; послідовне зняття пар у цьому порядку легальне і спорожнює поле.
+  - `KINDS` — an array of 34 strings (kind names = PNG names)
+  - `generateLayout(rng = Math.random)` → an array of 242 tiles `{x, y, z, kind}`, **ordered in pairs in solution order**: pair i — elements `[2i]` and `[2i+1]`; removing pairs sequentially in this order is legal and empties the board.
 
-**Алгоритм (симуляція зворотної гри):** заповнюємо всю цільову форму анонімними позиціями; далі граємо «в майбутнє»: на кожному кроці знаходимо всі вільні позиції (за правилом зняття), беремо дві випадкові, призначаємо їм черговий вид пари і знімаємо. Записаний порядок зняття = готовий розв'язок. Якщо вільних < 2 (рідкісний глухий кут, наприклад дві позиції одна над одною наприкінці) — повний рестарт спроби.
+**Algorithm (reverse-game simulation):** fill the entire target shape with anonymous positions; then play "into the future": at each step find all free positions (per the removal rule), take two random ones, assign them the next pair's kind, and remove them. The recorded removal order = a ready-made solution. If fewer than 2 positions are free (a rare dead end, e.g. two positions stacked at the very end) — restart the attempt from scratch.
 
-- [x] **Step 1: Написати падаючі тести**
+- [x] **Step 1: Write failing tests**
 
-Створити `tests/generator.test.js`:
+Create `tests/generator.test.js`:
 
 ```js
 import test from 'node:test';
@@ -298,7 +298,7 @@ import assert from 'node:assert/strict';
 import { generateLayout, KINDS } from '../static/game/generator.js';
 import { Board, targetPositions, posKey } from '../static/game/board.js';
 
-// Детермінований PRNG для відтворюваних тестів.
+// Deterministic PRNG for reproducible tests.
 function mulberry32(seed) {
   return function () {
     seed |= 0;
@@ -358,14 +358,14 @@ test('layout is solvable by removing pairs in generation order (30 seeds)', () =
 });
 ```
 
-- [x] **Step 2: Переконатися, що нові тести падають**
+- [x] **Step 2: Verify that the new tests fail**
 
 Run: `node --test 'tests/*.test.js'`
-Expected: board-тести PASS, generator-тести FAIL (`Cannot find module .../generator.js`).
+Expected: board tests PASS, generator tests FAIL (`Cannot find module .../generator.js`).
 
-- [x] **Step 3: Реалізувати generator.js**
+- [x] **Step 3: Implement generator.js**
 
-Створити `static/game/generator.js`:
+Create `static/game/generator.js`:
 
 ```js
 import { targetPositions, posKey, isFreePosition } from './board.js';
@@ -385,7 +385,7 @@ function shuffle(arr, rng) {
   return arr;
 }
 
-// 121 вид пари: 19 випадкових видів по 4 пари + 15 видів по 3 пари.
+// 121 pair kinds: 19 random kinds with 4 pairs each + 15 kinds with 3 pairs each.
 function buildPairKinds(rng) {
   const kinds = shuffle([...KINDS], rng);
   const pairKinds = [];
@@ -396,9 +396,9 @@ function buildPairKinds(rng) {
   return shuffle(pairKinds, rng);
 }
 
-// Симуляція зворотної гри: знімаємо випадкові вільні пари з повної форми,
-// призначаючи видам порядок зняття. Результат розв'язний за побудовою —
-// записаний порядок зняття і є розв'язком.
+// Reverse-game simulation: remove random free pairs from the full shape,
+// assigning kinds in removal order. The result is solvable by construction —
+// the recorded removal order is itself the solution.
 function tryGenerate(rng) {
   const occupied = new Map(
     targetPositions().map((p) => [posKey(p.x, p.y, p.z), p]),
@@ -429,10 +429,10 @@ export function generateLayout(rng = Math.random) {
 }
 ```
 
-- [x] **Step 4: Переконатися, що всі тести проходять**
+- [x] **Step 4: Verify that all tests pass**
 
 Run: `node --test 'tests/*.test.js'`
-Expected: PASS, 15 тестів (10 board + 5 generator). Тест на 30 сідів має пройти за секунди.
+Expected: PASS, 15 tests (10 board + 5 generator). The 30-seed test should pass within seconds.
 
 - [x] **Step 5: Commit**
 
@@ -443,23 +443,23 @@ git commit -m "feat: guaranteed-solvable layout generator via reverse-game simul
 
 ---
 
-### Task 3: Статичні ресурси та Django-інтеграція
+### Task 3: Static assets and Django integration
 
 **Files:**
-- Create: `static/vendor/phaser.min.js` (завантажити)
-- Create: `static/game/tiles/*.png` (35 файлів: 34 види + Front.png)
+- Create: `static/vendor/phaser.min.js` (download)
+- Create: `static/game/tiles/*.png` (35 files: 34 kinds + Front.png)
 - Create: `templates/game.html`
-- Modify: `config/settings.py` (додати `STATICFILES_DIRS`)
-- Modify: `config/urls.py` (корінь → game.html)
-- Modify: `.gitignore` (переконатися, що `staticfiles/` ігнорується)
+- Modify: `config/settings.py` (add `STATICFILES_DIRS`)
+- Modify: `config/urls.py` (root → game.html)
+- Modify: `.gitignore` (make sure `staticfiles/` is ignored)
 
 **Interfaces:**
-- Consumes: імена видів `KINDS` (Task 2) = імена PNG-файлів.
+- Consumes: kind names `KINDS` (Task 2) = PNG file names.
 - Produces:
-  - Сторінка `/` з DOM: `#toolbar` (кнопки `#btn-new`, `#btn-hint`, `#btn-undo`, статус `#status`), контейнер `#game-container`, підключені `vendor/phaser.min.js` (звичайний script) і `game/main.js` (module).
-  - Тайли доступні за URL `/static/game/tiles/<Kind>.png`.
+  - Page `/` with DOM: `#toolbar` (buttons `#btn-new`, `#btn-hint`, `#btn-undo`, status `#status`), container `#game-container`, with `vendor/phaser.min.js` (plain script) and `game/main.js` (module) included.
+  - Tiles available at URL `/static/game/tiles/<Kind>.png`.
 
-- [x] **Step 1: Завантажити Phaser і тайли**
+- [x] **Step 1: Download Phaser and tiles**
 
 ```bash
 cd /Users/vitaly4uk/Documents/GitHub/mahjong
@@ -474,22 +474,22 @@ for n in $names; do
   curl -fsSL -o "static/game/tiles/$n.png" \
     "https://raw.githubusercontent.com/FluffyStuff/riichi-mahjong-tiles/master/Export/Regular/$n.png"
 done
-ls static/game/tiles | wc -l   # очікується 35
+ls static/game/tiles | wc -l   # expected 35
 ```
 
-Перевірити розмір одного PNG (`file static/game/tiles/Man1.png`) — має бути валідний PNG.
+Check the size of one PNG (`file static/game/tiles/Man1.png`) — should be a valid PNG.
 
-- [x] **Step 2: Додати STATICFILES_DIRS у settings.py**
+- [x] **Step 2: Add STATICFILES_DIRS to settings.py**
 
-У `config/settings.py` після рядка `STATIC_ROOT = BASE_DIR / 'staticfiles'` додати:
+In `config/settings.py`, after the line `STATIC_ROOT = BASE_DIR / 'staticfiles'`, add:
 
 ```python
 STATICFILES_DIRS = [BASE_DIR / 'static']
 ```
 
-Переконатися, що `.gitignore` містить рядок `staticfiles/` (додати, якщо немає).
+Make sure `.gitignore` contains the line `staticfiles/` (add it if missing).
 
-- [x] **Step 3: Створити templates/game.html**
+- [x] **Step 3: Create templates/game.html**
 
 ```html
 {% load static %}
@@ -498,7 +498,7 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Маджонг</title>
+<title>Mahjong</title>
 <style>
   body {
     margin: 0; min-height: 100vh; display: flex; flex-direction: column;
@@ -517,9 +517,9 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 </head>
 <body>
 <div id="toolbar">
-  <button id="btn-new">Нова гра</button>
-  <button id="btn-hint">Підказка</button>
-  <button id="btn-undo">Скасувати</button>
+  <button id="btn-new">New game</button>
+  <button id="btn-hint">Hint</button>
+  <button id="btn-undo">Undo</button>
   <span id="status"></span>
 </div>
 <div id="game-container"></div>
@@ -529,29 +529,29 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 </html>
 ```
 
-- [x] **Step 4: Переключити корінь на гру**
+- [x] **Step 4: Switch the root to the game**
 
-У `config/urls.py` замінити рядок з `coming_soon.html`:
+In `config/urls.py`, replace the line with `coming_soon.html`:
 
 ```python
     path('', TemplateView.as_view(template_name='game.html'), name='home'),
 ```
 
-(Шаблон `templates/coming_soon.html` можна лишити — не заважає.)
+(The `templates/coming_soon.html` template can be left in place — it's harmless.)
 
-- [x] **Step 5: Перевірка**
+- [x] **Step 5: Verification**
 
-`static/game/main.js` ще не існує — створити тимчасову заглушку, щоб перевірити сторінку:
+`static/game/main.js` doesn't exist yet — create a temporary stub to check the page:
 
 ```bash
 echo "console.log('main.js stub');" > static/game/main.js
 uv run manage.py runserver 8000 &
 sleep 2
-curl -s http://127.0.0.1:8000/ | grep -c 'game-container'      # очікується 1
+curl -s http://127.0.0.1:8000/ | grep -c 'game-container'      # expected 1
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/static/vendor/phaser.min.js   # 200
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/static/game/tiles/Man1.png    # 200
 kill %1
-uv run manage.py collectstatic --noinput --dry-run | tail -1   # без помилок
+uv run manage.py collectstatic --noinput --dry-run | tail -1   # no errors
 ```
 
 - [x] **Step 6: Commit**
@@ -563,20 +563,20 @@ git commit -m "feat: game page, Phaser vendor bundle, CC0 riichi tile assets (Fl
 
 ---
 
-### Task 4: Phaser-сцена та UI (main.js)
+### Task 4: Phaser scene and UI (main.js)
 
 **Files:**
-- Create (замінити заглушку): `static/game/main.js`
+- Create (replace the stub): `static/game/main.js`
 
 **Interfaces:**
 - Consumes:
-  - `Board` (методи з Task 1: `tiles()`, `isFree`, `canMatch`, `removePair`, `undo`, `findMatchingPair`, `remaining`, `isWon`, `isDeadlocked`)
+  - `Board` (methods from Task 1: `tiles()`, `isFree`, `canMatch`, `removePair`, `undo`, `findMatchingPair`, `remaining`, `isWon`, `isDeadlocked`)
   - `generateLayout()`, `KINDS` (Task 2)
-  - DOM з Task 3: `#btn-new`, `#btn-hint`, `#btn-undo`, `#status`, `#game-container`
-  - Глобальний `Phaser` (vendor-скрипт)
-- Produces: повнофункціональна гра на `/`.
+  - DOM from Task 3: `#btn-new`, `#btn-hint`, `#btn-undo`, `#status`, `#game-container`
+  - Global `Phaser` (vendor script)
+- Produces: a fully functional game at `/`.
 
-- [x] **Step 1: Реалізувати main.js**
+- [x] **Step 1: Implement main.js**
 
 ```js
 import { WIDTH, HEIGHT, LAYERS, Board } from './board.js';
@@ -584,7 +584,7 @@ import { generateLayout, KINDS } from './generator.js';
 
 const TILE_W = 70;
 const TILE_H = 90;
-const LAYER_DX = 6; // зсув шару вгору-вправо для псевдо-3D
+const LAYER_DX = 6; // layer offset up-right for pseudo-3D
 const LAYER_DY = 8;
 const MARGIN = 30;
 const GAME_W = WIDTH * TILE_W + 2 * MARGIN + LAYERS * LAYER_DX;
@@ -697,11 +697,11 @@ class MainScene extends Phaser.Scene {
 
   updateStatus() {
     if (this.board.isWon()) {
-      statusEl.textContent = 'Перемога! 🎉';
+      statusEl.textContent = 'You win! 🎉';
     } else if (this.board.isDeadlocked()) {
-      statusEl.textContent = 'Немає ходів — почніть нову гру';
+      statusEl.textContent = 'No moves left — start a new game';
     } else {
-      statusEl.textContent = `Тайлів: ${this.board.remaining}`;
+      statusEl.textContent = `Tiles: ${this.board.remaining}`;
     }
   }
 }
@@ -725,30 +725,30 @@ document.getElementById('btn-hint').addEventListener('click', () => scene().hint
 document.getElementById('btn-undo').addEventListener('click', () => scene().undo());
 ```
 
-- [x] **Step 2: Запустити всі логічні тести (регресія)**
+- [x] **Step 2: Run all logic tests (regression)**
 
 Run: `node --test 'tests/*.test.js'`
-Expected: PASS, 15 тестів.
+Expected: PASS, 15 tests.
 
-- [x] **Step 3: Смоук-тест у браузері**
+- [x] **Step 3: Smoke test in the browser**
 
 ```bash
 uv run manage.py runserver 8000
 ```
 
-Відкрити `http://127.0.0.1:8000/` у браузері (playwright/chrome-інструменти або вручну) і перевірити:
-- Поле 9×9 з трьома шарами відрендерене, тайли читабельні, верхні шари зсунуті.
-- Консоль браузера без помилок (404 по тайлах, JS-помилки).
-- Клік по вільному тайлу — підсвітка; по другому такому ж — пара зникає, лічильник -2.
-- Клік по заблокованому тайлу (центр нижнього шару) — нічого не відбувається.
-- «Підказка» — пара блимає; «Скасувати» — пара повертається; «Нова гра» — новий розклад із 242 тайлів.
+Open `http://127.0.0.1:8000/` in a browser (playwright/chrome tools or manually) and verify:
+- The 9×9 board with three layers is rendered, tiles are legible, upper layers are shifted.
+- Browser console has no errors (404s on tiles, JS errors).
+- Clicking a free tile — highlights it; clicking a second matching tile — the pair disappears, counter -2.
+- Clicking a blocked tile (center of the bottom layer) — nothing happens.
+- "Hint" — the pair blinks; "Undo" — the pair returns; "New game" — a new layout of 242 tiles.
 
-- [x] **Step 4: Перевірити prod-збірку статики**
+- [x] **Step 4: Verify the prod static build**
 
 ```bash
 uv run manage.py collectstatic --noinput
 ```
-Expected: зібрано без помилок (whitenoise manifest). Каталог `staticfiles/` не потрапляє в git.
+Expected: built without errors (whitenoise manifest). The `staticfiles/` directory does not go into git.
 
 - [x] **Step 5: Commit**
 
@@ -759,11 +759,11 @@ git commit -m "feat: Phaser scene — rendering, matching, hint, undo, deadlock/
 
 ---
 
-## Верифікація по спеці (чекліст фіналу)
+## Verification against the spec (final checklist)
 
-- [x] 242 тайли (9×9×3 мінус центр верхнього шару) — тест `targetPositions`.
-- [x] Правило вільності — тести board.
-- [x] Гарантована розв'язність — тест на 30 сідів.
-- [x] 34 види, 19×4 + 15×3 пари — тест розподілу.
-- [x] Нова гра / підказка / undo / детекція глухого кута — браузерний смоук.
-- [x] Dockerfile/Procfile незмінні, collectstatic працює.
+- [x] 242 tiles (9×9×3 minus the center of the top layer) — `targetPositions` test.
+- [x] Free-tile rule — board tests.
+- [x] Guaranteed solvability — 30-seed test.
+- [x] 34 kinds, 19×4 + 15×3 pairs — distribution test.
+- [x] New game / hint / undo / dead-end detection — browser smoke test.
+- [x] Dockerfile/Procfile unchanged, collectstatic works.

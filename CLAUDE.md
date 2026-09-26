@@ -1,224 +1,277 @@
 # CLAUDE.md
 
-Контекст проєкту та інфраструктура для деплою mahjong.
+Project context and deployment infrastructure for mahjong.
 
-## Мова
+## Language
 
-**Усі коментарі в коді (`.py`/`.js`) — англійською**, без винятків. Це правило
-не поширюється на цей файл (CLAUDE.md), на `docs/superpowers/`, на
-user-facing рядки (тексти UI, повідомлення статусу гравцю тощо) чи на git-
-коміти — лише на коментарі всередині файлів вихідного коду.
+**All text in this repository is English** — code comments and docstrings,
+this file (CLAUDE.md), `README.md`, everything under `docs/**`, `Dockerfile`/
+config comments, template comments, dev-script output, and commit messages. No
+exceptions. The only carve-out: the Ukrainian **translation catalog**
+(`locale/uk/LC_MESSAGES/*.po` `msgstr` values) — that is the shipped Ukrainian
+translation itself, not project prose; msgids stay English as usual (see
+Localization below).
 
-## Документація
+## Documentation
 
-**Цей файл — карта, не дзеркало докстрінгів.** Тут пишемо лише те, що не
-видно з читання одного файлу: як файли пов'язані між собою, чому прийнято
-нетривіальне рішення, операційні знання (деплой/env/команди), яких більше
-ніде нема. Сигнатури, алгоритми, розбір поле-за-полем — у докстрінгах й
-коментарях самого коду, **не тут**: дубль неминуче розходиться з кодом
-при наступній зміні (перевірено на власному досвіді — секція нижче вже раз
-розрослася в повний переказ `gameplay/api.py`/`main.js` і застаріла). Коли
-додаєш опис нового модуля/фічі — 1–3 речення (шлях, відповідальність,
-cross-file зв'язок), деталі лишай коду; для нової фічі повний дизайн іде в
-`docs/superpowers/specs/`, не сюди.
+**This file is a map, not a docstring mirror.** Write here only what isn't
+visible from reading a single file: how files relate to each other, why a
+non-obvious decision was made, operational knowledge (deploy/env/commands)
+that lives nowhere else. Signatures, algorithms, field-by-field breakdowns
+belong in the code's own docstrings and comments, **not here**: a duplicate
+inevitably drifts from the code on the next change (learned the hard way — the
+section below already once grew into a full retelling of `gameplay/api.py`/
+`main.js` and went stale). When adding a description for a new module/feature
+— 1–3 sentences (path, responsibility, cross-file link), leave details to the
+code; a new feature's full design goes in `docs/superpowers/specs/`, not here.
 
-## Що це
+## What this is
 
-Браузерна гра «маджонг-пасьянс»: поле — одна з кількох класичних розкладок (Cat/Crab/Dragon/Spider/Turtle, `layouts/*.layout`) на **144 кістки** (повний маджонг-набір: 34 звичайні види × 4 копії + 8 бонусних квітів/сезонів × 1), розклад **гарантовано розв'язний**. Форма поля (яка розкладка) обирається гравцем у модалці нової гри, ідентична для 144-кісткового набору незалежно від обраної форми — див. `gameplay/layouts.py`. Координати — пів-тайлова сітка (як у справжньому kmahjongg): звичайна кістка стоїть на парних координатах, а пік/виступи "голова-хвіст" — на непарних, точно між сусідами, без наближень. Бонусні види матчаться **wildcard-групами** (будь-яка квітка ↔ квітка, будь-який сезон ↔ сезон). Гра живе на корені `/`. Дизайн і план: `docs/superpowers/specs/` (найновіше — `2026-07-29-tailwind-dom-ui-migration.md`), `docs/superpowers/plans/`.
+A browser-based "mahjong solitaire" game: the board is one of several classic
+layouts (Cat/Crab/Dragon/Spider/Turtle, `layouts/*.layout`) built on **144
+tiles** (a full mahjong set: 34 regular kinds × 4 copies + 8 bonus flowers/
+seasons × 1), the deal is **guaranteed solvable**. The board shape (which
+layout) is chosen by the player in the new-game modal and is identical for the
+144-tile set regardless of the chosen shape — see `gameplay/layouts.py`.
+Coordinates use a half-tile grid (like real kmahjongg): a regular tile sits on
+even coordinates, while "head-tail" peaks/overhangs sit on odd ones, exactly
+between neighbors, with no approximation. Bonus kinds match as **wildcard
+groups** (any flower ↔ any flower, any season ↔ any season). The game lives at
+root `/`. Design and plans: `docs/superpowers/specs/` (latest —
+`2026-07-29-tailwind-dom-ui-migration.md`), `docs/superpowers/plans/`.
 
-## Стиль коду (Python)
+## Code style (Python)
 
-Для структур даних завжди `ninja.Schema` (або pydantic `BaseModel`), ніколи `namedtuple`/`@dataclass` — єдиний стиль моделей у проєкті (`gameplay/schemas.py`, `config/schemas.py`, `gameplay/layouts.py: Layout`).
+For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
+`namedtuple`/`@dataclass` — the single model style across the project
+(`gameplay/schemas.py`, `config/schemas.py`, `gameplay/layouts.py: Layout`).
 
-## Стек
+## Stack
 
-- **Django 6.0** + **uv** як пакетний менеджер.
-- **django-ninja** — увесь JSON/HTTP API проєкту (жодного plain Django view/`JsonResponse` — лише `admin/` (стандартна Django-адмінка) і `''` (рендер HTML-сторінки гри) лишаються поза ninja, бо це не API).
-- Проєкт Django: `config/` (settings/urls/api/wsgi), `manage.py` в корені.
-- Продакшен-сервер: `gunicorn` (`config.wsgi:application`).
-- Фронтенд гри: **Phaser 3.90** vanilla JS ES-модулями. Phaser — локальний файл `static/vendor/phaser.min.js`. **Збірка JS**: `templates/game.html` завжди вантажить **один** `static/game/bundle.js` (жодного `{% if debug %}`-розгалуження), який `esbuild` склеює з графа модулів `static/game/*.js`. Локально — `esbuild --watch` (`scripts/dev.sh`, без `--minify`, з `--sourcemap` заради читаних стектрейсів/брейкпоінтів у devtools на реальних вихідних файлах); прод — мінімізований, без sourcemap, на етапі Docker-білда (окремий `node`-стейдж `jsbuild` у `Dockerfile`). І `bundle.js`, і `bundle.js.map` — build-артефакти, у git не комітяться (`.gitignore`); dev-версія і prod-версія ніколи не існують одночасно (різні контексти запуску), тож конфлікту імені файлу нема.
-- **CSS — Tailwind CSS v4** (`assets/tailwind.src.css` → зібраний `static/game/tailwind.css`, теж build-артефакт поза git). На відміну від esbuild, Tailwind-CLI резолвить `@import "tailwindcss"` як звичайний Node-пакет, тож голого `npx --yes` (як для esbuild/Biome) не досить — у корені є мінімальний `package.json`/`package-lock.json` (`node_modules/` у `.gitignore`). `Dockerfile: jsbuild`-стейдж робить `npm ci`, потім збирає обидва — і `bundle.js`, і `tailwind.css`; локально — `npx @tailwindcss/cli -i assets/tailwind.src.css -o static/game/tailwind.css --watch=always` поруч із `runserver` (див. Локальна розробка нижче). `@source` у `assets/tailwind.src.css` сканує і `templates/**/*.html`, і `static/game/*.js` (класи, що пишуться лише з JS — `.open`/`.you`/`.current-tag` тощо), тому `jsbuild`-стейдж копіює й `templates/`. Дизайн/пастки — `docs/superpowers/specs/2026-07-29-tailwind-dom-ui-migration.md`. Кешбастинг — штатний `whitenoise.storage.CompressedManifestStaticFilesStorage` (хеш в імені файлу, працює однаково для JS і CSS); whitenoise на `collectstatic` генерує `.gz` **і `.br`** для кожного статик-файла (brotli — залежність `brotli` у `pyproject.toml`; без неї був би лише gzip) і за `Accept-Encoding` віддає найменший варіант.
-- **`package.json` має і `devDependencies` (Tailwind — build-time, у прод-образ не входить), і `dependencies`** (`@dicebear/core`+`@dicebear/collection` — реально ship-иться в `bundle.js`, `static/game/avatar.js` їх імпортує). `npm install` тому обов'язковий і для локальної розробки, не лише для Docker-білда.
+- **Django 6.0** + **uv** as the package manager.
+- **django-ninja** — the entire project's JSON/HTTP API (no plain Django
+  view/`JsonResponse` — only `admin/` (the standard Django admin) and `''`
+  (renders the game's HTML page) stay outside ninja, since neither is an API).
+- Django project: `config/` (settings/urls/api/wsgi), `manage.py` at the root.
+- Production server: `gunicorn` (`config.wsgi:application`).
+- Game frontend: **Phaser 3.90** vanilla JS ES modules. Phaser is a local file
+  `static/vendor/phaser.min.js`. **JS build**: `templates/game.html` always
+  loads a **single** `static/game/bundle.js` (no `{% if debug %}` branching),
+  which `esbuild` assembles from the module graph in `static/game/*.js`.
+  Locally — `esbuild --watch` (`scripts/dev.sh`, no `--minify`, with
+  `--sourcemap` for readable stack traces/devtools breakpoints on the real
+  source files); production — minified, no sourcemap, at Docker-build time
+  (a separate `node` stage `jsbuild` in `Dockerfile`). Both `bundle.js` and
+  `bundle.js.map` are build artifacts, not committed to git (`.gitignore`);
+  the dev and prod versions never coexist (different run contexts), so there's
+  no filename conflict.
+- **CSS — Tailwind CSS v4** (`assets/tailwind.src.css` → built
+  `static/game/tailwind.css`, also a build artifact outside git). Unlike
+  esbuild, the Tailwind CLI resolves `@import "tailwindcss"` as a regular Node
+  package, so bare `npx --yes` (as used for esbuild/Biome) isn't enough — the
+  repo root has a minimal `package.json`/`package-lock.json`
+  (`node_modules/` in `.gitignore`). `Dockerfile: jsbuild` stage runs
+  `npm ci`, then builds both `bundle.js` and `tailwind.css`; locally —
+  `npx @tailwindcss/cli -i assets/tailwind.src.css -o static/game/tailwind.css
+  --watch=always` alongside `runserver` (see Local development below).
+  `@source` in `assets/tailwind.src.css` scans both `templates/**/*.html` and
+  `static/game/*.js` (classes written only from JS — `.open`/`.you`/
+  `.current-tag` etc.), so the `jsbuild` stage also copies `templates/`.
+  Design/pitfalls — `docs/superpowers/specs/2026-07-29-tailwind-dom-ui-migration.md`.
+  Cache busting is the stock `whitenoise.storage.CompressedManifestStaticFilesStorage`
+  (hash in the filename, works the same for JS and CSS); whitenoise generates
+  `.gz` **and `.br`** for every static file on `collectstatic` (brotli — the
+  `brotli` dependency in `pyproject.toml`; without it there would only be
+  gzip) and serves the smallest variant based on `Accept-Encoding`.
+- **`package.json` has both `devDependencies` (Tailwind — build-time, not in
+  the prod image) and `dependencies`** (`@dicebear/core`+`@dicebear/collection`
+  — actually shipped in `bundle.js`, imported by `static/game/avatar.js`).
+  `npm install` is therefore required for local development too, not just for
+  the Docker build.
 
-## Структура гри
+## Game structure
 
-> Нижче — **карта**, не переказ реалізації: що де лежить, як файли пов'язані
-> між собою і чому прийнято нетривіальне рішення там, де це не видно з
-> самого файлу. Деталі (сигнатури, алгоритми, поле-за-полем) — у
-> докстрінгах/коментарях кожного файлу, тут вони свідомо не дублюються (щоб
-> не розходитись при зміні коду).
+> Below is a **map**, not a retelling of the implementation: what lives
+> where, how files relate to each other, and why a non-obvious decision was
+> made where it isn't visible from the file itself. Details (signatures,
+> algorithms, field-by-field) live in each file's own docstrings/comments and
+> are deliberately not duplicated here (so they don't drift when the code
+> changes).
 
 ### Backend API (django-ninja)
 
-- `config/api.py` — єдиний проєктний `NinjaAPI` (`/api/`): фонове фото,
-  версія білда, монтує `gameplay.api.router` під `/game`. `CsrfOnly` —
-  auth-заглушка, що пускає анонімів, але вимагає звичайний Django CSRF на
-  unsafe-запитах; успадковується всіма підключеними роутерами.
-  Версія білда (хеш `collectstatic`-маніфесту) звіряється клієнтом перед
-  стартом партії (`scene.js: startGame()`) — фікс stale-кешу для
-  standalone-PWA на iOS/macOS, де вікно може тижнями не оновлюватись;
-  свідомо без service worker.
-- `config/schemas.py` — ninja-схеми для `config/api.py`.
-- `layouts/*.layout` (корінь проєкту) — форми полів у рідному форматі
-  kmahjongg, дослівно з [KDE kmahjongg](https://invent.kde.org/games/kmahjongg)
-  (GPL, атрибуція в кожному файлі). Формат парсить `gameplay/layouts.py`
-  (деталі — в докстрінгу модуля). Приймаються лише 144-кісткові розкладки.
-- `gameplay/` — Django-застосунок серверної генерації поля, антиріт-
-  валідації партії, довічної статистики й щоденного турніру:
-  `layouts.py` (парсер `.layout`, а також `board_thumbnail()` — SVG-мініатюра
-  форми поля для іконок пікера в `#newgame-modal`), `board.py` (правило вільності/матчинг —
-  форми поля не знає, лише координатну систему), `generator.py` (генерація
-  гарантовано розв'язного поля), `daily.py` (детермінований щоденний
-  виклик турніру), `models.py` (`GameSession`/`Profile`), `middleware.py`
-  (резолвить гравця з куки `mahjong_player`), `stats.py` (довічні
-  лічильники), `schemas.py`, `api.py` (усі ендпоінти). `GameSession.user`
-  nullable лише заради безболісної міграції вже існуючих рядків (новий код
-  завжди проставляє). Статистику атрибутує гравець, що СТАРТУВАВ партію
-  (`session.user`), не обов'язково той, хто робить поточний запит.
-  Rate-limit на IP через `CF-Connecting-IP` (продакшен за Cloudflare Tunnel
-  — `REMOTE_ADDR` бачив би саму адресу проксі). Дизайн/план:
+- `config/api.py` — the project's single `NinjaAPI` (`/api/`): background
+  photo, build version, mounts `gameplay.api.router` under `/game`.
+  `CsrfOnly` — an auth stub that lets anonymous users through but requires the
+  standard Django CSRF check on unsafe requests; inherited by every mounted
+  router. The build version (hash of the `collectstatic` manifest) is checked
+  by the client before starting a game (`scene.js: startGame()`) — a fix for
+  stale caches on standalone PWAs on iOS/macOS, where the window can go
+  un-refreshed for weeks; deliberately without a service worker.
+- `config/schemas.py` — ninja schemas for `config/api.py`.
+- `layouts/*.layout` (repo root) — board shapes in the native kmahjongg
+  format, taken verbatim from [KDE kmahjongg](https://invent.kde.org/games/kmahjongg)
+  (GPL, attribution in every file). The format is parsed by
+  `gameplay/layouts.py` (details — in the module's docstring). Only
+  144-tile layouts are accepted.
+- `gameplay/` — the Django app for server-side board generation, anti-cheat
+  session validation, lifetime stats and the daily tournament:
+  `layouts.py` (the `.layout` parser, plus `board_thumbnail()` — an SVG
+  thumbnail of the board shape for the picker icons in `#newgame-modal`),
+  `board.py` (the freedom/matching rule — knows nothing about the board
+  shape, only the coordinate system), `generator.py` (generation of a
+  guaranteed-solvable board), `daily.py` (the deterministic daily tournament
+  challenge), `models.py` (`GameSession`/`Profile`), `middleware.py`
+  (resolves the player from the `mahjong_player` cookie), `stats.py`
+  (lifetime counters), `schemas.py`, `api.py` (all endpoints).
+  `GameSession.user` is nullable only for a painless migration of already
+  existing rows (new code always sets it). Stats are attributed to the player
+  who STARTED the session (`session.user`), not necessarily whoever makes the
+  current request. IP rate-limiting goes through `CF-Connecting-IP`
+  (production sits behind a Cloudflare Tunnel — `REMOTE_ADDR` would just see
+  the proxy's own address). Design/plan:
   `docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md`,
   `docs/superpowers/specs/2026-07-28-daily-tournament-design.md`.
-  `Profile.display_name` — вільне (без унікальності) ім'я гравця; `daily.py:
-  nickname_for(profile)` — єдине джерело "як показати гравця" (тулбар +
-  лідерборд турніру), з фолбеком на `Player #xxxx`, якщо ім'я не задане.
-  Те саме ім'я — і сід клієнтського DiceBear-аватара (`static/game/
-  avatar.js`), окремого поля-сіда нема.
-- `static/game/board.js` — модель поля для клієнтського інтерактиву
-  (рендер/кліки/undo/детекція глухого кута); авторитетна перевірка — на
-  сервері (`gameplay/board.py`). Форми поля тут **не** зашито — позиції
-  приходять із серверного `layout`, ширина/висота/шари виводяться з нього ж
-  (`scene.js: applyBoardDims`), не з констант модуля. Чистий модуль, без
-  Phaser/DOM.
-- `static/game/stats.js` — довічні показники тепер на сервері
-  (`gameplay/models.py: Profile.stats`); модуль лишає презентаційні
-  хелпери й одноразовий читач legacy `localStorage`-блоба для переносу на
-  сервер. Чистий модуль, без Phaser/DOM.
-- `static/game/audio.js` — WebAudio-синтез звукових ефектів (клік/пара/
-  помилка/скасування/підказка/shuffle/перемога/програш) — осцилятори й
-  шум, без семплів (нуль файлів, нуль ліцензій). Перемикач у
-  `#profile-modal` (`ui-dom.js`), стан — `localStorage['mahjong.sound']`,
-  окрема преференція від `scene.js: reducedMotion`. `AudioContext`
-  створюється ліниво (лише на перший клік — політика autoplay браузерів),
-  ін'єктована через параметр заради `node --test`. Чистий модуль, без
-  Phaser/DOM.
-- `static/game/avatar.js` — рендер DiceBear-аватара (`@dicebear/core` +
-  стиль `funEmoji` з `@dicebear/collection`, npm-залежності, реально
-  бандляться в `bundle.js` — не HTTP API). Seed = ім'я гравця
-  (`gameplay/daily.py: nickname_for` — той самий рядок, що показаний як
-  ім'я). Мемоізація SVG за `ім'я|розмір`. Чистий модуль, без Phaser/DOM.
-- `static/game/sync.js` — тонкий HTTP-клієнт до `config/api.py`/
-  `gameplay/api.py`. Ідентичність гравця — кука `mahjong_player` (HttpOnly,
-  підписана сервером), їде автоматично з кожним fetch; CSRF-токен — з
-  `window.MAHJONG_CSRF`, заголовок `X-CSRFToken`.
-- `static/game/scene.js` — Phaser-сцена (`MainScene`): тайли, layout/resize,
-  сесія гри (start/resume/finish/shuffle/undo/hint). Канвас малює **лише
-  дошку** — тулбар/смуга статусу/кредит фотографа/модалки тепер DOM
-  (`templates/game.html`, `ui-dom.js`). Поле для нової партії завжди
-  тягнеться з сервера (без мережі гра не починається). Стан UI —
-  Publisher/Subscriber через `this.registry` (Phaser `DataManager`):
-  бізнес-логіка ніде не викликає методів на кшталт «відкрий модалку» — лише
-  пише факт (`registry.set(...)`), `ui-dom.js` підписаний і вирішує, що
-  показати. Партія переживає перезавантаження сторінки — знімок у
-  `localStorage` (`persistGame`/`tryResumeGame`), звіряється з сервером
-  перед відновленням. Ресайз ловиться через `ResizeObserver` на
-  `#game-container`, не `window.resize` — DOM-тулбар/статус-бар можуть
-  змінити висоту суто внутрішнім reflow (перенесення кнопки, зміна довжини
-  лейбла при зміні мови), без жодної події `window resize`.
-- `static/game/effects.js` — анімаційні хелпери для `scene.js`: кожна
-  функція бере `scene` першим аргументом (deal-in, політ пари в лічильник,
-  shuffle-flip, glow/hover/press/error, кінцевий ефект перемоги/програшу,
-  частинки) — винесені зі сцени, щоб `MainScene` лишався про сесію/layout,
-  не про tween-деталі.
-- `static/game/render-constants.js` — базові (design-px) пропорції/кольори/
-  тюнінг ефектів для `scene.js`/`effects.js`. Після переходу на sprite-рендер
-  (готовий oblique-арт Cangjie6) і нативне розрішення геометрія тайла тут
-  більше не «запечена» — розмір і кроки сітки рахуються динамічно в
-  `scene.js` (`computeLayout`) з реального розміру вікна; тут лишились лише
-  базові значення, помножені на DPR у сцені. Чистий модуль, без Phaser/DOM.
-- `static/game/ui-dom.js` — DOM-контролер тулбару/смуги статусу/кредиту
-  фотографа/5 модалок (`templates/game.html`). Лідерборд турніру будує
-  `<li>` через DOM API (`createElement`/`textContent`), не `innerHTML` —
-  `entry.nickname` тепер довільний текст, обраний гравцем (POST
-  `/api/game/profile`), тож інтерполяція в HTML-рядок була б stored XSS.
-  Підписується на
-  `scene.registry` (**і `changedata`, і `setdata`** — Phaser шле
-  `changedata` лише від ДРУГОГО запису ключа, перший завжди йде як `setdata`
-  без пер-ключового варіанта; пропустити це — і початковий рендер кожного
-  щойно заведеного ключа реєстру мовчки не станеться).
-- `static/game/main.js` — тонка точка входу: збирає `Phaser.Game` з
-  `MainScene`, експортує `window.mahjongGame` (доступ до гри для
-  дебагу/тестів).
-- `templates/game.html` — сторінка гри (корінь `/`): `<header>`-тулбар +
-  `<main id="game-container">` (канвас, лише дошка) + `<footer>`-смуга
-  статусу, усі три — flex-колонка в `<body>`; далі 5 DOM-модалок (нової
-  гри/статистики/турніру/глухого кута/гравця). Остання кнопка тулбару
-  (`#btn-profile`, аватар+ім'я) — єдина не `flex-1`: `ml-auto` притискає її
-  до правого краю, решта п'ять кнопок ліворуч ділять простір порівну.
-  Інжектить
-  `window.MAHJONG_CSRF`/`MAHJONG_VERSION`/`MAHJONG_LANG`. Стилі — Tailwind
-  (`assets/tailwind.src.css` → зібраний `tailwind.css`, єдиний `<link>`
-  без `{% if debug %}`); шаблон свого `<style>` не містить — жоден
-  `{% trans %}` усередині CSS неможливий (статика не проходить через
-  шаблонізатор), тож підпис "← current" у статистиці рендерить
-  `ui-dom.js: renderStatsModal()` через `gettext()`, а не CSS `::after`.
-- `static/game/tiles/*.svg` — 42 oblique-3D тайли (Cangjie6, **CC BY-SA
-  4.0**, атрибуція обов'язкова — див. `static/game/tiles/CREDITS.md`).
-  Растеризуються з SVG у `CanvasTexture` в рантаймі, без текстурного
-  атласу.
-- `static/game/tiles/*.png` + `Front.png` — старий CC0-набір FluffyStuff;
-  гра ним більше не рендерить кістки, лишився лише як джерело для
+  `Profile.display_name` is a free-form (non-unique) player name; `daily.py:
+  nickname_for(profile)` is the single source of "how to display a player"
+  (toolbar + tournament leaderboard), with a fallback to `Player #xxxx` when
+  no name is set. That same name is also the seed for the client-side
+  DiceBear avatar (`static/game/avatar.js`) — there's no separate seed field.
+- `static/game/board.js` — the board model for client-side interaction
+  (render/clicks/undo/deadlock detection); authoritative validation is on the
+  server (`gameplay/board.py`). The board shape is **not** hardcoded here —
+  positions come from the server-provided `layout`, width/height/layers are
+  derived from it too (`scene.js: applyBoardDims`), not from module constants.
+  A pure module, no Phaser/DOM.
+- `static/game/stats.js` — lifetime stats now live on the server
+  (`gameplay/models.py: Profile.stats`); the module keeps only presentation
+  helpers and a one-time reader for the legacy `localStorage` blob, used to
+  migrate it to the server. A pure module, no Phaser/DOM.
+- `static/game/audio.js` — WebAudio synthesis of sound effects (click/pair/
+  error/undo/hint/shuffle/win/loss) — oscillators and noise, no samples (zero
+  files, zero licensing). The toggle lives in `#profile-modal` (`ui-dom.js`),
+  state — `localStorage['mahjong.sound']`, a separate preference from
+  `scene.js: reducedMotion`. The `AudioContext` is created lazily (only on the
+  first click — browser autoplay policy), injected via a parameter for the
+  sake of `node --test`. A pure module, no Phaser/DOM.
+- `static/game/avatar.js` — renders the DiceBear avatar (`@dicebear/core` +
+  the `funEmoji` style from `@dicebear/collection`, npm dependencies actually
+  bundled into `bundle.js` — not an HTTP API). Seed = the player's name
+  (`gameplay/daily.py: nickname_for` — the same string shown as the name).
+  SVGs are memoized by `name|size`. A pure module, no Phaser/DOM.
+- `static/game/sync.js` — a thin HTTP client for `config/api.py`/
+  `gameplay/api.py`. Player identity is the `mahjong_player` cookie
+  (HttpOnly, signed by the server), sent automatically with every fetch;
+  the CSRF token comes from `window.MAHJONG_CSRF`, header `X-CSRFToken`.
+- `static/game/scene.js` — the Phaser scene (`MainScene`): tiles,
+  layout/resize, game session (start/resume/finish/shuffle/undo/hint). The
+  canvas draws **only the board** — the toolbar/status bar/photographer
+  credit/modals are now DOM (`templates/game.html`, `ui-dom.js`). The board
+  for a new game is always fetched from the server (the game never starts
+  without a network connection). UI state uses a Publisher/Subscriber
+  pattern through `this.registry` (Phaser `DataManager`): business logic
+  never calls methods like "open the modal" — it only writes a fact
+  (`registry.set(...)`), and `ui-dom.js` is subscribed and decides what to
+  show. A game survives a page reload — a snapshot in `localStorage`
+  (`persistGame`/`tryResumeGame`), reconciled with the server before
+  resuming. Resize is caught via a `ResizeObserver` on `#game-container`,
+  not `window.resize` — the DOM toolbar/status bar can change height from
+  purely internal reflow (a button wrapping, a label changing length when
+  the language changes), without any `window resize` event.
+- `static/game/effects.js` — animation helpers for `scene.js`: every function
+  takes `scene` as its first argument (deal-in, a pair flying into the
+  counter, shuffle-flip, glow/hover/press/error, the final win/loss effect,
+  particles) — extracted out of the scene so `MainScene` stays about the
+  session/layout, not tween details.
+- `static/game/render-constants.js` — base (design-px) proportions/colors/
+  effect tuning for `scene.js`/`effects.js`. After the move to sprite
+  rendering (ready-made oblique art from Cangjie6) and native resolution, the
+  tile geometry here is no longer "baked in" — the tile size and grid steps
+  are computed dynamically in `scene.js` (`computeLayout`) from the real
+  window size; only the base values, multiplied by DPR in the scene, remain
+  here. A pure module, no Phaser/DOM.
+- `static/game/ui-dom.js` — the DOM controller for the toolbar/status bar/
+  photographer credit/5 modals (`templates/game.html`). The tournament
+  leaderboard builds `<li>` elements through the DOM API
+  (`createElement`/`textContent`), not `innerHTML` — `entry.nickname` is now
+  arbitrary text chosen by the player (POST `/api/game/profile`), so
+  interpolating it into an HTML string would be stored XSS. Subscribes to
+  `scene.registry` (**both `changedata` and `setdata`** — Phaser only sends
+  `changedata` from the SECOND write of a key; the first always comes as
+  `setdata` with no per-key variant; missing this means the initial render of
+  every freshly-set registry key silently never happens).
+- `static/game/main.js` — a thin entry point: assembles the `Phaser.Game`
+  with `MainScene`, exports `window.mahjongGame` (access to the game for
+  debugging/tests).
+- `templates/game.html` — the game page (root `/`): a `<header>` toolbar +
+  `<main id="game-container">` (canvas, board only) + a `<footer>` status
+  bar, all three a flex column inside `<body>`; followed by 5 DOM modals
+  (new game/stats/tournament/deadlock/player). The last toolbar button
+  (`#btn-profile`, avatar+name) is the only one not `flex-1`: `ml-auto`
+  pushes it to the right edge, while the other five buttons on the left
+  share the space evenly. Injects `window.MAHJONG_CSRF`/`MAHJONG_VERSION`/
+  `MAHJONG_LANG`. Styles — Tailwind (`assets/tailwind.src.css` → built
+  `tailwind.css`, a single `<link>` with no `{% if debug %}`); the template
+  has no `<style>` of its own — any `{% trans %}` inside CSS is impossible
+  (static assets don't go through the templating engine), so the "← current"
+  label in stats is rendered by `ui-dom.js: renderStatsModal()` via
+  `gettext()`, not a CSS `::after`.
+- `static/game/tiles/*.svg` — 42 oblique-3D tiles (Cangjie6, **CC BY-SA
+  4.0**, attribution required — see `static/game/tiles/CREDITS.md`).
+  Rasterized from SVG into a `CanvasTexture` at runtime, no texture atlas.
+- `static/game/tiles/*.png` + `Front.png` — the old CC0 FluffyStuff set; the
+  game no longer renders tiles with it, it only remains as a source for
   `scripts/gen_icons.py`.
-- `static/icons/*` — favicon/PWA-іконки, генеруються `scripts/gen_icons.py`
-  (Pillow — ефемерна залежність, `uv run --with pillow ...`).
+- `static/icons/*` — favicon/PWA icons, generated by `scripts/gen_icons.py`
+  (Pillow — an ephemeral dependency, `uv run --with pillow ...`).
 
-### Нюанси рендеру (не ламати)
+### Rendering nuances (do not break)
 
-Деталі й обґрунтування — в коментарях безпосередньо біля відповідного коду
-в `static/game/scene.js`/`effects.js`; тут лише список, щоб не зламати
-випадково:
+Details and rationale live in comments right next to the relevant code in
+`static/game/scene.js`/`effects.js`; this is just a checklist so nothing
+breaks by accident:
 
-- **Depth-формула** в `addTileSprite` (`z*10000 + (boardHeight-1-y) + x`,
-  вага x/y **однакова**) — критична саме для діагональних пів-тайлових
-  сусідів (пік, голова/хвіст), інакше кістки перекриваються хаотично.
-- **Кістка = один спрайт із готовим oblique-3D-артом** — об'єм намальований
-  у самому SVG, гра не пече власний 3D-корпус.
-- **Текстури растеризуються з SVG у рантаймі** (`rasterizeTiles`) і
-  вантажаться як **blob-URL Image**, не `<img src>` — інакше WebGL-канвас
-  «отруюється» (tainted) і відмовляється від текстури.
-- **Нативне розрішення** (`Scale.NONE` + ручний DPR-скейл), не
-  `Scale.FIT` — світові координати завжди в device-px.
-- **Клік по кістці** — один сценовий `gameobjectdown`-обробник, не
-  `pointerdown` на кожен спрайт (`create()`).
-- **DOM-модалка НЕ блокує клік по канвасу під собою** — Phaser сам робить
-  hit-test повз DOM z-index; єдиний захист — явний guard
-  `if (this.registry.get('modal')) return;` у КОЖНОМУ обробнику кліку
-  (сценовому і в кожній кнопці тулбару окремо). Тулбар/смуга статусу цю
-  пастку взагалі оминають — вони DOM flex-сусіди канваса
-  (`templates/game.html`), а не оверлей поверх нього, тож жодна кістка під
-  ними ніколи не опиняється.
-- **`#game-container` не повинен мати власного `height`** у Tailwind-джерелі
-  (`assets/tailwind.src.css`) — розмір рахує flexbox (`<main class="flex-1
-  min-h-0">` між `<header>`/`<footer>`). Tailwind-каскадні layers
-  (`base`→`components`→`utilities`) визначають пріоритет ПОВЕРХ звичайної
-  специфічності CSS: явний `height` у `base`, навіть застарілий/помилковий,
-  завжди переміг би `flex-1` з `utilities`.
+- **Depth formula** in `addTileSprite` (`z*10000 + (boardHeight-1-y) + x`,
+  x/y weighted **equally**) — critical specifically for diagonal half-tile
+  neighbors (peaks, head/tail), otherwise tiles overlap chaotically.
+- **A tile is one sprite with ready-made oblique-3D art** — volume is drawn
+  in the SVG itself, the game doesn't bake its own 3D body.
+- **Textures are rasterized from SVG at runtime** (`rasterizeTiles`) and
+  loaded as a **blob-URL Image**, not `<img src>` — otherwise the WebGL
+  canvas gets "tainted" and refuses the texture.
+- **Native resolution** (`Scale.NONE` + manual DPR scaling), not
+  `Scale.FIT` — world coordinates are always in device px.
+- **Clicking a tile** — a single scene-level `gameobjectdown` handler, not
+  `pointerdown` on every sprite (`create()`).
+- **A DOM modal does NOT block clicks on the canvas underneath it** — Phaser
+  does its own hit-testing past DOM z-index; the only guard is an explicit
+  `if (this.registry.get('modal')) return;` in EVERY click handler (the
+  scene's, and each toolbar button's individually). The toolbar/status bar
+  sidestep this trap entirely — they're DOM flex siblings of the canvas
+  (`templates/game.html`), not an overlay on top of it, so no tile ever ends
+  up underneath them.
+- **`#game-container` must not have its own `height`** in the Tailwind
+  source (`assets/tailwind.src.css`) — the size is computed by flexbox
+  (`<main class="flex-1 min-h-0">` between `<header>`/`<footer>`). Tailwind's
+  cascade layers (`base`→`components`→`utilities`) determine priority ON TOP
+  OF regular CSS specificity: an explicit `height` in `base`, even a stale/
+  mistaken one, would always beat `flex-1` from `utilities`.
 
-## Локальна розробка
+## Local development
 
 ```
-uv sync                      # встановити залежності з uv.lock
-npm install                  # один раз — devDependencies для esbuild/Tailwind watchers
+uv sync                      # install dependencies from uv.lock
+npm install                  # once — devDependencies for the esbuild/Tailwind watchers
 uv run manage.py migrate
-./scripts/dev.sh             # runserver + esbuild --watch + Tailwind --watch, один Ctrl-C
+./scripts/dev.sh             # runserver + esbuild --watch + Tailwind --watch, one Ctrl-C
 ```
 
-`scripts/dev.sh` — тонка обгортка: піднімає esbuild- і Tailwind-watcher у
-фоні (trap на EXIT гасить обидва), а `runserver` лишає на передньому плані
-— Ctrl-C зупиняє все. `static/game/bundle.js`/`tailwind.css` без цього
-скрипту не існують (build-артефакти, `.gitignore`), тож просто
-`manage.py runserver` без `dev.sh` віддасть 404 на JS/CSS. Якщо потрібен
-лише один із watcher'ів нарізно — команди:
+`scripts/dev.sh` is a thin wrapper: it brings up the esbuild and Tailwind
+watchers in the background (an EXIT trap kills both), and leaves `runserver`
+in the foreground — Ctrl-C stops everything. `static/game/bundle.js`/
+`tailwind.css` don't exist without this script (build artifacts,
+`.gitignore`), so plain `manage.py runserver` without `dev.sh` will 404 on
+JS/CSS. If you only need one of the watchers on its own — the commands:
 
 ```
 uv run manage.py runserver
@@ -227,51 +280,56 @@ npx --yes esbuild@0.24.2 static/game/main.js \
 npx @tailwindcss/cli -i assets/tailwind.src.css -o static/game/tailwind.css --watch=always
 ```
 
-Додавання залежностей: `uv add <package>` (прод) / `uv add --dev <package>` (dev-інструменти, лінтери, тести).
+Adding dependencies: `uv add <package>` (production) / `uv add --dev <package>`
+(dev tools, linters, tests).
 
-## Локалізація
+## Localization
 
-Штатний Django gettext-i18n (`uk` + `en`), msgid — **англійською** (ідіоматичний Django),
-переклади — `locale/{uk,en}/LC_MESSAGES/{django,djangojs}.po`. Дефолт для нового
-відвідувача без куки й без збігу `Accept-Language` — українська (`LANGUAGE_CODE = 'uk'`,
-`config/settings.py`). Перемикач мови — пікер (`🌐 UA`/`🌐 EN`, той самий
-радіо-кнопковий стиль `.newgame-option`, що й пікери у `#newgame-modal`) у
-`#profile-modal` (`templates/game.html`, поруч із перемикачем звуку), не
-окрема кнопка тулбару. Лише дві мови (`config/settings.py: LANGUAGES`), тож
-це пікер із двох варіантів, не `<select>`: підсвічує ПОТОЧНУ мову
-(`ui-dom.js`: `langButtons`, порівняння з `window.MAHJONG_LANG`), клік по
-неактивній перемикає. `window.MAHJONG_LANG` (з
-`{% get_current_language %}`, `templates/game.html`) — джерело поточної мови для
-JS. Клік шле POST у Django `set_language` (`static/game/sync.js: setLanguage()`,
-`config/urls.py: path('i18n/', include('django.conf.urls.i18n'))`) і перезавантажує
-сторінку — **без** `i18n_patterns`, URL кореня `/` лишається чистим (важливо для
-standalone-PWA/`start_url`). Активна партія переживає перезавантаження без втрат
-(`tryResumeGame()` — той самий шлях, що й для звичайного reload/resume).
+Stock Django gettext-i18n (`uk` + `en`), msgids are **English** (idiomatic
+Django), translations — `locale/{uk,en}/LC_MESSAGES/{django,djangojs}.po`.
+The default for a new visitor with no cookie and no matching
+`Accept-Language` is Ukrainian (`LANGUAGE_CODE = 'uk'`, `config/settings.py`).
+The language switcher is a picker (`🌐 UA`/`🌐 EN`, the same radio-button
+style `.newgame-option` as the pickers in `#newgame-modal`) inside
+`#profile-modal` (`templates/game.html`, next to the sound toggle), not a
+separate toolbar button. Only two languages (`config/settings.py: LANGUAGES`),
+so it's a two-option picker, not a `<select>`: it highlights the CURRENT
+language (`ui-dom.js`: `langButtons`, compared against `window.MAHJONG_LANG`),
+clicking the inactive one switches it. `window.MAHJONG_LANG` (from
+`{% get_current_language %}`, `templates/game.html`) is the source of the
+current language for JS. A click POSTs to Django's `set_language`
+(`static/game/sync.js: setLanguage()`, `config/urls.py:
+path('i18n/', include('django.conf.urls.i18n'))`) and reloads the page —
+**without** `i18n_patterns`, the root `/` URL stays clean (important for the
+standalone PWA/`start_url`). An active game survives the reload without loss
+(`tryResumeGame()` — the same path as a regular reload/resume).
 
-Динамічний текст (лічильник підказок/скасувань, "Залишилось: N", рядки статистики,
-турнірна інформація — `ui-dom.js`/`scene.js`) і досі йде через Django
+Dynamic text (hint/undo counters, "Remaining: N", stats lines, tournament
+info — `ui-dom.js`/`scene.js`) still goes through Django's
 **`JavaScriptCatalog`** (`config/urls.py:
-path('jsi18n/', JavaScriptCatalog.as_view())`, без `packages=` — каталог живе в
-проєктному `locale/`, не всередині `gameplay/locale/`), підключений у `game.html`
-**класичним** `<script>` (не `type="module"`) **перед** модульним бандлом — глобальні
-`gettext`/`interpolate` мають бути визначені до виконання `main.js`/`bundle.js`.
-Статичні лейбли тулбару/модалок (окрім лічильників) — тепер звичайний Django
-`{% trans %}` прямо в `templates/game.html` (domain `django`, окремий від
-`djangojs` — той самий текст в обох каталогах потребує окремого перекладу в
-кожному).
-Емодзі-префікси (`🆕`, `💡`, `🏆`, ...) свідомо лишаються **поза** `gettext()`/
-`{% trans %}` — вони мовонезалежні, перекладати нема чого.
+path('jsi18n/', JavaScriptCatalog.as_view())`, no `packages=` — the catalog
+lives in the project's `locale/`, not inside `gameplay/locale/`), included in
+`game.html` via a **classic** `<script>` (not `type="module"`) **before** the
+module bundle — the global `gettext`/`interpolate` must be defined before
+`main.js`/`bundle.js` runs. Static labels on the toolbar/modals (except
+counters) now go through plain Django `{% trans %}` directly in
+`templates/game.html` (domain `django`, separate from `djangojs` — the same
+text in both catalogs needs a separate translation in each).
+Emoji prefixes (`🆕`, `💡`, `🏆`, ...) deliberately stay **outside**
+`gettext()`/`{% trans %}` — they're language-independent, nothing to
+translate.
 
-Назви розкладок (`Cat`/`Crab`/`Dragon`/`Spider`/`Turtle`, з `#`-коментарів `.layout`-файлів) кешуються
-процесом (`gameplay/layouts.py: load_layouts()`, `@lru_cache`) — тому переклад
-застосовується не до самого кешованого імені, а щоразу в `list_boards()` через
-`gettext(layout.name)`; відомі назви зареєстровані через `gettext_noop()` для
-`makemessages`.
+Layout names (`Cat`/`Crab`/`Dragon`/`Spider`/`Turtle`, from `#`-comments in
+the `.layout` files) are cached by the process (`gameplay/layouts.py:
+load_layouts()`, `@lru_cache`) — so translation isn't applied to the cached
+name itself, but every time in `list_boards()` via `gettext(layout.name)`;
+known names are registered via `gettext_noop()` for `makemessages`.
 
-Каталоги перекомпілюються з `.po` в `.mo` на кожному Docker-білді
-(`Dockerfile: RUN uv run manage.py compilemessages`, вимагає системний `gettext`) —
-`.mo` у git не комітяться (`.gitignore: locale/**/*.mo`), як і `bundle.js`. Після зміни
-перекладного тексту в коді — перегенерувати каталоги:
+Catalogs are recompiled from `.po` to `.mo` on every Docker build
+(`Dockerfile: RUN uv run manage.py compilemessages`, requires system
+`gettext`) — `.mo` files aren't committed to git (`.gitignore:
+locale/**/*.mo`), same as `bundle.js`. After changing translatable text in the
+code — regenerate the catalogs:
 
 ```
 uv run manage.py makemessages -l uk -l en \
@@ -280,135 +338,186 @@ uv run manage.py makemessages -l uk -l en \
 uv run manage.py makemessages -d djangojs -l uk -l en \
   --ignore='static/vendor/*' --ignore='static/game/bundle.js' \
   --ignore='staticfiles/*' --ignore='.venv/*' --ignore='node_modules/*'
-uv run manage.py compilemessages --locale=uk --locale=en   # для локальної перевірки
+uv run manage.py compilemessages --locale=uk --locale=en   # for a local check
 ```
 
-## Тести
+## Tests
 
-Клієнтська логіка гри тестується без браузера й без npm — вбудованим test runner Node:
+Client-side game logic is tested without a browser and without npm — using
+Node's built-in test runner:
 
 ```
 node --test 'tests/*.test.js'
 ```
 
-(Форма `node --test tests/` не працює — node трактує каталог як модуль.) Покрито: правило вільності, матчинг/undo, глухий кут, replay лога ходів, трансформери й localStorage-обгортку статистики (`stats.js`), увімк/вимк звуку та lazy-ініціалізацію `AudioContext` через ін'єктований дубль (`audio.js`). Форма поля (яка розкладка, розв'язність генерації) клієнтськими тестами більше не покривається — вона повністю на сервері (нижче), `board.js` тепер знає лише координатну систему, не конкретну фігуру. `scene.js`/`effects.js`/`ui-dom.js` (Phaser + DOM) юніт-тестами не покриваються — перевіряти в браузері.
+(The form `node --test tests/` doesn't work — node treats the directory as a
+module.) Covered: the freedom rule, matching/undo, deadlock, move-log replay,
+transformers and the localStorage wrapper for stats (`stats.js`), sound
+on/off and lazy `AudioContext` init through an injected double (`audio.js`).
+The board shape (which layout, generation solvability) is no longer covered
+by client tests — it's entirely server-side (below); `board.js` now only
+knows the coordinate system, not a specific shape. `scene.js`/`effects.js`/
+`ui-dom.js` (Phaser + DOM) aren't covered by unit tests — check in the
+browser.
 
-Серверна логіка (`gameplay/`: парсер `.layout`-файлів, генерація поля для кожної розкладки, правило вільності, валідація партії через API; `config/`: background-ендпоінт):
+Server-side logic (`gameplay/`: `.layout` file parser, board generation for
+each layout, the freedom rule, session validation through the API;
+`config/`: the background endpoint):
 
 ```
 uv run manage.py test
 ```
 
-(без аргументу — Django-discovery знаходить `gameplay/tests.py` і `config/tests.py` автоматично; `uv run manage.py test gameplay` звузить до одного застосунку.)
+(without an argument — Django's discovery finds `gameplay/tests.py` and
+`config/tests.py` automatically; `uv run manage.py test gameplay` narrows it
+to one app.)
 
-## Лінтинг (критерій виконання задачі)
+## Linting (a completion criterion)
 
-Задача НЕ вважається завершеною, поки обидва лінтери не проходять чисто —
-нарівні з тестами вище:
+A task is NOT considered done until both linters pass clean — on par with the
+tests above:
 
-- **Python (`ruff`)** — dev-залежність (`uv add --dev ruff`, у прод-образ не
-  тягнеться: Dockerfile робить `uv sync ... --no-dev`), конфіг —
-  `[tool.ruff]`/`[tool.ruff.lint]` у `pyproject.toml` (`select = ["E", "F",
-  "I", "UP", "B", "DJ"]`, `migrations`/`staticfiles` виключені):
+- **Python (`ruff`)** — a dev dependency (`uv add --dev ruff`, not pulled
+  into the prod image: the Dockerfile runs `uv sync ... --no-dev`), config —
+  `[tool.ruff]`/`[tool.ruff.lint]` in `pyproject.toml` (`select = ["E", "F",
+  "I", "UP", "B", "DJ"]`, `migrations`/`staticfiles` excluded):
   ```
   uv run ruff check .
   ```
-  Автофікс безпечних (сортування імпортів, pyupgrade): `uv run ruff check --fix .`
+  Autofix of safe ones (import sorting, pyupgrade): `uv run ruff check --fix .`
 
-- **JS + CSS (`Biome`)** — гониться через `npx` з піном версії (той самий
-  підхід, що й `esbuild` у `Dockerfile: jsbuild`; Biome сам по собі не
-  потребує локального `node_modules` — на відміну від Tailwind, див. Стек
-  вище), конфіг — `biome.json` (лінтить `static/game/**/*.js`,
-  `static/game/**/*.css` і `tests/**/*.js`, виключає build-артефакти
-  `bundle.js`/`tailwind.css` і джерело `assets/tailwind.src.css` — останнє
-  використовує Tailwind-специфічні at-rules (`@source`/`@theme`/`@apply`),
-  яких Biome's CSS-лінтер (стандартний CSS, без діалектів) не знає;
-  `static/vendor/` не мапиться жодним include-патерном, тож теж поза
-  скоупом). Окремий CSS-інструмент (stylelint тощо) не заводили; CSS-
-  форматтер лишається вимкненим (Biome-дефолт), критерій — лише `lint`:
+- **JS + CSS (`Biome`)** — run through `npx` with a pinned version (the same
+  approach as `esbuild` in `Dockerfile: jsbuild`; Biome itself doesn't need a
+  local `node_modules` — unlike Tailwind, see Stack above), config —
+  `biome.json` (lints `static/game/**/*.js`, `static/game/**/*.css` and
+  `tests/**/*.js`, excludes the build artifacts `bundle.js`/`tailwind.css`
+  and the source `assets/tailwind.src.css` — the latter uses
+  Tailwind-specific at-rules (`@source`/`@theme`/`@apply`) that Biome's CSS
+  linter (standard CSS, no dialects) doesn't know; `static/vendor/` isn't
+  matched by any include pattern either, so it's also out of scope). A
+  separate CSS tool (stylelint etc.) wasn't set up; the CSS formatter stays
+  off (Biome's default), the criterion is `lint` only:
   ```
   npx --yes @biomejs/biome@2.5.5 lint static/game tests
   ```
-  Автофікс: `npx --yes @biomejs/biome@2.5.5 lint --write static/game tests`
-  (частина фіксів `--unsafe` — перевіряти діфф перед застосуванням).
+  Autofix: `npx --yes @biomejs/biome@2.5.5 lint --write static/game tests`
+  (some fixes are `--unsafe` — review the diff before applying).
 
-Обидва лінтери — суто статичний аналіз, окремого CI під них немає (немає
-GitHub-remote, деплой — dokku), тож команди вище ганяються вручну перед
-комітом/завершенням задачі.
+Both linters are purely static analysis, there's no dedicated CI for them
+(no GitHub remote, deployment is dokku), so the commands above are run
+manually before committing/finishing a task.
 
-## Конфігурація через env
+## Configuration via env
 
-`config/settings.py` читає:
+`config/settings.py` reads:
 - `DJANGO_SECRET_KEY`
-- `DJANGO_DEBUG` (`True`/`False`, дефолт `True`)
-- `DJANGO_ALLOWED_HOSTS` (через кому, наприклад `mahjong.vitaly4uk.in.ua`)
-- `PEXELS_API_KEY` — ключ Pexels API для фонового фото (`config/api.py`); без нього
-  ендпоінт фону мовчки вимикається (`if not settings.PEXELS_API_KEY`), решта гри
-  працює нормально.
-- `DATABASE_URL` — опційно перекриває дефолтний sqlite (`dj_database_url.config()`,
-  дефолт `sqlite:///db.sqlite3`).
+- `DJANGO_DEBUG` (`True`/`False`, default `True`)
+- `DJANGO_ALLOWED_HOSTS` (comma-separated, e.g. `mahjong.vitaly4uk.in.ua`)
+- `PEXELS_API_KEY` — Pexels API key for the background photo (`config/api.py`);
+  without it the background endpoint silently disables itself
+  (`if not settings.PEXELS_API_KEY`), the rest of the game works normally.
+- `DATABASE_URL` — optionally overrides the default sqlite
+  (`dj_database_url.config()`, default `sqlite:///db.sqlite3`).
 
-Локально можна не задавати — є дефолти для розробки (DEBUG=True, insecure SECRET_KEY,
-sqlite, фон вимкнений без ключа Pexels).
+Locally you can leave these unset — there are dev defaults (DEBUG=True, an
+insecure SECRET_KEY, sqlite, the background disabled without a Pexels key).
 
-### CSRF за реверс-проксі (не ламати)
+### CSRF behind a reverse proxy (do not break)
 
-Продакшен ходить Cloudflare Tunnel → dokku nginx (термінує TLS тут) → gunicorn звичайним HTTP. `config/settings.py` виставляє:
+Production traffic goes Cloudflare Tunnel → dokku nginx (terminates TLS
+here) → gunicorn over plain HTTP. `config/settings.py` sets:
 
 ```python
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 CSRF_TRUSTED_ORIGINS = [f'https://{h}' for h in ALLOWED_HOSTS]
 ```
 
-Без цього Django вважає кожен запит незахищеним (`request.is_secure() == False`), а CSRF-перевірка Origin-заголовка (браузер шле `https://...`) не збігається з обчисленою схемою (`http://...`) → **403 на кожному POST**, незалежно від коректності самого CSRF-токена (django-ninja API це теж стосується — `CsrfOnly` у `config/api.py` покладається саме на цю перевірку). dokku nginx завжди проставляє `X-Forwarded-Proto`, тож довіряти йому безпечно.
+Without this Django considers every request insecure
+(`request.is_secure() == False`), and the CSRF Origin-header check (the
+browser sends `https://...`) doesn't match the computed scheme (`http://...`)
+→ **403 on every POST**, regardless of whether the CSRF token itself is
+correct (this affects the django-ninja API too — `CsrfOnly` in
+`config/api.py` relies on exactly this check). dokku nginx always sets
+`X-Forwarded-Proto`, so trusting it is safe.
 
-## Деплой на dokku
+## Deploying to dokku
 
-Є `Dockerfile` (dokku автоматично деплоїть по ньому, без окремого buildpack). Перед першим пушем варто виставити env-змінні на сервері:
+There's a `Dockerfile` (dokku deploys from it automatically, no separate
+buildpack). Before the first push it's worth setting env vars on the server:
 
 ```
-ssh proxmox "sudo pct exec 101 -- bash -c 'dokku config:set mahjong DJANGO_DEBUG=False DJANGO_ALLOWED_HOSTS=mahjong.vitaly4uk.in.ua DJANGO_SECRET_KEY=<сгенерувати>'"
+ssh proxmox "sudo pct exec 101 -- bash -c 'dokku config:set mahjong DJANGO_DEBUG=False DJANGO_ALLOWED_HOSTS=mahjong.vitaly4uk.in.ua DJANGO_SECRET_KEY=<generate one>'"
 ```
 
-Далі — стандартний `git push dokku main` (див. розділ нижче).
+Then — a standard `git push dokku main` (see the section below).
 
-## Інфраструктура
+## Infrastructure
 
-- **Proxmox host**: SSH-хост `proxmox` (див. `~/.ssh/config`), `HostName 192.168.88.2`, ключ `~/.ssh/pve_key`.
-- **LXC 101**: контейнер `vitaly4uk.in.ua`, локальна адреса `192.168.88.169`. Керується з proxmox через `sudo pct exec 101 -- <cmd>`.
-- **Dokku**: версія 0.38.23, встановлена всередині LXC 101.
-- **Global vhost**: `dokku domains:set-global vitaly4uk.in.ua` вже виставлено — кожен новий `dokku apps:create <name>` автоматично отримує nginx-vhost `<name>.vitaly4uk.in.ua` на порту 80, без ручних дій.
-- **Застосунок**: `mahjong`, створений через `dokku apps:create mahjong`.
-  Публічний домен: `mahjong.vitaly4uk.in.ua`.
-- **Зовнішній доступ**: через Cloudflare Tunnel (token-based, керується у Zero Trust дашборді на самому проєкті `vitaly4uk.in.ua`). Правило — wildcard `*.vitaly4uk.in.ua → http://localhost:80`, тобто трафік з Cloudflare йде на dokku nginx (порт 80), а той сам маршрутизує за Host-заголовком до потрібного застосунку. Новий субдомен `<name>.vitaly4uk.in.ua` працює одразу, без правок у Cloudflare.
+- **Proxmox host**: SSH host `proxmox` (see `~/.ssh/config`),
+  `HostName 192.168.88.2`, key `~/.ssh/pve_key`.
+- **LXC 101**: container `vitaly4uk.in.ua`, local address `192.168.88.169`.
+  Managed from proxmox via `sudo pct exec 101 -- <cmd>`.
+- **Dokku**: version 0.38.23, installed inside LXC 101.
+- **Global vhost**: `dokku domains:set-global vitaly4uk.in.ua` is already
+  set — every new `dokku apps:create <name>` automatically gets an nginx
+  vhost `<name>.vitaly4uk.in.ua` on port 80, with no manual steps.
+- **App**: `mahjong`, created via `dokku apps:create mahjong`. Public domain:
+  `mahjong.vitaly4uk.in.ua`.
+- **External access**: via a Cloudflare Tunnel (token-based, managed in the
+  Zero Trust dashboard on the `vitaly4uk.in.ua` project itself). The rule is
+  a wildcard `*.vitaly4uk.in.ua → http://localhost:80`, i.e. traffic from
+  Cloudflare goes to dokku nginx (port 80), which then routes by the Host
+  header to the right app. A new subdomain `<name>.vitaly4uk.in.ua` works
+  immediately, with no Cloudflare changes.
 
-### Порти в dokku (важливо для Dockerfile)
+### Ports in dokku (matters for the Dockerfile)
 
-Dockerfile **не містить** `EXPOSE`. Це свідомо: dokku для Dockerfile-деплоїв
-- **з `EXPOSE <port>`** → nginx слухає саме на цьому порту (і тоді треба або міняти Cloudflare-правило під нього, або робити `dokku ports:set`);
-- **без `EXPOSE`** → nginx автоматично слухає на 80/443 і проксить на порт контейнера, заданий у env `$PORT` (dokku інжектить його сам, зазвичай 5000).
+The Dockerfile **has no** `EXPOSE`. This is deliberate: for Dockerfile
+deploys, dokku
+- **with `EXPOSE <port>`** → nginx listens on exactly that port (and then you
+  either have to change the Cloudflare rule for it, or run
+  `dokku ports:set`);
+- **without `EXPOSE`** → nginx automatically listens on 80/443 and proxies to
+  the container port given by the `$PORT` env var (dokku injects it itself,
+  usually 5000).
 
-Тому gunicorn слухає `$PORT` (без дефолту — dokku завжди інжектить цю змінну для web-процесу). Команда запуску задається в `Procfile` (`web: gunicorn ... --bind 0.0.0.0:$PORT`), а не в `CMD` з `Dockerfile`: dokku для Dockerfile-деплоїв з наявним `Procfile` бере команду web-процесу саме звідти. **Важливо:** не використовуй у `Procfile` синтаксис `${PORT:-8000}` — dokku парсить рядки `Procfile` сам (не через shell рантайму контейнера) і не розуміє bash-fallback `:-`, через що змінна мовчки перетворюється на порожній рядок і gunicorn падає з `'' is not a valid port number`. Такий шаблон варто повторювати в майбутніх Dockerfile-застосунках — тоді кожен новий `<name>.vitaly4uk.in.ua` запрацює одразу через існуючий wildcard-тунель, без ручного налаштування портів.
+So gunicorn listens on `$PORT` (no default — dokku always injects this
+variable for the web process). The startup command is set in `Procfile`
+(`web: gunicorn ... --bind 0.0.0.0:$PORT`), not in the Dockerfile's `CMD`:
+for Dockerfile deploys with a `Procfile` present, dokku takes the web
+process's command from there. **Important:** don't use the
+`${PORT:-8000}` syntax in `Procfile` — dokku parses `Procfile` lines itself
+(not through the container's runtime shell) and doesn't understand the bash
+fallback `:-`, so the variable silently turns into an empty string and
+gunicorn crashes with `'' is not a valid port number`. This pattern is worth
+repeating in future Dockerfile-based apps — then every new
+`<name>.vitaly4uk.in.ua` will work immediately through the existing wildcard
+tunnel, with no manual port setup.
 
-## Доступ
+## Access
 
-- Прямий SSH до контейнера як звичайний користувач (`vitaly4uk@192.168.88.169`) **не працює** (немає доступу) — керування контейнером лише через `proxmox` host + `pct exec 101`.
-- Git/dokku-доступ працює напряму з локальної машини по SSH:
+- Direct SSH to the container as a regular user (`vitaly4uk@192.168.88.169`)
+  **doesn't work** (no access) — the container can only be managed through
+  the `proxmox` host + `pct exec 101`.
+- Git/dokku access works directly from the local machine over SSH:
   ```
   ssh dokku@192.168.88.169 apps:list
   ```
-  Авторизація — публічний ключ `~/.ssh/id_ed25519.pub`, доданий через `dokku ssh-keys:add admin`.
-- `192.168.88.169` — адреса в локальній мережі (LAN), доступна тільки коли dev-машина в тій самій мережі, що proxmox. Ззовні мережі деплой напряму не працюватиме, доки немає проброшеного порту 22 на `vitaly4uk.in.ua`.
+  Authorization is the public key `~/.ssh/id_ed25519.pub`, added via
+  `dokku ssh-keys:add admin`.
+- `192.168.88.169` is a LAN address, reachable only when the dev machine is
+  on the same network as proxmox. Deploying directly from outside that
+  network won't work until port 22 is forwarded on `vitaly4uk.in.ua`.
 
 ## Git remote
 
-У корені проєкту вже налаштовано:
+Already configured in the repo root:
 ```
 dokku	dokku@192.168.88.169:mahjong (fetch)
 dokku	dokku@192.168.88.169:mahjong (push)
 ```
 
-## Деплой
+## Deployment
 
 ```
 git add .
@@ -416,9 +525,11 @@ git commit -m "..."
 git push dokku main
 ```
 
-Dokku деплоїть по `Dockerfile` з кореня репо (команда web-процесу — з `Procfile`). У Dockerfile вже є `collectstatic` (whitenoise), тож статика гри збирається під час білда.
+Dokku deploys from the `Dockerfile` at the repo root (the web process
+command comes from `Procfile`). The Dockerfile already runs `collectstatic`
+(whitenoise), so the game's static assets are built during the build.
 
-## Корисні команди адміністрування (через proxmox)
+## Useful admin commands (via proxmox)
 
 ```
 ssh proxmox "sudo pct exec 101 -- bash -c 'dokku apps:list'"

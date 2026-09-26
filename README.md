@@ -1,26 +1,37 @@
 # Mahjong
 
-Браузерний маджонг-пасьянс: поле «Turtle» 12×8×3 (136 кісток, автентична riichi-колода 34×4), кожен розклад гарантовано розв'язний.
+A browser-based mahjong solitaire game: the board is one of several classic
+layouts (Cat/Crab/Dragon/Spider/Turtle, `layouts/*.layout`) built on a full
+144-tile mahjong set (34 regular kinds × 4 copies + 8 bonus flowers/seasons),
+each deal guaranteed solvable.
 
-- **Гра**: Phaser 3, vanilla JS ES-модулі, без білд-системи. Клієнтський інтерактив (рендер, кліки, undo) — чисті модулі в `static/game/`.
-- **Бекенд**: Django 6 + **django-ninja** (весь JSON API: генерація поля, антирід-валідація партії реплеєм ходів, фонове фото) — сервер авторитетний для розкладки, легальності ходів і часу партії. Django-в'юхи лишаються лише для сторінки (`TemplateView`) й адмінки.
-- **Тайли**: [FluffyStuff/riichi-mahjong-tiles](https://github.com/FluffyStuff/riichi-mahjong-tiles), CC0.
+- **Game**: Phaser 3, vanilla JS ES modules bundled with esbuild, styled with
+  Tailwind CSS v4. Client-side interaction (render, clicks, undo) — pure
+  modules in `static/game/`.
+- **Backend**: Django 6 + **django-ninja** (the entire JSON API: board
+  generation, anti-cheat session validation via move-log replay, background
+  photo) — the server is authoritative for the layout, move legality and
+  game timing. Django views remain only for the page (`TemplateView`) and the
+  admin.
+- **Tiles**: 42 oblique-3D Cangjie6 tiles, CC BY-SA 4.0 (see
+  `static/game/tiles/CREDITS.md`).
 
-## Запуск
+## Running it
 
 ```bash
 uv sync
+npm install
 uv run manage.py migrate
-uv run manage.py runserver
+./scripts/dev.sh
 ```
 
-Гра — на http://127.0.0.1:8000/.
+The game is at http://127.0.0.1:8000/.
 
-## Тести
+## Tests
 
 ```bash
-node --test 'tests/*.test.js'   # клієнт (Phaser-незалежна логіка)
-uv run manage.py test           # сервер (gameplay/, config/)
+node --test 'tests/*.test.js'   # client (Phaser-independent logic)
+uv run manage.py test           # server (gameplay/, config/)
 ```
 
-Деталі розробки та деплою — у [CLAUDE.md](CLAUDE.md).
+Development and deployment details — in [CLAUDE.md](CLAUDE.md).

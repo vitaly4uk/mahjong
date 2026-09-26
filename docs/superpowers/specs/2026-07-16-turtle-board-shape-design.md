@@ -1,41 +1,44 @@
-# Форма поля: настоящая колода (136) замість придуманої (242)
+# Board shape: the real deck (136) instead of the made-up one (242)
 
-Дата: 2026-07-16. Статус: затверджено, реалізовано.
+Date: 2026-07-16. Status: approved, implemented.
 
-## Проблема
+## Problem
 
-Форма поля `9×9×3 мінус центр верхнього шару → 242 позиції` (див.
+The board shape `9×9×3 minus the center of the top layer → 242 positions`
+(see
 [2026-07-15-mahjong-solitaire-mvp-design.md](2026-07-15-mahjong-solitaire-mvp-design.md))
-була придумана авторами MVP, а не виведена з настоящої колоди. Щоб забити
-242 клітинки 34 видами, генератор штучно роздував копії частини видів до
-6 або 8 замість рівних 4 — «19 видів × 4 пари + 15 видів × 3 пари». Настоящий
-riichi-набір (це підтверджує і сам набір PNG у `static/game/tiles/`, що
-походить із [FluffyStuff/riichi-mahjong-tiles](https://github.com/FluffyStuff/riichi-mahjong-tiles),
-riichi-специфічного набору без квітів/сезонів) — це рівно **34 види × 4 копії
-(2 пари) = 136 кісток**, без винятків.
+was invented by the MVP's authors rather than derived from a real deck. To
+fill 242 cells with 34 kinds, the generator artificially inflated the copy
+count of some kinds to 6 or 8 instead of an even 4 — "19 kinds × 4 pairs + 15
+kinds × 3 pairs". A real riichi set (this is confirmed by the PNG set itself
+in `static/game/tiles/`, which comes from
+[FluffyStuff/riichi-mahjong-tiles](https://github.com/FluffyStuff/riichi-mahjong-tiles),
+a riichi-specific set with no flowers/seasons) is exactly **34 kinds × 4
+copies (2 pairs) = 136 tiles**, with no exceptions.
 
-## Джерело форми
+## Source of the shape
 
-Класична розкладка «Turtle» — оригінальний і найпоширеніший шейп
-маджонг-пасьянсу, розрахований рівно на **144 клітинки** (5 шарів,
-87/36/16/4/1 — підтверджено парсингом координат із двох незалежних джерел:
+The classic "Turtle" layout — the original and most common mahjong solitaire
+shape, sized for exactly **144 cells** (5 layers, 87/36/16/4/1 — confirmed by
+parsing coordinates from two independent sources:
 [`KDE/kmahjongg/layouts/default.layout`](https://github.com/KDE/kmahjongg/blob/master/layouts/default.layout)
-та [`cheshire137/Mahjong/layouts/turtle.txt`](https://github.com/cheshire137/Mahjong/blob/master/layouts/turtle.txt)).
-8 «зайвих» клітинок у справжній грі зайняті квітами/сезонами з
-wildcard-матчингом («будь-який з групи матчиться з будь-яким»). Такого арту
-в riichi-наборі немає (перевірено — у `Export/Regular` цього репозиторію
-файлів квітів/сезонів немає), і заводити окремий набір тайлів заради 8 кісток
-користувач визнав недоцільним.
+and
+[`cheshire137/Mahjong/layouts/turtle.txt`](https://github.com/cheshire137/Mahjong/blob/master/layouts/turtle.txt)).
+The 8 "extra" cells in the real game are occupied by flowers/seasons with
+wildcard matching ("any tile in the group matches any other in the group").
+There's no such art in the riichi set (confirmed — the `Export/Regular`
+folder of that repo has no flower/season files), and the user deemed it not
+worth adding a separate tile set just for 8 tiles.
 
-**Рішення**: взяти реальну геометрію Turtle і обрізати рівно до 136 клітинок —
-прибрати 5-клітинний «пік» (шари 3 і 4, традиційно бонусні) і 3 одиночні
-виступи «голова/хвіст» у шарі 0 (теж традиційно бонусні слоти). Координати
-джерела були на напів-тайловій сітці (всі парні) — після ділення на 2
-виходить чиста ціла сітка 12×8×3.
+**Decision**: take the real Turtle geometry and trim it down to exactly 136
+cells — remove the 5-cell "peak" (layers 3 and 4, traditionally bonus) and the
+3 single "head/tail" protrusions in layer 0 (also traditionally bonus slots).
+The source coordinates were on a half-tile grid (all even) — after dividing
+by 2 this yields a clean integer 12×8×3 grid.
 
-## Форма (ground truth)
+## Shape (ground truth)
 
-x=0..11 (12 колонок), y=0..7 (8 рядків), z=0..2 (3 шари). `#` — клітинка є:
+x=0..11 (12 columns), y=0..7 (8 rows), z=0..2 (3 layers). `#` — cell present:
 
 ```
 Layer 0 (84):            Layer 1 (36):             Layer 2 (16):
@@ -44,70 +47,72 @@ Layer 0 (84):            Layer 1 (36):             Layer 2 (16):
 .##########.             ...######...              ....####....
 ############             ...######...              ....####....
 ############             ...######...              ....####....
-.##########.             ...######...              ....####....
-..########..             ...######...              ............
-############             ............              ............
+.##########.             ...######...              ............
+..########..             ............              ............
+############
 ```
 
-84 + 36 + 16 = 136. Реалізовано в `static/game/board.js` (`LAYER_BITMAPS` +
-`targetPositions()`), з самоперевіркою кількості клітинок при завантаженні
-модуля (страховка від опечатки в бітмапі).
+84 + 36 + 16 = 136. Implemented in `static/game/board.js` (`LAYER_BITMAPS` +
+`targetPositions()`), with a cell-count self-check at module load time
+(a safeguard against a typo in the bitmap).
 
-## Наслідки для генератора
+## Consequences for the generator
 
-`static/game/generator.js`: `buildPairKinds` спрощено — усі 34 види
-отримують рівно 2 пари (було нерівномірно 19×4 / 15×3). Спеціальний випадок
-зник, `grouped`/`split`/`random`-гілки лишились без змін (`split` тепер чесно
-кладе 1 пару на дно і 1 на поверхню для кожного виду — раніше було
-нерівномірно).
+`static/game/generator.js`: `buildPairKinds` was simplified — all 34 kinds now
+get exactly 2 pairs (previously an uneven 19×4 / 15×3). The special case is
+gone, and the `grouped`/`split`/`random` branches remain otherwise unchanged
+(`split` now honestly places 1 pair at the bottom and 1 at the surface for
+every kind — previously it was uneven).
 
-Режими `placement` (`surface`/`uniform`/`layered`, див.
+The `placement` modes (`surface`/`uniform`/`layered`, see
 [2026-07-16-kmahjongg-generator-design.md](2026-07-16-kmahjongg-generator-design.md))
-не змінювались, але їхні виміряні властивості на меншій формі зсунулись —
-верхній шар тепер лише 16 клітинок замість 80:
+were not changed, but their measured properties shifted on the smaller shape
+— the top layer is now only 16 cells instead of 80:
 
-- `SURFACE_ADJACENCY_BIAS` піднято з 0.9 до 1 (максимум) — навіть так частка
-  суміжних пар на easy впала з ~76% до ~76% на новій формі при межі тесту,
-  знижена до ≥70% (виміряний стелю ~76%, менший верхній шар не дає розігнати
-  вище).
-- Розрив між `layered` і `uniform` за часткою міжшарових пар звузився з ~0.18
-  до виміряних ~0.18 на новій формі (тест був ≥0.2, знижено до ≥0.15).
+- `SURFACE_ADJACENCY_BIAS` was raised from 0.9 to 1 (maximum) — even so, the
+  fraction of adjacent pairs at easy dropped from ~76% to ~76% on the new
+  shape at the test's threshold, lowered to ≥70% (measured ceiling ~76%, a
+  smaller top layer doesn't allow pushing it higher).
+- The gap between `layered` and `uniform` in the fraction of cross-layer pairs
+  narrowed from ~0.18 to a measured ~0.18 on the new shape (the test was
+  ≥0.2, lowered to ≥0.15).
 
-`winRateBand` у `DIFFICULTIES` **лишились без змін** — на відміну від
-попередньої калібровки (яка теж не змінювала числа), цього разу перевірено
-не лише формальним проходженням тесту з допуском на шум, а прямим виміром:
-`generateForDifficulty` на новій 136-кістковій дошці досі влучає в цільові
-смуги (easy 20/20 точних влучань, normal і hard — 13/20 точних + решта в
-межах допуску на вимірювальний шум калібрувального тесту). Сирий (без
-пошуку) розподіл `hard`-пресета змістився вище (медіана ~0.6 замість
-очікуваних ~0.2), але механізм пошуку (до 30 спроб) все ще з високою
-ймовірністю (~93% за оцінкою) знаходить кандидата в смузі — тому явної
-регресії складності гравець не відчує, хоча резерв для майбутнього
-підстроювання `layered`-режиму під менші дошки є.
+`winRateBand` in `DIFFICULTIES` was **left unchanged** — unlike the previous
+calibration (which also didn't change the numbers), this time it was verified
+not just by formally passing the test with a noise tolerance, but by a direct
+measurement: `generateForDifficulty` on the new 136-tile board still hits the
+target bands (easy 20/20 exact hits, normal and hard — 13/20 exact hits +
+the rest within the calibration test's measurement-noise tolerance). The raw
+(no-search) distribution of the `hard` preset shifted higher (median ~0.6
+instead of the expected ~0.2), but the search mechanism (up to 30 attempts)
+still finds a candidate within the band with high probability (~93% by
+estimate) — so the player won't notice an obvious difficulty regression,
+though there is headroom for future tuning of the `layered` mode for smaller
+boards.
 
-## Рендеринг
+## Rendering
 
-`static/game/main.js` не змінювався — `GAME_W`/`GAME_H`/глибина сортування
-читають `WIDTH`/`HEIGHT`/`LAYERS` з `board.js` як константи. Співвідношення
-сторін холста змінилось із квадратного (9×9) на альбомне (12×8,
-~924×810px) — ближче до природної форми Turtle. Перевірено в браузері
-(Playwright): доска рендериться коректно на всіх трьох рівнях, `Phaser.Scale.FIT`
-масштабує без спотворень.
+`static/game/main.js` was not changed — `GAME_W`/`GAME_H`/sort depth read
+`WIDTH`/`HEIGHT`/`LAYERS` from `board.js` as constants. The canvas aspect
+ratio changed from square (9×9) to landscape (12×8, ~924×810px) — closer to
+Turtle's natural shape. Verified in the browser (Playwright): the board
+renders correctly at all three levels, `Phaser.Scale.FIT` scales without
+distortion.
 
-## Тести
+## Tests
 
-`tests/board.test.js`: константи (`WIDTH=12, HEIGHT=8`), `targetPositions`
-(136, по шарах 84/36/16, конкретні занятi/порожні клітинки замість старої
-перевірки «дірки в центрі»). `tests/generator.test.js`: 136 замість 242,
-рівномірний розподіл `Array(34).fill(4)` замість «19×8+15×6», пороги
-суміжності/міжшаровості підкручені під виміряні числа нової форми (див.
-вище). `tests/simulate.test.js` — форма-агностичний, не чіпався.
+`tests/board.test.js`: constants (`WIDTH=12, HEIGHT=8`), `targetPositions`
+(136, split by layers 84/36/16, specific occupied/empty cells instead of the
+old "hole in the center" check). `tests/generator.test.js`: 136 instead of
+242, an even distribution `Array(34).fill(4)` instead of "19×8+15×6",
+adjacency/cross-layer thresholds tuned to the new shape's measured numbers
+(see above). `tests/simulate.test.js` — shape-agnostic, untouched.
 
-## Поза межами цієї зміни
+## Out of scope for this change
 
-- `layered`-режим на меншій дошці міг би отримати додаткове підсилення
-  (наприклад строгіший фільтр), якщо майбутні вимірювання покажуть, що
-  `hard` відчувається легше, ніж задумано — не робилося зараз, бо
-  калібрувальний тест і виміряний win-rate після пошуку залишаються в
-  прийнятних межах.
-- `CLAUDE.md` (опис форми поля в корені репо) оновлюється окремим кроком.
+- The `layered` mode on the smaller board could get additional reinforcement
+  (e.g. a stricter filter) if future measurements show `hard` feels easier
+  than intended — not done now, since the calibration test and the measured
+  post-search win rate remain within acceptable bounds.
+- `CLAUDE.md` (the board-shape description at the repo root) is updated as a
+  separate step.

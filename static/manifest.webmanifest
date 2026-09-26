@@ -1,6 +1,6 @@
 {
-  "name": "Маджонг",
-  "short_name": "Маджонг",
+  "name": "Mahjong",
+  "short_name": "Mahjong",
   "start_url": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay"],

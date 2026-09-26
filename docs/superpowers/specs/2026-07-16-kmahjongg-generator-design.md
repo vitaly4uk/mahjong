@@ -1,105 +1,114 @@
-# Генератор розкладу за схемою KMahjongg
+# Layout generator following the KMahjongg scheme
 
-Дата: 2026-07-16. Статус: затверджено.
+Date: 2026-07-16. Status: approved.
 
-Заміщує розділи «Пресети рівнів», «Важіль 1» і «Важіль 3» специфікації
+Replaces the sections "Level presets", "Lever 1" and "Lever 3" of the spec
 [2026-07-16-difficulty-levels-design.md](2026-07-16-difficulty-levels-design.md).
-Решта тієї специфікації (валідатор `simulate.js`, `generateForDifficulty`,
-статистика v2, UI вибору рівня, схема тестування) лишається чинною.
+The rest of that spec (the `simulate.js` validator, `generateForDifficulty`,
+statistics v2, level-selection UI, testing scheme) remains in effect.
 
-## Проблема
+## Problem
 
-Поточний генератор навіть на рівні hard кладе обидві кістки пари на сусідні
-клітинки: `adjacencyBias: 1` у пресеті hard **завжди** обирає суміжну пару,
-а кандидати за замовчуванням обмежені верхнім незавершеним шаром — обидві
-половинки пари опиняються в одному вузькому «фронті знімання». Гра зводиться
-до клікання очевидних сусідніх пар.
+The current generator, even at the hard level, places both tiles of a pair on
+adjacent cells: `adjacencyBias: 1` in the hard preset **always** picks an
+adjacent pair, and by default the candidates are limited to the topmost
+incomplete layer — both halves of the pair end up in the same narrow "removal
+front". The game boils down to clicking obvious adjacent pairs.
 
-Дослідження еталонних реалізацій (KMahjongg `src/gamedata.cpp`,
-`generateSolvableGame`/`selectPosition`) показало, що стандарт — протилежний:
-половинки пари розкидаються **рівномірно по всій дошці**, і діє явний
-**анти-сусідній фільтр** — друга половинка не може лягти впритул до першої.
-Комерційні ігри (Kristanix Mahjong Epic) використовують «пари біля поверхні»
-саме як механізм *полегшення*, а академічна література (arXiv:1203.6559)
-вимірює складність розв'язної дошки Monte-Carlo-симуляцією стратегії — що вже
-робить наш `simulate.js` — і вказує, що складність без підглядування створюють
-копії одного виду, розведені по різних шарах і заперті одна над одною.
+Researching reference implementations (KMahjongg `src/gamedata.cpp`,
+`generateSolvableGame`/`selectPosition`) showed that the standard approach is
+the opposite: the pair's halves are scattered **uniformly across the whole
+board**, and an explicit **anti-adjacency filter** is in effect — the second
+half cannot land right next to the first. Commercial games (Kristanix Mahjong
+Epic) use "pairs near the surface" specifically as an *easing* mechanism, and
+the academic literature (arXiv:1203.6559) measures the difficulty of a
+solvable board via Monte Carlo simulation of a strategy — which is exactly
+what our `simulate.js` already does — and points out that difficulty without
+lookahead is created by copies of the same kind spread across different
+layers and locked one above the other.
 
-## Базовий алгоритм (спільний для всіх рівнів)
+## Base algorithm (shared across all levels)
 
-Лишається зворотна гра у `static/game/generator.js` (`tryGenerate`): з повної
-форми 242 позицій знімаються пари вільних позицій, записаний порядок = розв'язок.
-Змінюється **вибір пари**:
+Reverse play in `static/game/generator.js` (`tryGenerate`) is kept: from the
+full shape of 242 positions, pairs of free positions are removed, and the
+recorded order = the solution. What changes is **pair selection**:
 
-1. Кандидати — **всі вільні позиції** дошки (не лише верхній шар). У зворотній
-   симуляції будь-яка пара вільних позицій валідна за побудовою, тож
-   розв'язність не страждає. Гілки `topFree`/`crossLayerChance` зникають.
-2. Перша половинка `a` — рівномірно випадкова вільна позиція.
-3. Друга половинка `b` — рівномірно випадкова з вільних, що проходять
-   **фільтр розміщення рівня** (див. нижче). Якщо жодна не проходить —
-   фільтр послаблюється до «будь-яка вільна, крім `a`» (bail-out).
-4. **Глухий кут → перегенерація.** У режимах `uniform`/`layered` знімання
-   може зайти в глухий кут: останні дві кості лежать одна над одною, вільна
-   лише верхня (виміряно ~13% сідів для `uniform`). Це не лагодиться вибором
-   пари — валідної пари не існує. Як і KMahjongg (`generateSolvableGame`
-   повертає false → нова спроба), `tryGenerate` у такому стані повертає
-   `null`, а `generateLayout` повторює спробу (очікувано ~1.2 спроби;
-   жорстка межа 100 спроб — захист від майбутніх регресій).
+1. Candidates — **all free positions** on the board (not just the top layer).
+   In reverse simulation any pair of free positions is valid by construction,
+   so solvability is unaffected. The `topFree`/`crossLayerChance` branches
+   disappear.
+2. The first half `a` — a uniformly random free position.
+3. The second half `b` — uniformly random among the free positions that pass
+   the **level's placement filter** (see below). If none pass — the filter is
+   relaxed to "any free position except `a`" (bail-out).
+4. **Dead end → regenerate.** In `uniform`/`layered` modes, removal can hit a
+   dead end: the last two tiles lie one above the other, only the top one is
+   free (measured at ~13% of seeds for `uniform`). This can't be fixed by pair
+   selection — no valid pair exists. Just like KMahjongg
+   (`generateSolvableGame` returns false → a new attempt), `tryGenerate` in
+   such a state returns `null`, and `generateLayout` retries (expected ~1.2
+   attempts; a hard cap of 100 attempts guards against future regressions).
 
-Аналог трюку KMahjongg «higher is better» не потрібен: у формулюванні через
-знімання вільні позиції існують завжди, а верхній шар і так відкритий першим.
+An analog of KMahjongg's "higher is better" trick isn't needed: in the
+removal-based formulation free positions always exist, and the top layer is
+opened first anyway.
 
-## Рівні складності
+## Difficulty levels
 
-Один параметр пресета — `placement`, режим фільтра для другої половинки пари,
-плюс наявний `pairScheduling` (черга видів, `buildPairKinds` не змінюється):
+A single preset parameter — `placement`, the filter mode for the second half
+of a pair, plus the existing `pairScheduling` (kind queue, `buildPairKinds`
+unchanged):
 
-| Параметр | easy | normal | hard |
+| Parameter | easy | normal | hard |
 |---|---|---|---|
 | `placement` | `surface` | `uniform` | `layered` |
 | `pairScheduling` | `random` | `random` | `grouped` |
-| Смуга win-rate бота | [0.65, 1] | [0.35, 0.65] | [0, 0.30] |
+| Bot win-rate band | [0.65, 1] | [0.35, 0.65] | [0, 0.30] |
 
-- **`surface`** (easy) — за Kristanix: обидві половинки беруться з вільних
-  позицій **найвищого незавершеного шару**, з перевагою суміжних пар
-  (ймовірність ~0.9 обрати суміжну пару, якщо така є). Це поведінка
-  попереднього генератора за замовчуванням — вона лишається як механізм
-  полегшення. Гілка «непарний хвіст шару» (єдина вільна на верхньому шарі)
-  зберігається тільки в цьому режимі.
-- **`uniform`** (normal) — чиста схема KMahjongg: `b` — будь-яка вільна,
-  **крім суміжних** до `a` (`isAdjacent`: той самий шар, дотик по стороні).
-- **`layered`** (hard) — фільтр `uniform` плюс вимога `b.z !== a.z`, коли
-  такі кандидати є: половинки пари принудово на різних шарах — копії виду
-  запираються вертикально, розв'язок вимагає міжшарового порядку знімання.
+- **`surface`** (easy) — following Kristanix: both halves are taken from the
+  free positions of the **topmost incomplete layer**, with a preference for
+  adjacent pairs (~0.9 probability of picking an adjacent pair when one
+  exists). This is the previous generator's default behavior — it remains as
+  an easing mechanism. The "layer's odd tail" branch (the single free tile on
+  the top layer) is preserved only in this mode.
+- **`uniform`** (normal) — the pure KMahjongg scheme: `b` is any free
+  position **except those adjacent** to `a` (`isAdjacent`: same layer,
+  touching on a side).
+- **`layered`** (hard) — the `uniform` filter plus the requirement
+  `b.z !== a.z` when such candidates exist: the pair's halves are forced onto
+  different layers — copies of a kind get locked vertically, and the solution
+  requires a cross-layer removal order.
 
-Опції `adjacencyBias` і `crossLayerChance` видаляються з публічного API
-(`generateLayout(rng, options)` приймає `{ placement, pairScheduling }`).
+The `adjacencyBias` and `crossLayerChance` options are removed from the public
+API (`generateLayout(rng, options)` accepts `{ placement, pairScheduling }`).
 
-Смуги win-rate — стартові значення: розподіл складності нового генератора
-інший, тож смуги перевіряються калібрувальним тестом і за потреби
-підкручуються (це очікувана, а не аварійна правка). Механізм
-`generateForDifficulty` (до 30 спроб, приймається перший розклад у смузі,
-інакше найближчий) не змінюється.
+Win-rate bands — starting values: the new generator's difficulty distribution
+is different, so the bands are checked by the calibration test and tuned as
+needed (this is an expected adjustment, not an emergency fix). The
+`generateForDifficulty` mechanism (up to 30 attempts, accepts the first layout
+within the band, otherwise the closest one) is unchanged.
 
-## Тестування
+## Testing
 
-Оновлення `tests/generator.test.js` (`node --test 'tests/*.test.js'`):
+Updates to `tests/generator.test.js` (`node --test 'tests/*.test.js'`):
 
-- Розв'язність на 30 сідах для кожного з трьох `placement`-режимів
-  (заміна тесту з `crossLayerChance`).
-- Властивість анти-суміжності: для `uniform` і `layered` половинки однієї
-  пари не суміжні. Пара відновлюється з порядку в результаті:
-  `generateLayout` кладе кістки попарно, тож `tiles[2i]` і `tiles[2i+1]` —
-  одна пара. Рідкісні bail-out-пари допустимі лише у хвості генерації: тест
-  дозволяє суміжність тільки в останніх двох парах порядку генерації.
-- `layered`: частка пар виду з половинками на різних шарах суттєво вища,
-  ніж у `uniform` (статистична перевірка на кількох сідах).
-- Калібрувальний тест: для кожного рівня `generateForDifficulty` на ~20
-  сідах дає win-rate у цільовій смузі.
+- Solvability across 30 seeds for each of the three `placement` modes
+  (replaces the `crossLayerChance` test).
+- Anti-adjacency property: for `uniform` and `layered`, the halves of a single
+  pair are not adjacent. A pair is reconstructed from the order in the result:
+  `generateLayout` places tiles in pairs, so `tiles[2i]` and `tiles[2i+1]` are
+  one pair. Rare bail-out pairs are allowed only at the tail of generation:
+  the test permits adjacency only in the last two pairs of the generation
+  order.
+- `layered`: the fraction of pairs of a kind with halves on different layers
+  is substantially higher than in `uniform` (statistical check across several
+  seeds).
+- Calibration test: for each level, `generateForDifficulty` over ~20 seeds
+  yields a win rate within the target band.
 
-## Поза скоупом
+## Out of scope
 
-- Зміни `simulate.js`, `stats.js`, UI (`main.js`, `game.html`) — не потрібні:
-  API генератора для викликачів (`generateForDifficulty(level, rng)`) не
-  змінюється.
-- Дейлі-сіди, глибша аналітика складності.
+- Changes to `simulate.js`, `stats.js`, UI (`main.js`, `game.html`) — not
+  needed: the generator's API for callers (`generateForDifficulty(level, rng)`)
+  is unchanged.
+- Daily seeds, deeper difficulty analytics.

@@ -1,55 +1,55 @@
-# Server-authoritative gameplay (Етап 1) Implementation Plan
+# Server-authoritative gameplay (Stage 1) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Перенести генерацію поля й перевірку результату партії на сервер (django-ninja API в новому застосунку `gameplay/`) для всіх гравців, включно з анонімними, — щоб клієнт більше не міг підробити ні поле, ні перемогу, ні час.
+**Goal:** Move field generation and the round-result check to the server (a django-ninja API in a new `gameplay/` app) for all players, including anonymous ones — so the client can no longer fake the field, the win, or the time.
 
-**Architecture:** Сервер генерує гарантовано розв'язне поле (`gameplay/generator.py`, Python-порт `static/game/generator.js`, без вимоги бітового паритету з JS) і зберігає його в `GameSession` (токен-сесія, без прив'язки до користувача). Клієнт рендерить це поле, грає локально (клієнтський `static/game/board.js` лишається для інтерактиву) і веде лог знятих пар за індексами. На фініші сервер реплеїть лог проти збереженого поля (`gameplay/board.py`, Python-порт правила вільності) і сам рахує час (`server_now − created_at`) — це і є анти-чит. Клієнтські `generator.js`/`simulate.js` видаляються як мертвий код.
+**Architecture:** The server generates a guaranteed-solvable field (`gameplay/generator.py`, a Python port of `static/game/generator.js`, with no requirement for bit-for-bit parity with the JS) and stores it in a `GameSession` (a token session, not tied to a user). The client renders this field, plays locally (the client-side `static/game/board.js` remains for interactivity) and keeps a log of removed pairs by index. On finish, the server replays the log against the stored field (`gameplay/board.py`, a Python port of the freedom rule) and computes the time itself (`server_now − created_at`) — this is the anti-cheat mechanism. The client-side `generator.js`/`simulate.js` are removed as dead code.
 
-**Tech Stack:** Django 6.0, django-ninja (типізований API), PostgreSQL (уже прилінкований на проді), Phaser 3.90 (клієнт), Node test runner (JS-тести), Django `TestCase` (Python-тести).
+**Tech Stack:** Django 6.0, django-ninja (typed API), PostgreSQL (already linked in production), Phaser 3.90 (client), Node test runner (JS tests), Django `TestCase` (Python tests).
 
 ## Global Constraints
 
-- Українські коментарі/докстрінги в новому Python-коді — узгоджено зі стилем репозиторію (усі наявні коментарі в `static/game/*.js` — українською).
-- Жодного бітового паритету PRNG між `gameplay/generator.py` і `static/game/generator.js` не потрібно — сервер є єдиним джерелом поля; єдина вимога до генератора — гарантована розв'язність.
-- Авторизація, `PlayerStats`, лідерборд — **поза скоупом цього плану** (окремі майбутні плани).
-- Тести: `uv run manage.py test` (Python) і `node --test 'tests/*.test.js'` (JS) мають проходити після кожного завдання, де це застосовно.
-- Не використовувати офлайн-фолбек на клієнтську генерацію — якщо `POST /api/game/start` не вдався, гра не починається (показуємо помилку).
+- Ukrainian comments/docstrings in the new Python code — consistent with the repository's style (all existing comments in `static/game/*.js` are in Ukrainian).
+- No PRNG bit-for-bit parity between `gameplay/generator.py` and `static/game/generator.js` is needed — the server is the single source of the field; the generator's only requirement is guaranteed solvability.
+- Authorization, `PlayerStats`, leaderboard — **out of scope for this plan** (separate future plans).
+- Tests: `uv run manage.py test` (Python) and `node --test 'tests/*.test.js'` (JS) must pass after each task, where applicable.
+- Do not use an offline fallback to client-side generation — if `POST /api/game/start` fails, the game does not start (show an error).
 
 ---
 
-### Task 1: `gameplay/board.py` — Python-порт правила вільності для реплею
+### Task 1: `gameplay/board.py` — Python port of the freedom rule for replay
 
 **Files:**
-- Create: `gameplay/__init__.py` (порожній)
+- Create: `gameplay/__init__.py` (empty)
 - Create: `gameplay/board.py`
 - Create: `gameplay/tests.py`
 
 **Interfaces:**
-- Produces: `gameplay.board.WIDTH`, `HEIGHT`, `LAYERS` (int), `target_positions() -> list[tuple[int,int,int]]`, `is_free_position(occupied, x, y, z) -> bool` (occupied — будь-що з підтримкою `in` за `(x,y,z)` кортежем), клас `Tile(idx, x, y, z, kind)` з методом `.pos() -> (x,y,z)`, клас `Board(tiles: Iterable[Tile])` з методами `tiles()`, `get_by_idx(idx)`, `is_free(tile)`, `can_match(a,b)`, `remove_pair(a,b) -> bool`, `find_matching_pair() -> (Tile,Tile)|None`, властивістю `remaining`, методами `is_won()`, `is_deadlocked()`.
+- Produces: `gameplay.board.WIDTH`, `HEIGHT`, `LAYERS` (int), `target_positions() -> list[tuple[int,int,int]]`, `is_free_position(occupied, x, y, z) -> bool` (occupied — anything supporting `in` on an `(x,y,z)` tuple), a `Tile(idx, x, y, z, kind)` class with a `.pos() -> (x,y,z)` method, a `Board(tiles: Iterable[Tile])` class with methods `tiles()`, `get_by_idx(idx)`, `is_free(tile)`, `can_match(a,b)`, `remove_pair(a,b) -> bool`, `find_matching_pair() -> (Tile,Tile)|None`, a `remaining` property, methods `is_won()`, `is_deadlocked()`.
 
-- [ ] **Step 1: Створити застосунок `gameplay/` і написати `board.py`**
+- [ ] **Step 1: Create the `gameplay/` app and write `board.py`**
 
 `gameplay/__init__.py`:
 ```python
 ```
-(порожній файл)
+(empty file)
 
 `gameplay/board.py`:
 ```python
-"""Python-порт static/game/board.js: правило вільності (ніхто зверху + вільний
-лівий/правий бік), матчинг пар, зняття пари. Сервер використовує це як
-авторитетну перевірку при реплеї логу ходів (gameplay/api.py) — на відміну
-від клієнтського board.js, тут кістки індексовані (idx = позиція в масиві
-layout, який сервер віддав клієнту при старті партії), бо клієнт шле лог
-ходів саме за цими індексами, а не за об'єктами."""
+"""Python port of static/game/board.js: the freedom rule (nothing on top +
+free left/right side), pair matching, pair removal. The server uses this as
+the authoritative check when replaying the move log (gameplay/api.py) — unlike
+the client-side board.js, tiles here are indexed (idx = position in the
+layout array that the server handed to the client at round start), because
+the client sends the move log by these indices, not by objects."""
 
 WIDTH = 12
 HEIGHT = 8
 LAYERS = 3
 
-# Та сама розкладка "Turtle", що й у static/game/board.js (опис — там-таки).
-# '#' — клітинка є, '.' — порожньо; рядки y=0..7, колонки x=0..11.
+# The same "Turtle" layout as in static/game/board.js (description is there).
+# '#' — cell present, '.' — empty; rows y=0..7, columns x=0..11.
 _LAYER_BITMAPS = [
     ['############', '..########..', '.##########.', '############',
      '############', '.##########.', '..########..', '############'],
@@ -61,7 +61,7 @@ _LAYER_BITMAPS = [
 
 
 def target_positions():
-    """136 цільових позицій Turtle-розкладки як (x, y, z) кортежі."""
+    """136 target positions of the Turtle layout as (x, y, z) tuples."""
     out = []
     for z in range(LAYERS):
         for y in range(HEIGHT):
@@ -73,11 +73,11 @@ def target_positions():
 
 _TOTAL = len(target_positions())
 if _TOTAL != 136:
-    raise RuntimeError(f'target_positions: очікувано 136 позицій, отримано {_TOTAL}')
+    raise RuntimeError(f'target_positions: expected 136 positions, got {_TOTAL}')
 
 
 def is_free_position(occupied, x, y, z):
-    """occupied — будь-що з підтримкою `in` за (x, y, z) кортежем (set/dict)."""
+    """occupied — anything supporting `in` on an (x, y, z) tuple (set/dict)."""
     if (x, y, z + 1) in occupied:
         return False
     return (x - 1, y, z) not in occupied or (x + 1, y, z) not in occupied
@@ -150,9 +150,9 @@ class Board:
         return len(self.by_pos) > 0 and self.find_matching_pair() is None
 ```
 
-- [ ] **Step 2: Написати тести правила вільності**
+- [ ] **Step 2: Write tests for the freedom rule**
 
-`gameplay/tests.py` (початок файлу):
+`gameplay/tests.py` (start of file):
 ```python
 from django.test import TestCase
 
@@ -187,8 +187,8 @@ class BoardRuleTests(TestCase):
         bottom = Tile(0, 0, 0, 0, 'Man1')
         top = Tile(1, 0, 0, 1, 'Pin1')
         board = Board([bottom, top])
-        self.assertFalse(board.remove_pair(bottom, top))  # різний вид
-        self.assertFalse(board.is_free(bottom))  # накрита зверху
+        self.assertFalse(board.remove_pair(bottom, top))  # different kind
+        self.assertFalse(board.is_free(bottom))  # covered from above
 
     def test_is_deadlocked_when_no_free_pair_exists(self):
         blocked_man = Tile(0, 1, 0, 0, 'Man1')
@@ -201,9 +201,9 @@ class BoardRuleTests(TestCase):
         self.assertFalse(board.is_won())
 ```
 
-- [ ] **Step 3: Створити застосунок і зареєструвати в `INSTALLED_APPS`**
+- [ ] **Step 3: Create the app and register it in `INSTALLED_APPS`**
 
-Відредагувати `config/settings.py`:
+Edit `config/settings.py`:
 ```python
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -216,10 +216,10 @@ INSTALLED_APPS = [
 ]
 ```
 
-- [ ] **Step 4: Прогнати тести**
+- [ ] **Step 4: Run the tests**
 
 Run: `uv run manage.py test gameplay -v 2`
-Expected: усі тести `BoardRuleTests` PASS (0 errors).
+Expected: all `BoardRuleTests` PASS (0 errors).
 
 - [ ] **Step 5: Commit**
 
@@ -230,27 +230,28 @@ git commit -m "feat: add gameplay app with server-side board rule port"
 
 ---
 
-### Task 2: `gameplay/generator.py` — серверна генерація розв'язного поля
+### Task 2: `gameplay/generator.py` — server-side generation of a solvable field
 
 **Files:**
-- Modify: `gameplay/tests.py` (додати `GeneratorTests`)
+- Modify: `gameplay/tests.py` (add `GeneratorTests`)
 - Create: `gameplay/generator.py`
 
 **Interfaces:**
-- Consumes: `gameplay.board.target_positions`, `is_free_position`, `Board`, `Tile` (з Task 1).
-- Produces: `gameplay.generator.KINDS` (list[str], 34 елементи), `DIFFICULTIES` (dict рівень → `{'placement': str, 'pair_scheduling': str}`), `generate_layout(rng, placement='uniform', pair_scheduling='random') -> list[tuple[int,int,int,str]]`, `generate_for_difficulty(level, seed=None) -> list[tuple[int,int,int,str]]` (136 кортежів `(x, y, z, kind)`).
+- Consumes: `gameplay.board.target_positions`, `is_free_position`, `Board`, `Tile` (from Task 1).
+- Produces: `gameplay.generator.KINDS` (list[str], 34 elements), `DIFFICULTIES` (dict level → `{'placement': str, 'pair_scheduling': str}`), `generate_layout(rng, placement='uniform', pair_scheduling='random') -> list[tuple[int,int,int,str]]`, `generate_for_difficulty(level, seed=None) -> list[tuple[int,int,int,str]]` (136 `(x, y, z, kind)` tuples).
 
-- [ ] **Step 1: Написати `gameplay/generator.py`**
+- [ ] **Step 1: Write `gameplay/generator.py`**
 
 ```python
-"""Python-порт логіки static/game/generator.js: генерація гарантовано
-розв'язного поля симуляцією зворотної гри (з повної форми знімаються
-випадкові вільні пари; записаний порядок = розв'язок). Бітовий паритет із
-JS-генератором НЕ потрібен — сервер є єдиним джерелом поля, клієнт лише
-рендерить його; тому нема потреби в ідентичному PRNG. Так само свідомо не
-портується winRateBand-калібрування (static/game/simulate.js): для
-антирід-обстеження на цьому етапі достатньо гарантії розв'язності —
-складність рівнів емулюється лише через placement/pair_scheduling.
+"""Python port of the static/game/generator.js logic: generates a guaranteed-
+solvable field by simulating the game in reverse (random free pairs are
+removed from the full shape; the recorded order = the solution). Bit-for-bit
+parity with the JS generator is NOT required — the server is the single
+source of the field, the client only renders it; so there is no need for an
+identical PRNG. Likewise, the winRateBand calibration (static/game/
+simulate.js) is deliberately not ported: for anti-cheat purposes at this
+stage, a guarantee of solvability is enough — level difficulty is emulated
+only via placement/pair_scheduling.
 """
 import random
 
@@ -351,8 +352,8 @@ def _try_generate(rng, placement='uniform', pair_scheduling='random'):
     tiles = []
     while occupied:
         free = [p for p in occupied if is_free_position(occupied, *p)]
-        # Глухий кут: лишилися кості, але вільних менше двох — сигналізуємо
-        # перегенерацію (та сама умова, що в generator.js).
+        # Dead end: tiles remain, but fewer than two are free — signal a
+        # regeneration (the same condition as in generator.js).
         if len(free) < 2:
             return None
         if placement == 'surface':
@@ -372,28 +373,28 @@ def generate_layout(rng, placement='uniform', pair_scheduling='random'):
         tiles = _try_generate(rng, placement, pair_scheduling)
         if tiles is not None:
             return tiles
-    raise RuntimeError('generate_layout: не вдалося уникнути глухого кута за 100 спроб')
+    raise RuntimeError('generate_layout: failed to avoid a dead end in 100 attempts')
 
 
 def generate_for_difficulty(level, seed=None):
-    """Повертає розв'язне поле для рівня складності: список зі 136 кортежів
-    (x, y, z, kind)."""
+    """Returns a solvable field for a difficulty level: a list of 136
+    (x, y, z, kind) tuples."""
     preset = DIFFICULTIES[level]
     rng = random.Random(seed)
     return generate_layout(rng, **preset)
 ```
 
-- [ ] **Step 2: Написати тести розв'язності (солвер-верифікатор)**
+- [ ] **Step 2: Write solvability tests (solver-verifier)**
 
-Додати в `gameplay/tests.py` (після імпортів на початку файлу оновити імпорт-рядок і додати клас):
+Add to `gameplay/tests.py` (after the imports at the top of the file, update the import line and add the class):
 ```python
 from .generator import DIFFICULTIES, generate_for_difficulty
 ```
 
 ```python
 def _solve(tiles):
-    """Жадібний солвер: знімає будь-яку легальну пару, поки можливо.
-    True, якщо дошка повністю розібрана — доводить розв'язність поля."""
+    """Greedy solver: removes any legal pair for as long as possible.
+    True if the board is fully cleared — proves the field is solvable."""
     board = Board([Tile(i, x, y, z, kind) for i, (x, y, z, kind) in enumerate(tiles)])
     while board.remaining > 0:
         pair = board.find_matching_pair()
@@ -408,15 +409,15 @@ class GeneratorTests(TestCase):
         for level in DIFFICULTIES:
             for seed in range(30):
                 tiles = generate_for_difficulty(level, seed=seed)
-                self.assertEqual(len(tiles), 136, f'{level} seed={seed}: очікувано 136 кісток')
-                self.assertTrue(_solve(tiles), f'{level} seed={seed}: поле нерозв\'язне')
+                self.assertEqual(len(tiles), 136, f'{level} seed={seed}: expected 136 tiles')
+                self.assertTrue(_solve(tiles), f'{level} seed={seed}: field is not solvable')
 
     def test_generated_layout_is_authentic_deck(self):
         tiles = generate_for_difficulty('normal', seed=1)
         kinds = [kind for _, _, _, kind in tiles]
         self.assertEqual(len(kinds), 136)
         for kind in set(kinds):
-            self.assertEqual(kinds.count(kind), 4, f'{kind}: очікувано 4 копії')
+            self.assertEqual(kinds.count(kind), 4, f'{kind}: expected 4 copies')
 
     def test_generate_for_difficulty_deterministic_by_seed(self):
         a = generate_for_difficulty('hard', seed=42)
@@ -424,10 +425,10 @@ class GeneratorTests(TestCase):
         self.assertEqual(a, b)
 ```
 
-- [ ] **Step 3: Прогнати тести**
+- [ ] **Step 3: Run the tests**
 
 Run: `uv run manage.py test gameplay -v 2`
-Expected: `BoardRuleTests` і `GeneratorTests` — усі PASS. (900 генерацій — 3 рівні × 30 сідів — можуть зайняти кілька секунд, це очікувано.)
+Expected: `BoardRuleTests` and `GeneratorTests` — all PASS. (900 generations — 3 levels × 30 seeds — may take a few seconds, which is expected.)
 
 - [ ] **Step 4: Commit**
 
@@ -438,17 +439,17 @@ git commit -m "feat: add server-side solvable layout generator"
 
 ---
 
-### Task 3: `GameSession` модель і міграція
+### Task 3: `GameSession` model and migration
 
 **Files:**
 - Create: `gameplay/models.py`
 - Create: `gameplay/admin.py`
-- Create: `gameplay/migrations/0001_initial.py` (генерується `makemigrations`)
+- Create: `gameplay/migrations/0001_initial.py` (generated by `makemigrations`)
 
 **Interfaces:**
-- Produces: `gameplay.models.GameSession` — поля `token` (UUID, PK), `level` (str), `layout` (JSON, list of `{x,y,z,kind}`), `seed` (str), `created_at` (datetime, auto), `status` (`active`/`claimed`/`expired`), `claimed_at` (datetime|None), `elapsed_ms` (int|None), `won` (bool|None).
+- Produces: `gameplay.models.GameSession` — fields `token` (UUID, PK), `level` (str), `layout` (JSON, list of `{x,y,z,kind}`), `seed` (str), `created_at` (datetime, auto), `status` (`active`/`claimed`/`expired`), `claimed_at` (datetime|None), `elapsed_ms` (int|None), `won` (bool|None).
 
-- [ ] **Step 1: Написати модель**
+- [ ] **Step 1: Write the model**
 
 `gameplay/models.py`:
 ```python
@@ -458,8 +459,9 @@ from django.db import models
 
 
 class GameSession(models.Model):
-    """Серверне поле активної партії — без FK на користувача (працює й для
-    анонімів). Токен — секрет сесії, живе лише у відповіді /api/game/start.
+    """The server-side field of an active round — no FK to a user (works for
+    anonymous players too). The token is the session secret, and only ever
+    appears in the /api/game/start response.
     """
 
     class Status(models.TextChoices):
@@ -484,7 +486,7 @@ class GameSession(models.Model):
         return f'{self.token} ({self.level}, {self.status})'
 ```
 
-- [ ] **Step 2: Реєстрація в адмінці**
+- [ ] **Step 2: Register in the admin**
 
 `gameplay/admin.py`:
 ```python
@@ -500,10 +502,10 @@ class GameSessionAdmin(admin.ModelAdmin):
     readonly_fields = ('token', 'layout', 'seed', 'created_at', 'claimed_at')
 ```
 
-- [ ] **Step 3: Згенерувати й прогнати міграцію**
+- [ ] **Step 3: Generate and run the migration**
 
 Run: `uv run manage.py makemigrations gameplay`
-Expected: створено `gameplay/migrations/0001_initial.py` (створює `GameSession`).
+Expected: `gameplay/migrations/0001_initial.py` created (creates `GameSession`).
 
 Run: `uv run manage.py migrate`
 Expected: `Applying gameplay.0001_initial... OK`.
@@ -517,29 +519,30 @@ git commit -m "feat: add GameSession model for server-authoritative sessions"
 
 ---
 
-### Task 4: django-ninja API — `/api/game/start` і `/api/game/finish`
+### Task 4: django-ninja API — `/api/game/start` and `/api/game/finish`
 
 **Files:**
 - Create: `gameplay/api.py`
-- Modify: `gameplay/tests.py` (додати `GameApiTests`)
+- Modify: `gameplay/tests.py` (add `GameApiTests`)
 - Modify: `config/urls.py`
 
 **Interfaces:**
 - Consumes: `gameplay.board.Board`, `Tile` (Task 1); `gameplay.generator.DIFFICULTIES`, `generate_for_difficulty` (Task 2); `gameplay.models.GameSession` (Task 3).
 - Produces: `gameplay.api.api` (an `NinjaAPI` instance) — HTTP `POST /api/game/start` (body `{level: str}` → `{token: uuid, layout: [{x,y,z,kind}, ...]}`), `POST /api/game/finish` (body `{token: uuid, moves: [[int,int], ...], outcome: "win"|"deadlock"}` → `{valid: bool, reason: str|None, won: bool, elapsed_ms: int|None}`).
 
-- [ ] **Step 1: Встановити django-ninja**
+- [ ] **Step 1: Install django-ninja**
 
 Run: `uv add django-ninja`
-Expected: `pyproject.toml`/`uv.lock` оновлені, `django-ninja` встановлено.
+Expected: `pyproject.toml`/`uv.lock` updated, `django-ninja` installed.
 
-- [ ] **Step 2: Написати `gameplay/api.py`**
+- [ ] **Step 2: Write `gameplay/api.py`**
 
 ```python
-"""JSON API для server-authoritative партії. Публічний (auth=None) — працює й
-для анонімних гравців, авторизація поза скоупом цього етапу. CSRF увімкнено
-(csrf=True) незалежно від auth — Django-сесія/CSRF-кука видається кожному
-відвідувачу автоматично через SessionMiddleware/CsrfViewMiddleware.
+"""JSON API for the server-authoritative round. Public (auth=None) — works
+for anonymous players too, authorization is out of scope for this stage.
+CSRF is enabled (csrf=True) regardless of auth — a Django session/CSRF
+cookie is issued to every visitor automatically via SessionMiddleware/
+CsrfViewMiddleware.
 """
 import uuid
 from datetime import timedelta
@@ -566,7 +569,7 @@ def _client_ip(request):
 
 
 def _rate_limited(request, action, limit):
-    """Проста фіксовано-вікнова лічильна квота на IP через Django cache."""
+    """A simple fixed-window per-IP counter quota via the Django cache."""
     key = f'gameplay:ratelimit:{action}:{_client_ip(request)}'
     count = cache.get(key, 0)
     if count >= limit:
@@ -667,9 +670,9 @@ def finish_game(request, payload: FinishRequest):
     return {'valid': True, 'won': session.won, 'elapsed_ms': elapsed_ms}
 ```
 
-- [ ] **Step 3: Підключити роутер у `config/urls.py`**
+- [ ] **Step 3: Wire up the router in `config/urls.py`**
 
-Замінити вміст `config/urls.py`:
+Replace the contents of `config/urls.py`:
 ```python
 from django.contrib import admin
 from django.urls import path
@@ -686,15 +689,15 @@ urlpatterns = [
 ]
 ```
 
-- [ ] **Step 4: Написати API-тести**
+- [ ] **Step 4: Write the API tests**
 
-Додати в `gameplay/tests.py` (оновити імпорти на початку файлу, додати клас):
+Add to `gameplay/tests.py` (update the imports at the top of the file, add the class):
 ```python
 import uuid
 
 from django.test import Client
 
-from .api import api as gameplay_api  # noqa: F401 (реєструє роутер при імпорті тестового модуля)
+from .api import api as gameplay_api  # noqa: F401 (registers the router when the test module is imported)
 ```
 
 ```python
@@ -707,8 +710,8 @@ class GameApiTests(TestCase):
         return response.json()
 
     def _win_moves(self, layout):
-        """Легальний повний розв'язок для заданого layout — жадібним
-        солвером; повертає лог пар індексів у форматі, який очікує finish."""
+        """A legal full solution for the given layout — via a greedy
+        solver; returns the pair-index log in the format finish expects."""
         tiles = [Tile(i, t['x'], t['y'], t['z'], t['kind']) for i, t in enumerate(layout)]
         board = Board(tiles)
         moves = []
@@ -721,7 +724,7 @@ class GameApiTests(TestCase):
     def test_start_returns_136_tile_layout_and_valid_token(self):
         data = self._start()
         self.assertEqual(len(data['layout']), 136)
-        uuid.UUID(data['token'])  # не кидає ValueError
+        uuid.UUID(data['token'])  # does not raise ValueError
 
     def test_start_rejects_unknown_level(self):
         response = self.client.post(
@@ -745,9 +748,9 @@ class GameApiTests(TestCase):
     def test_finish_rejects_illegal_move(self):
         data = self._start()
         layout = data['layout']
-        # Свідомо нелегальна пара: дві кістки різного виду (якщо випадково
-        # збіглися видом — беремо іншу другу кістку). Детерміновано нелегальна
-        # незалежно від згенерованого layout, на відміну від довільних [0,1].
+        # Deliberately illegal pair: two tiles of different kinds (if they
+        # happen to match by kind — take a different second tile). Reliably
+        # illegal regardless of the generated layout, unlike an arbitrary [0,1].
         second_idx = next(
             i for i in range(1, len(layout)) if layout[i]['kind'] != layout[0]['kind']
         )
@@ -785,9 +788,9 @@ class GameApiTests(TestCase):
         self.assertFalse(response.json()['valid'])
 
     def test_missing_csrf_token_is_rejected_when_enforced(self):
-        # Django-тестовий Client за замовчуванням вимикає CSRF-перевірку —
-        # тут вмикаємо її явно, щоб довести, що NinjaAPI(csrf=True) реально
-        # захищає ендпоінт, а не просто присутній у конфігу.
+        # The Django test Client disables the CSRF check by default — here
+        # we turn it on explicitly, to prove that NinjaAPI(csrf=True) really
+        # protects the endpoint, not just sits in the config.
         strict_client = Client(enforce_csrf_checks=True)
         response = strict_client.post(
             '/api/game/start', data={'level': 'easy'}, content_type='application/json',
@@ -795,12 +798,12 @@ class GameApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
 ```
 
-- [ ] **Step 5: Прогнати тести**
+- [ ] **Step 5: Run the tests**
 
 Run: `uv run manage.py test gameplay -v 2`
-Expected: усі `BoardRuleTests`, `GeneratorTests`, `GameApiTests` — PASS.
+Expected: all `BoardRuleTests`, `GeneratorTests`, `GameApiTests` — PASS.
 
-- [ ] **Step 6: Ручна перевірка через dev-сервер**
+- [ ] **Step 6: Manual check via the dev server**
 
 Run:
 ```bash
@@ -809,7 +812,7 @@ sleep 2
 curl -s -X POST http://127.0.0.1:8000/api/game/start -H 'Content-Type: application/json' -d '{"level":"easy"}' | head -c 300
 kill %1
 ```
-Expected: JSON з `"token"` (UUID) і `"layout"` (136 елементів `{x,y,z,kind}`).
+Expected: JSON with `"token"` (UUID) and `"layout"` (136 `{x,y,z,kind}` elements).
 
 - [ ] **Step 7: Commit**
 
@@ -820,32 +823,33 @@ git commit -m "feat: add server-authoritative game start/finish API"
 
 ---
 
-### Task 5: Клієнт — `static/game/sync.js` (тонкий HTTP-клієнт до API)
+### Task 5: Client — `static/game/sync.js` (a thin HTTP client to the API)
 
 **Files:**
 - Create: `static/game/sync.js`
 - Modify: `templates/game.html`
 
 **Interfaces:**
-- Consumes: `window.MAHJONG_CSRF` (string, ін'єктований у шаблоні).
+- Consumes: `window.MAHJONG_CSRF` (string, injected in the template).
 - Produces: `startGame(level: string) -> Promise<{token: string, layout: {x,y,z,kind}[]}>`, `finishGame(token: string, moves: [number,number][], outcome: 'win'|'deadlock') -> Promise<{valid: boolean, reason: string|null, won: boolean, elapsedMs: number|null}>`.
 
-- [ ] **Step 1: Інжектити CSRF-токен у шаблон**
+- [ ] **Step 1: Inject the CSRF token into the template**
 
-У `templates/game.html` перед завантаженням Phaser (рядок 148), додати:
+In `templates/game.html`, before loading Phaser (line 148), add:
 ```html
 <script>window.MAHJONG_CSRF = '{{ csrf_token }}';</script>
 <script src="{% static 'vendor/phaser.min.js' %}"></script>
 <script type="module" src="{% static 'game/main.js' %}"></script>
 ```
 
-- [ ] **Step 2: Написати `static/game/sync.js`**
+- [ ] **Step 2: Write `static/game/sync.js`**
 
 ```javascript
-// Клієнт до серверного API гри (gameplay/api.py): старт партії (сервер
-// генерує поле й веде облік) і фініш (сервер реплеїть лог ходів і сам рахує
-// час) — див. docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md.
-// CSRF-токен береться з window.MAHJONG_CSRF (інжектиться в templates/game.html).
+// Client to the server-side game API (gameplay/api.py): starting a round
+// (the server generates the field and tracks it) and finishing it (the
+// server replays the move log and computes the time itself) — see
+// docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md.
+// The CSRF token is taken from window.MAHJONG_CSRF (injected in templates/game.html).
 
 async function postJson(url, body) {
   const response = await fetch(url, {
@@ -862,14 +866,14 @@ async function postJson(url, body) {
   return response.json();
 }
 
-// Повертає { token, layout: [{x,y,z,kind}, ...] } — рендер бере позиції з
-// layout, а індекс кістки в цьому масиві — її ідентифікатор для moves-логу.
+// Returns { token, layout: [{x,y,z,kind}, ...] } — rendering takes positions
+// from layout, and a tile's index in this array is its identifier for the moves log.
 export async function startGame(level) {
   return postJson('/api/game/start', { level });
 }
 
-// moves — масив пар [idxA, idxB] (індекси в масиві layout зі startGame,
-// у порядку зняття пар). outcome — 'win' або 'deadlock'.
+// moves — an array of pairs [idxA, idxB] (indices into the layout array from
+// startGame, in the order pairs were removed). outcome — 'win' or 'deadlock'.
 export async function finishGame(token, moves, outcome) {
   const data = await postJson('/api/game/finish', { token, moves, outcome });
   return {
@@ -890,7 +894,7 @@ git commit -m "feat: add client for server-authoritative game API"
 
 ---
 
-### Task 6: Прибрати клієнтську генерацію (`generator.js`, `simulate.js`) і перенести `KINDS`
+### Task 6: Remove client-side generation (`generator.js`, `simulate.js`) and move `KINDS`
 
 **Files:**
 - Modify: `static/game/board.js`
@@ -900,14 +904,14 @@ git commit -m "feat: add client for server-authoritative game API"
 - Delete: `tests/simulate.test.js`
 
 **Interfaces:**
-- Produces: `static/game/board.js` тепер додатково експортує `KINDS` (list[string], 34 елементи — той самий список, що раніше жив у `generator.js`).
+- Produces: `static/game/board.js` now additionally exports `KINDS` (list[string], 34 elements — the same list that used to live in `generator.js`).
 
-- [ ] **Step 1: Перенести `KINDS` у `board.js`**
+- [ ] **Step 1: Move `KINDS` into `board.js`**
 
-Додати на початок `static/game/board.js` (перед `export const WIDTH = 12;`):
+Add at the top of `static/game/board.js` (before `export const WIDTH = 12;`):
 ```javascript
-// Домен видів кісток: 34 автентичні riichi-види (раніше жив у видаленому
-// static/game/generator.js — генерація тепер серверна, gameplay/generator.py).
+// Domain of tile kinds: 34 authentic riichi kinds (used to live in the
+// now-deleted static/game/generator.js — generation is now server-side, gameplay/generator.py).
 export const KINDS = [
   ...['Man', 'Pin', 'Sou'].flatMap(
     (suit) => Array.from({ length: 9 }, (_, i) => `${suit}${i + 1}`),
@@ -917,17 +921,17 @@ export const KINDS = [
 
 ```
 
-- [ ] **Step 2: Видалити мертві модулі й тести**
+- [ ] **Step 2: Delete the dead modules and tests**
 
 Run:
 ```bash
 git rm static/game/generator.js static/game/simulate.js tests/generator.test.js tests/simulate.test.js
 ```
 
-- [ ] **Step 3: Прогнати JS-тести**
+- [ ] **Step 3: Run the JS tests**
 
 Run: `node --test 'tests/*.test.js'`
-Expected: `board.test.js` і `stats.test.js` PASS; `generator.test.js`/`simulate.test.js` більше не існують (не запускаються).
+Expected: `board.test.js` and `stats.test.js` PASS; `generator.test.js`/`simulate.test.js` no longer exist (do not run).
 
 - [ ] **Step 4: Commit**
 
@@ -938,45 +942,45 @@ git commit -m "chore: remove dead client-side generator/simulate modules, move K
 
 ---
 
-### Task 7: `main.js` — інтеграція старту/фінішу через серверне API
+### Task 7: `main.js` — integrating start/finish via the server API
 
 **Files:**
 - Modify: `static/game/main.js`
 
 **Interfaces:**
-- Consumes: `startGame`, `finishGame` з `static/game/sync.js` (Task 5); `KINDS` тепер з `static/game/board.js` (Task 6).
+- Consumes: `startGame`, `finishGame` from `static/game/sync.js` (Task 5); `KINDS` now from `static/game/board.js` (Task 6).
 
-- [ ] **Step 1: Оновити імпорти**
+- [ ] **Step 1: Update the imports**
 
-Замінити рядки 1-2 `static/game/main.js`:
+Replace lines 1-2 of `static/game/main.js`:
 ```javascript
 import { WIDTH, LAYERS, Board } from './board.js';
 import { generateForDifficulty, KINDS } from './generator.js';
 ```
-на:
+with:
 ```javascript
 import { WIDTH, LAYERS, Board, KINDS } from './board.js';
 import { startGame as apiStartGame, finishGame as apiFinishGame } from './sync.js';
 ```
 
-- [ ] **Step 2: Ініціалізувати стан сесії/логу ходів у `create()`**
+- [ ] **Step 2: Initialize session/move-log state in `create()`**
 
-У `create()` (одразу після `this.bgCredit = null;`, біля рядка 226), додати:
+In `create()` (right after `this.bgCredit = null;`, near line 226), add:
 ```javascript
     this.sessionToken = null;
     this.movesLog = [];
 ```
 
-- [ ] **Step 3: Переписати `startGame(level)` на асинхронний запит до сервера**
+- [ ] **Step 3: Rewrite `startGame(level)` as an async request to the server**
 
-Замінити метод `startGame(level)` (рядки 436-456):
+Replace the `startGame(level)` method (lines 436-456):
 ```javascript
   async startGame(level) {
     this.currentLevel = level;
     for (const sprite of this.sprites.values()) sprite.destroy();
     this.sprites.clear();
     this.selected = null;
-    this.statusText.setText('⏳ Генерую розклад…');
+    this.statusText.setText('⏳ Generating layout…');
     this.loadBackground();
     this.closeAllModals();
 
@@ -984,7 +988,7 @@ import { startGame as apiStartGame, finishGame as apiFinishGame } from './sync.j
     try {
       data = await apiStartGame(level);
     } catch {
-      this.statusText.setText('⚠️ Не вдалося почати гру — перевірте з\'єднання');
+      this.statusText.setText('⚠️ Could not start the game — check your connection');
       return;
     }
 
@@ -1006,13 +1010,13 @@ import { startGame as apiStartGame, finishGame as apiFinishGame } from './sync.j
   }
 ```
 
-- [ ] **Step 4: Вести лог ходів у `removePair`**
+- [ ] **Step 4: Track the move log in `removePair`**
 
-У `removePair(a, b)` (рядки 829-863), одразу після `if (!this.board.removePair(a, b)) return;`, додати:
+In `removePair(a, b)` (lines 829-863), right after `if (!this.board.removePair(a, b)) return;`, add:
 ```javascript
     this.movesLog.push([a.idx, b.idx]);
 ```
-(рядок стає:)
+(the line becomes:)
 ```javascript
   removePair(a, b) {
     if (!this.board.removePair(a, b)) return;
@@ -1021,9 +1025,9 @@ import { startGame as apiStartGame, finishGame as apiFinishGame } from './sync.j
     this.bumpCounter('gamePairs', 'pairsTotal');
 ```
 
-- [ ] **Step 5: Синхронізувати лог при undo**
+- [ ] **Step 5: Sync the log on undo**
 
-У `undo()` (рядки 919-926), одразу після `const pair = this.board.undo(); if (!pair) return;`, додати `this.movesLog.pop();`:
+In `undo()` (lines 919-926), right after `const pair = this.board.undo(); if (!pair) return;`, add `this.movesLog.pop();`:
 ```javascript
   undo() {
     const pair = this.board.undo();
@@ -1036,15 +1040,15 @@ import { startGame as apiStartGame, finishGame as apiFinishGame } from './sync.j
   }
 ```
 
-- [ ] **Step 6: Переписати `finishGame(won)` — верифікація через сервер перед зарахуванням**
+- [ ] **Step 6: Rewrite `finishGame(won)` — verification via the server before crediting**
 
-Замінити метод `finishGame(won)` (рядки 551-564):
+Replace the `finishGame(won)` method (lines 551-564):
 ```javascript
-  // Зараховує завершену партію (перемога чи глухий кут) рівно один раз —
-  // лише після того, як сервер підтвердив лог ходів реплеєм (анти-чит,
+  // Credits a finished round (win or deadlock) exactly once — only after
+  // the server has confirmed the move log by replay (anti-cheat,
   // docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md).
-  // Локальна lifetime-статистика оновлюється тільки за підтвердженим
-  // результатом; серверний час (elapsedMs) — джерело істини, не клієнтський.
+  // Local lifetime stats update only on a confirmed result; the server
+  // time (elapsedMs) is the source of truth, not the client's.
   async finishGame(won) {
     if (this.registry.get('gameFinished')) return;
     this.registry.set('gameFinished', true);
@@ -1054,14 +1058,14 @@ import { startGame as apiStartGame, finishGame as apiFinishGame } from './sync.j
     try {
       result = await apiFinishGame(this.sessionToken, this.movesLog, outcome);
     } catch {
-      this.statusText.setText('⚠️ Не вдалося підтвердити результат партії');
-      this.openStatsModal('⚠️ Партія не підтверджена сервером');
+      this.statusText.setText('⚠️ Could not confirm the round result');
+      this.openStatsModal('⚠️ Round was not confirmed by the server');
       return;
     }
 
     if (!result.valid) {
-      this.statusText.setText('⚠️ Партія не підтверджена сервером');
-      this.openStatsModal('⚠️ Партія не підтверджена сервером');
+      this.statusText.setText('⚠️ Round was not confirmed by the server');
+      this.openStatsModal('⚠️ Round was not confirmed by the server');
       return;
     }
 
@@ -1071,15 +1075,15 @@ import { startGame as apiStartGame, finishGame as apiFinishGame } from './sync.j
       : applyLoss(this.lifetimeStats());
     this.updateLifetimeStats(updated);
     this.playEndEffect(result.won, () => {
-      this.openStatsModal(result.won ? '🎉 Перемога!' : '🚫 Глухий кут — немає ходів');
+      this.openStatsModal(result.won ? '🎉 Victory!' : '🚫 Deadlock — no moves left');
     });
   }
 ```
 
-- [ ] **Step 7: Ручна браузерна перевірка (Claude-in-Chrome)**
+- [ ] **Step 7: Manual browser check (Claude-in-Chrome)**
 
-Запустити dev-сервер (`uv run manage.py runserver`), відкрити `http://127.0.0.1:8000/`, дочекатись поля (тепер вантажиться з сервера — статус на мить показує «⏳ Генерую розклад…»), зіграти кілька пар, зробити undo, довести партію до перемоги/глухого кута. Перевірити в консолі мережі (`read_network_requests`), що `POST /api/game/start` і `POST /api/game/finish` пішли й повернули `200` з `"valid": true`.
-Expected: гра рендериться, статистика в модалці оновлюється після перемоги/глухого кута, жодних помилок у консолі.
+Start the dev server (`uv run manage.py runserver`), open `http://127.0.0.1:8000/`, wait for the field (now loads from the server — status briefly shows "⏳ Generating layout…"), play a few pairs, undo, take the round to victory/deadlock. Check in the network console (`read_network_requests`) that `POST /api/game/start` and `POST /api/game/finish` were sent and returned `200` with `"valid": true`.
+Expected: the game renders, the modal's stats update after victory/deadlock, no console errors.
 
 - [ ] **Step 8: Commit**
 
@@ -1090,25 +1094,25 @@ git commit -m "feat: wire client to server-authoritative game start/finish"
 
 ---
 
-### Task 8: Оновити `CLAUDE.md`
+### Task 8: Update `CLAUDE.md`
 
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Оновити розділ «Структура гри»**
+- [ ] **Step 1: Update the "Game Structure" section**
 
-У `CLAUDE.md`, у списку файлів гри:
-- Прибрати рядок про `static/game/generator.js` (видалений).
-- Додати новий пункт: `gameplay/` — Django-застосунок серверної генерації поля й антирід-валідації партії (`board.py`, `generator.py` — Python-порти клієнтських модулів без вимоги бітового паритету PRNG; `models.py: GameSession` — токен-сесія без прив'язки до користувача; `api.py` — django-ninja, `POST /api/game/start`/`POST /api/game/finish`, реплей логу ходів, серверний час). Див. `docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md`.
-- Уточнити опис `static/game/board.js`: тепер лишається лише для клієнтського інтерактиву (рендер/кліки/undo/детекція глухого кута); авторитетна перевірка — на сервері (`gameplay/board.py`), поле надходить з `POST /api/game/start`, а не з локального генератора.
-- Уточнити опис `static/game/main.js`: старт і фініш партії йдуть через `static/game/sync.js` (HTTP до `gameplay/api.py`); без мережі гра не починається (без офлайн-фолбеку на локальну генерацію).
+In `CLAUDE.md`, in the list of game files:
+- Remove the line about `static/game/generator.js` (deleted).
+- Add a new entry: `gameplay/` — a Django app for server-side field generation and anti-cheat round validation (`board.py`, `generator.py` — Python ports of the client-side modules with no requirement for PRNG bit-for-bit parity; `models.py: GameSession` — a token session not tied to a user; `api.py` — django-ninja, `POST /api/game/start`/`POST /api/game/finish`, move-log replay, server-side time). See `docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md`.
+- Clarify the description of `static/game/board.js`: now it remains only for client-side interactivity (render/clicks/undo/deadlock detection); the authoritative check is on the server (`gameplay/board.py`), the field comes from `POST /api/game/start`, not a local generator.
+- Clarify the description of `static/game/main.js`: starting and finishing a round go through `static/game/sync.js` (HTTP to `gameplay/api.py`); without network access the game does not start (no offline fallback to local generation).
 
-- [ ] **Step 2: Оновити розділ «Тести»**
+- [ ] **Step 2: Update the "Tests" section**
 
-Додати після наявного абзацу про `node --test`:
+Add after the existing paragraph about `node --test`:
 ```markdown
-Серверна логіка (`gameplay/`: генерація поля, правило вільності, антирід-валідація
-партії через django-ninja API) — Django-тестами:
+Server-side logic (`gameplay/`: field generation, freedom rule, anti-cheat
+round validation via the django-ninja API) — via Django tests:
 
 ```
 uv run manage.py test gameplay
@@ -1124,23 +1128,23 @@ git commit -m "docs: document server-authoritative gameplay in CLAUDE.md"
 
 ---
 
-### Task 9: Повна наскрізна перевірка
+### Task 9: Full end-to-end check
 
-**Files:** (нічого не змінює — лише верифікація)
+**Files:** (changes nothing — verification only)
 
-- [ ] **Step 1: Повний прогін Python-тестів**
+- [ ] **Step 1: Full run of the Python tests**
 
 Run: `uv run manage.py test`
-Expected: усі тести (`gameplay`) — PASS, 0 failures/errors.
+Expected: all tests (`gameplay`) — PASS, 0 failures/errors.
 
-- [ ] **Step 2: Повний прогін JS-тестів**
+- [ ] **Step 2: Full run of the JS tests**
 
 Run: `node --test 'tests/*.test.js'`
-Expected: `board.test.js`, `stats.test.js` — PASS. Файли `generator.test.js`, `simulate.test.js` відсутні (видалені в Task 6).
+Expected: `board.test.js`, `stats.test.js` — PASS. The files `generator.test.js`, `simulate.test.js` are absent (deleted in Task 6).
 
-- [ ] **Step 3: Ручна перевірка анти-читу**
+- [ ] **Step 3: Manual anti-cheat check**
 
-Запустити dev-сервер, через `curl`/консоль браузера:
+Start the dev server, via `curl`/browser console:
 ```bash
 uv run manage.py runserver &
 sleep 2
@@ -1148,16 +1152,16 @@ TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/game/start -H 'Content-Type: a
 curl -s -X POST http://127.0.0.1:8000/api/game/finish -H 'Content-Type: application/json' -d "{\"token\":\"$TOKEN\",\"moves\":[[0,1]],\"outcome\":\"win\"}"
 kill %1
 ```
-Expected: `{"valid":false,"reason":"illegal move","won":false,"elapsed_ms":null}` (або `"board not fully cleared"`, якщо `[0,1]` випадково легальна пара — тест `test_finish_rejects_illegal_move` у Task 4 покриває це надійніше через контрольований layout).
+Expected: `{"valid":false,"reason":"illegal move","won":false,"elapsed_ms":null}` (or `"board not fully cleared"` if `[0,1]` happens to be a legal pair — the `test_finish_rejects_illegal_move` test in Task 4 covers this more reliably via a controlled layout).
 
-- [ ] **Step 4: Браузерна перевірка повного циклу гри**
+- [ ] **Step 4: Browser check of the full game cycle**
 
-Через Claude-in-Chrome: відкрити `/`, зіграти партію на кожному з трьох рівнів (easy/normal/hard) до перемоги чи глухого кута, переконатись, що статистика (модалка «📊 Статистика») коректно оновлюється лише після серверного підтвердження.
+Via Claude-in-Chrome: open `/`, play a round on each of the three levels (easy/normal/hard) to victory or deadlock, confirm that the stats (the "📊 Stats" modal) update correctly only after server confirmation.
 
 ---
 
-## Спец-примітка щодо самоперевірки плану
+## Plan self-check note
 
-- **Spec coverage:** генерація на сервері (Task 2, 4), реплей/валідація (Task 4), серверний час (Task 4 `elapsed_ms`), одноразовий claim (Task 4 `status`-перевірка + тест), robота для анонімів (модель без FK на User), прибирання клієнтського мертвого коду (Task 6), клієнтська інтеграція (Task 5, 7), документація (Task 8) — усе покрито.
-- **Type consistency:** `Tile(idx, x, y, z, kind)` і `Board` з однаковою сигнатурою використовуються в `gameplay/board.py` (Task 1), `gameplay/generator.py`-тестах (Task 2) і `gameplay/api.py`/тестах (Task 4). Клієнтський `movesLog` формат `[idx, idx]` (масив, не кортеж — JSON) відповідає `moves: list[tuple[int,int]]` на сервері (Pydantic приймає масив із 2 елементів як tuple). `elapsed_ms` (Python/JSON) → `elapsedMs` (JS, `sync.js` перекладає ключ).
-- **Scope:** авторизація/лідерборд/синхронізація статистики свідомо не входять — окремі майбутні плани (див. пам'ять проєкту `auth-and-anticheat-roadmap`).
+- **Spec coverage:** server-side generation (Task 2, 4), replay/validation (Task 4), server-side time (Task 4 `elapsed_ms`), one-time claim (Task 4 `status` check + test), works for anonymous users (model with no FK to User), removal of dead client-side code (Task 6), client integration (Task 5, 7), documentation (Task 8) — all covered.
+- **Type consistency:** `Tile(idx, x, y, z, kind)` and `Board` with the same signature are used in `gameplay/board.py` (Task 1), the `gameplay/generator.py` tests (Task 2), and `gameplay/api.py`/its tests (Task 4). The client-side `movesLog` format `[idx, idx]` (an array, not a tuple — JSON) matches `moves: list[tuple[int,int]]` on the server (Pydantic accepts a 2-element array as a tuple). `elapsed_ms` (Python/JSON) → `elapsedMs` (JS, `sync.js` translates the key).
+- **Scope:** authorization/leaderboard/stats sync are deliberately out of scope — separate future plans (see the project memory `auth-and-anticheat-roadmap`).

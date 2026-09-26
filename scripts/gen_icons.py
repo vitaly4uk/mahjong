@@ -1,15 +1,15 @@
-"""Генератор іконок (favicon + PWA/Apple) методом «крупного плану».
+"""Icon generator (favicon + PWA/Apple) using a "close-up" composition.
 
-Композиція: кремова костяшка маджонга (Front.png) з червоним символом
-中 — Червоний дракон (Chun.png) — по центру, на діагональному градієнті
-глибокий зелений → смарагдовий, з м'якою тінню під тайлом.
+Composition: a cream mahjong tile (Front.png) with the red 中 symbol —
+Red Dragon (Chun.png) — centered, on a diagonal gradient from deep green
+to emerald, with a soft shadow under the tile.
 
-Запуск (Pillow не є проєктною залежністю, тягнеться ефемерно через uv):
+Run it (Pillow isn't a project dependency, pulled in ephemerally via uv):
 
     uv run --with pillow python scripts/gen_icons.py
 
-Перегенерувати весь набір іконок можна в будь-який момент — джерела
-(tiles/Front.png, tiles/Chun.png) уже лежать у репозиторії.
+The whole icon set can be regenerated at any time — the sources
+(tiles/Front.png, tiles/Chun.png) already live in the repository.
 """
 
 from pathlib import Path
@@ -22,8 +22,8 @@ OUT_DIR = BASE_DIR / "static" / "icons"
 
 MASTER_SIZE = 1024
 
-GRADIENT_START = (20, 40, 26)    # #14281a — глибокий зелений
-GRADIENT_END = (47, 107, 63)     # #2f6b3f — смарагдовий
+GRADIENT_START = (20, 40, 26)    # #14281a — deep green
+GRADIENT_END = (47, 107, 63)     # #2f6b3f — emerald
 
 SHADOW_COLOR = (0, 0, 0)
 SHADOW_OPACITY = 110
@@ -36,9 +36,9 @@ DRAGON_FRAC_OF_TILE = 0.62
 
 
 def make_gradient_background(size: int) -> Image.Image:
-    """Діагональний градієнт (лівий верх -> правий низ) з лёгкою віньєткою."""
-    # Рахуємо градієнт по діагоналі: беремо проекцію кожного пікселя на
-    # діагональ (0,0)-(size,size) і лінійно змішуємо кольори.
+    """Diagonal gradient (top-left -> bottom-right) with a soft vignette."""
+    # Compute the gradient along the diagonal: project each pixel onto the
+    # (0,0)-(size,size) diagonal and linearly blend the colors.
     base = Image.new("RGB", (size, size))
     px = base.load()
     diag = size * 2
@@ -50,7 +50,7 @@ def make_gradient_background(size: int) -> Image.Image:
             b = int(GRADIENT_START[2] + (GRADIENT_END[2] - GRADIENT_START[2]) * t)
             px[x, y] = (r, g, b)
 
-    # Легка радіальна віньєтка для об'єму: темніші кути.
+    # A light radial vignette for depth: darker corners.
     vignette = Image.new("L", (size, size), 0)
     vdraw = ImageDraw.Draw(vignette)
     max_r = size * 0.75
@@ -88,7 +88,7 @@ def render(size: int, tile_frac: float) -> Image.Image:
     tile_x = (size - tile_w) // 2
     tile_y = (size - tile_h) // 2
 
-    # --- Тінь під тайлом: беремо альфа-маску тайла, зсуваємо й розмиваємо.
+    # --- Shadow under the tile: take the tile's alpha mask, offset and blur it.
     shadow_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     shadow_shape = Image.new("RGBA", (tile_w, tile_h), (0, 0, 0, 0))
     shadow_alpha = front_scaled.split()[3].point(lambda a: SHADOW_OPACITY if a > 0 else 0)
@@ -100,10 +100,10 @@ def render(size: int, tile_frac: float) -> Image.Image:
     shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(size * SHADOW_BLUR_FRAC))
     canvas.alpha_composite(shadow_layer)
 
-    # --- Тайл (кремове лице костяшки).
+    # --- Tile (the tile's cream face).
     canvas.alpha_composite(front_scaled, (tile_x, tile_y))
 
-    # --- Дракон 中 по центру тайла.
+    # --- Dragon 中 centered on the tile.
     dragon_h = int(tile_h * DRAGON_FRAC_OF_TILE)
     dragon_w = int(dragon_h * chun.width / chun.height)
     chun_scaled = chun.resize((dragon_w, dragon_h), Image.LANCZOS)
@@ -124,14 +124,14 @@ def main() -> None:
     master_normal = render(MASTER_SIZE, TILE_FRAC_NORMAL)
     master_maskable = render(MASTER_SIZE, TILE_FRAC_MASKABLE)
 
-    # PWA / Android icons (з прозорим фоном за межами градієнта немає —
-    # фон повністю заповнений градієнтом).
+    # PWA / Android icons (no transparent background outside the gradient —
+    # the background is fully filled by the gradient).
     downscale(master_normal, 512).save(OUT_DIR / "icon-512.png")
     downscale(master_normal, 192).save(OUT_DIR / "icon-192.png")
     downscale(master_maskable, 512).save(OUT_DIR / "icon-maskable-512.png")
     downscale(master_maskable, 192).save(OUT_DIR / "icon-maskable-192.png")
 
-    # Apple touch icon — без альфи (iOS сам заокруглює кути).
+    # Apple touch icon — no alpha (iOS rounds the corners itself).
     apple = downscale(master_normal, 180).convert("RGB")
     apple.save(OUT_DIR / "apple-touch-icon.png")
 
@@ -148,7 +148,7 @@ def main() -> None:
         append_images=favicon_images[1:],
     )
 
-    print(f"Готово: іконки записано в {OUT_DIR}")
+    print(f"Done: icons written to {OUT_DIR}")
 
 
 if __name__ == "__main__":

@@ -1,112 +1,119 @@
-# Переїзд UI-обв'язки на DOM + Tailwind CSS, розбиття main.js
+# Move the UI chrome to DOM + Tailwind CSS, split up main.js
 
-Дата: 2026-07-29. Статус: реалізовано.
+Date: 2026-07-29. Status: implemented.
 
-## Мета
+## Goal
 
-До цієї зміни ~95% UI гри малювалось на Phaser-канвасі: тулбар, смуга
-статусу, кредит фотографа — усе було `Phaser.Text`/rectangle/container
-об'єктами (`static/game/main.js`). Єдиний реальний DOM — 4 модалки
-(`templates/game.html`), стилізовані окремим `app.css`.
+Before this change, ~95% of the game's UI was drawn on the Phaser canvas: the
+toolbar, the status bar, the photographer credit — all of it was
+`Phaser.Text`/rectangle/container objects (`static/game/main.js`). The only
+real DOM was 4 modals (`templates/game.html`), styled by a separate `app.css`.
 
-Плани на ріст DOM-частини гри (нові панелі/меню поза канвасом) зробили
-поточну архітектуру тісною: додавати DOM-UI означало або дублювати логіку
-рендеру (канвас + DOM), або переносити частину UI з канваса в DOM. Заразом
-`main.js` розрісся до 1821 рядка, змішуючи сцену, DOM-обв'язку, ігрову
-сесію й анімації в одному файлі.
+Plans to grow the DOM part of the game (new panels/menus outside the canvas)
+made the current architecture cramped: adding DOM UI meant either duplicating
+rendering logic (canvas + DOM), or moving part of the UI from the canvas to
+the DOM. At the same time, `main.js` had grown to 1821 lines, mixing the
+scene, DOM chrome, the game session, and animations into a single file.
 
-Рішення:
-1. Перенести **тулбар + смугу статусу + кредит фотографа + модалки** в DOM;
-   канвас віднині малює **лише** дошку (кістки/ефекти/фон).
-2. Стилізувати цей DOM через **Tailwind CSS v4**, зібраний тим самим
-   Docker-стейджем, що вже збирає `bundle.js` (esbuild).
-3. Розбити `main.js` на `scene.js`/`effects.js`/`ui-dom.js`/тонкий `main.js`.
+Decision:
+1. Move the **toolbar + status bar + photographer credit + modals** into the
+   DOM; from now on the canvas draws **only** the board (tiles/effects/
+   background).
+2. Style this DOM with **Tailwind CSS v4**, built by the same Docker stage
+   that already builds `bundle.js` (esbuild).
+3. Split `main.js` into `scene.js`/`effects.js`/`ui-dom.js`/a thin `main.js`.
 
-## Межа канвас/DOM
+## Canvas/DOM boundary
 
-**У канвасі (без змін):** кістки-спрайти, растеризація SVG, depth-сортування,
-клік по кістці (єдиний сценовий `gameobjectdown`), усі анімації/ефекти
-(роздача, політ пари в лічильник, flip при переміші, glow/hover/press/error,
-кінцевий ефект перемоги/програшу), фонове фото + вуаль, уся ігрова логіка
-сесії (правило вільності, матчинг, undo, дедлок, start/finish/shuffle).
+**In the canvas (unchanged):** tile sprites, SVG rasterization, depth
+sorting, tile clicks (the single scene-level `gameobjectdown` handler), all
+animations/effects (deal-in, pair flight to the counter, flip on shuffle,
+glow/hover/press/error, the final win/loss effect), the background photo +
+veil, all the session game logic (the freedom rule, matching, undo, deadlock,
+start/finish/shuffle).
 
-**У DOM (нове):** тулбар (Нова гра/Підказка/Скасувати/Статистика/Турнір/
-Мова), смуга статусу (залишилось/складність/довічна статистика), кредит
-фотографа, 4 модалки.
+**In the DOM (new):** the toolbar (New game/Hint/Undo/Stats/Tournament/
+Language), the status bar (remaining/difficulty/lifetime stats), the
+photographer credit, 4 modals.
 
-Дві точки дотику канвас↔DOM:
-- **Синхронізація стану** — гра як і раніше пише факти в `scene.registry`
-  (Phaser DataManager); DOM-підписник (`ui-dom.js`) читає їх і оновлює
-  `textContent` замість `setText`. Той самий Publisher/Subscriber, що і
-  раніше — змінився лише рендер-таргет підписника.
-- **Політ кістки в лічильник** (`removePair` → `flyToCenterThenDown` →
-  `flyDownFromCenter`) — ціль тепер обчислюється з `getBoundingClientRect()`
-  DOM-лічильника (`ui-dom.js: getCounterRect()`), перерахованого в
-  world-space канваса (`scene.js: flightTarget()`:
+Two points of contact between canvas and DOM:
+- **State sync** — the game still writes facts into `scene.registry`
+  (Phaser DataManager); the DOM subscriber (`ui-dom.js`) reads them and
+  updates `textContent` instead of `setText`. The same Publisher/Subscriber
+  pattern as before — only the subscriber's render target changed.
+- **Tile flight to the counter** (`removePair` → `flyToCenterThenDown` →
+  `flyDownFromCenter`) — the target is now computed from the DOM counter's
+  `getBoundingClientRect()` (`ui-dom.js: getCounterRect()`), converted into
+  the canvas's world space (`scene.js: flightTarget()`:
   `(screenPx - canvasCssOrigin) * dpr`).
 
-## Технічні пастки (для майбутніх змін у цій же ділянці)
+## Technical pitfalls (for future changes in this same area)
 
-- **`#game-container` не повинен мати власного `height`** у Tailwind-джерелі
-  (`assets/tailwind.src.css`). Це `<main class="flex-1 min-h-0">` між
-  `<header>`/`<footer>` — розмір рахує flexbox. Explicit `height` у
-  `@layer base` (навіть некоректний/застарілий) переміг би `flex-1` —
-  Tailwind-каскадні layers (`base`→`components`→`utilities`) визначають
-  пріоритет ПОВЕРХ звичайної специфічності CSS: правило з `base`, що чіпляє
-  ту саму властивість, завжди програє будь-якому правилу з `utilities`,
-  байдуже наскільки те просте. Звідси ж наслідок: клас `.open` для модалок
-  зроблений **не** через Tailwind `hidden`-утиліту (та живе в `utilities` і
-  завжди переміг би), а власним правилом у `@layer components`.
-- **Ресайз відстежується через `ResizeObserver` на `#game-container`, не
-  `window.resize`** (`scene.js: create()`). DOM-тулбар/статус-бар можуть
-  змінити висоту через суто внутрішній reflow (перенесення кнопки на другий
-  рядок, зміна довжини лейбла при перемиканні мови) — жодна з цих подій не
-  породжує `window resize`, а канвас має підхопити нову висоту контейнера.
-- **Phaser `DataManager` не шле `changedata` на ПЕРШИЙ запис ключа** —
-  лише `setdata` (без пер-ключового варіанта). Кожен ключ реєстру, що його
-  читає `ui-dom.js` (`status`, `gameHints`, `allStats`, `modal`, ...),
-  вперше пишеться десь під час завантаження/старту гри — без явної
-  підписки і на `setdata` перший рендер кожного з них мовчки не стався б
-  (стара канвасна версія цього не ловила, бо руками зашивала початковий
-  текст у конструкторі й лише ОНОВЛЮВАЛА його через `changedata`).
-  `ui-dom.js: createUiDom()` підписується на обидва.
+- **`#game-container` must not have its own `height`** in the Tailwind
+  source (`assets/tailwind.src.css`). It's a `<main class="flex-1 min-h-0">`
+  between `<header>`/`<footer>` — flexbox computes the size. An explicit
+  `height` in `@layer base` (even an incorrect/stale one) would beat
+  `flex-1` — Tailwind's cascade layers (`base`→`components`→`utilities`)
+  determine priority ON TOP OF ordinary CSS specificity: a rule from `base`
+  touching the same property always loses to any rule from `utilities`, no
+  matter how simple that rule is. Hence the corollary: the `.open` class for
+  modals is made **not** via the Tailwind `hidden` utility (which lives in
+  `utilities` and would always win), but with a dedicated rule in `@layer
+  components`.
+- **Resize is tracked via a `ResizeObserver` on `#game-container`, not
+  `window.resize`** (`scene.js: create()`). The DOM toolbar/status bar can
+  change height through purely internal reflow (a button wrapping to a
+  second row, a label's length changing when switching language) — none of
+  these events trigger a `window resize`, yet the canvas must pick up the
+  container's new height.
+- **Phaser's `DataManager` does not emit `changedata` on the FIRST write of a
+  key** — only `setdata` (with no per-key variant). Every registry key that
+  `ui-dom.js` reads (`status`, `gameHints`, `allStats`, `modal`, ...) is
+  first written somewhere during page load/game start — without an explicit
+  subscription to `setdata` too, the initial render of each of them would
+  silently never happen (the old canvas version never hit this, because it
+  manually hardcoded the initial text in the constructor and only UPDATED it
+  via `changedata`). `ui-dom.js: createUiDom()` subscribes to both.
 
-## Збірка Tailwind
+## Tailwind build
 
-Tailwind v4 (`@import "tailwindcss"` у `assets/tailwind.src.css`) резолвить пакет
-`tailwindcss` як звичайний Node-модуль — на відміну від esbuild, який не
-потребує реального `node_modules` для голого `npx --yes`. Тому в корені
-з'явився мінімальний `package.json`/`package-lock.json` (лише
-`tailwindcss`+`@tailwindcss/cli`, запиновані версії, `node_modules/`
-у `.gitignore`) — і Docker-стейдж `jsbuild` тепер робить `npm ci` перед
-збіркою. `@source` у `assets/tailwind.src.css` сканує `templates/**/*.html` і
-`static/game/*.js` (для класів на кшталт `.open`/`.you`/`.current-tag`,
-що пишуться лише з JS) — тому `jsbuild`-стейдж копіює й `templates/`, не
-лише `static/game/`. Локальна розробка: `npx @tailwindcss/cli -i
-assets/tailwind.src.css -o static/game/tailwind.css --watch` поруч із
-`runserver` (CLAUDE.md: Локальна розробка).
+Tailwind v4 (`@import "tailwindcss"` in `assets/tailwind.src.css`) resolves
+the `tailwindcss` package as a regular Node module — unlike esbuild, which
+doesn't need a real `node_modules` for a bare `npx --yes`. That's why a
+minimal `package.json`/`package-lock.json` appeared at the repo root (just
+`tailwindcss`+`@tailwindcss/cli`, pinned versions, `node_modules/` in
+`.gitignore`) — and the Docker stage `jsbuild` now runs `npm ci` before
+building. `@source` in `assets/tailwind.src.css` scans `templates/**/*.html`
+and `static/game/*.js` (for classes like `.open`/`.you`/`.current-tag` that
+are written only from JS) — which is why the `jsbuild` stage copies
+`templates/` too, not just `static/game/`. Local development: `npx
+@tailwindcss/cli -i assets/tailwind.src.css -o static/game/tailwind.css
+--watch` alongside `runserver` (CLAUDE.md: Local development).
 
-`assets/tailwind.src.css` живе поза `static/`, не в корені репо і не в
-`static/game/` — задокументована пастка WhiteNoise+Tailwind, не власний
-винахід: `collectstatic`-постпроцесор whitenoise переписує url()-подібні
-токени в КОЖНОМУ `.css` під `static/` і падає з `MissingFileError` на
-`@import "tailwindcss"`, сприймаючи його як биту відносну url()-посилання.
-Той самий рецепт дає офіційна документація `django-tailwind-cli`: "do not
-place your custom Tailwind configuration file within static file
-directories... store custom configurations elsewhere in your project."
+`assets/tailwind.src.css` lives outside `static/`, neither at the repo root
+nor inside `static/game/` — this is a documented WhiteNoise+Tailwind pitfall,
+not an invention of ours: whitenoise's `collectstatic` postprocessor rewrites
+url()-like tokens in EVERY `.css` file under `static/` and fails with
+`MissingFileError` on `@import "tailwindcss"`, treating it as a broken
+relative url() reference. The official `django-tailwind-cli` documentation
+gives the same recipe: "do not place your custom Tailwind configuration file
+within static file directories... store custom configurations elsewhere in
+your project."
 
-## Структура файлів після зміни
+## File structure after the change
 
-- `static/game/scene.js` — `MainScene`: тайли, layout/resize, сесія гри.
-- `static/game/effects.js` — чисті(ish) хелпери `(scene, ...)`: deal-in,
-  політ пари, shuffle-flip, glow/hover/press/error, кінцевий ефект,
-  частинки.
-- `static/game/ui-dom.js` — DOM-контролер тулбару/статус-бару/модалок,
-  підписаний на `scene.registry`.
-- `static/game/main.js` — тонка точка входу: збирає `Phaser.Game`,
-  експортує `window.mahjongGame`.
-- `assets/tailwind.src.css` — джерело Tailwind (`@theme`/`@layer
-  base`/`@layer components`), увібрало структурні правила старого `app.css`
-  (видалений).
-- `static/game/render-constants.js` — без toolbar/status-bar констант
-  (`TOOLBAR_H`/`STATUS_BAR_H`/`STATUS_BAR_BG*`), решта без змін.
+- `static/game/scene.js` — `MainScene`: tiles, layout/resize, the game
+  session.
+- `static/game/effects.js` — (mostly) pure `(scene, ...)` helpers: deal-in,
+  pair flight, shuffle-flip, glow/hover/press/error, the final effect,
+  particles.
+- `static/game/ui-dom.js` — the DOM controller for the toolbar/status bar/
+  modals, subscribed to `scene.registry`.
+- `static/game/main.js` — a thin entry point: assembles the `Phaser.Game`,
+  exports `window.mahjongGame`.
+- `assets/tailwind.src.css` — the Tailwind source (`@theme`/`@layer
+  base`/`@layer components`), absorbed the structural rules of the old
+  `app.css` (now removed).
+- `static/game/render-constants.js` — without the toolbar/status-bar
+  constants (`TOOLBAR_H`/`STATUS_BAR_H`/`STATUS_BAR_BG*`), otherwise
+  unchanged.
