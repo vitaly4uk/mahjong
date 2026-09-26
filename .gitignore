@@ -19,3 +19,5 @@ locale/**/*.mo
 .playwright-mcp/
 .DS_Store
 .claude/
+# Host-specific deploy notes (private infra addresses/SSH access) — see CLAUDE.md.
+DEPLOY.local.md

@@ -443,32 +443,10 @@ correct (this affects the django-ninja API too — `CsrfOnly` in
 ## Deploying to dokku
 
 There's a `Dockerfile` (dokku deploys from it automatically, no separate
-buildpack). Before the first push it's worth setting env vars on the server:
-
-```
-ssh proxmox "sudo pct exec 101 -- bash -c 'dokku config:set mahjong DJANGO_DEBUG=False DJANGO_ALLOWED_HOSTS=mahjong.vitaly4uk.in.ua DJANGO_SECRET_KEY=<generate one>'"
-```
-
-Then — a standard `git push dokku main` (see the section below).
-
-## Infrastructure
-
-- **Proxmox host**: SSH host `proxmox` (see `~/.ssh/config`),
-  `HostName 192.168.88.2`, key `~/.ssh/pve_key`.
-- **LXC 101**: container `vitaly4uk.in.ua`, local address `192.168.88.169`.
-  Managed from proxmox via `sudo pct exec 101 -- <cmd>`.
-- **Dokku**: version 0.38.23, installed inside LXC 101.
-- **Global vhost**: `dokku domains:set-global vitaly4uk.in.ua` is already
-  set — every new `dokku apps:create <name>` automatically gets an nginx
-  vhost `<name>.vitaly4uk.in.ua` on port 80, with no manual steps.
-- **App**: `mahjong`, created via `dokku apps:create mahjong`. Public domain:
-  `mahjong.vitaly4uk.in.ua`.
-- **External access**: via a Cloudflare Tunnel (token-based, managed in the
-  Zero Trust dashboard on the `vitaly4uk.in.ua` project itself). The rule is
-  a wildcard `*.vitaly4uk.in.ua → http://localhost:80`, i.e. traffic from
-  Cloudflare goes to dokku nginx (port 80), which then routes by the Host
-  header to the right app. A new subdomain `<name>.vitaly4uk.in.ua` works
-  immediately, with no Cloudflare changes.
+buildpack) plus a `Procfile` for the web process command. Deploys are a
+standard `git push dokku main` to the private dokku remote. Host addresses,
+SSH access and admin commands are not part of this public file — see
+`DEPLOY.local.md` (gitignored, machine-local).
 
 ### Ports in dokku (matters for the Dockerfile)
 
@@ -494,45 +472,5 @@ repeating in future Dockerfile-based apps — then every new
 `<name>.vitaly4uk.in.ua` will work immediately through the existing wildcard
 tunnel, with no manual port setup.
 
-## Access
-
-- Direct SSH to the container as a regular user (`vitaly4uk@192.168.88.169`)
-  **doesn't work** (no access) — the container can only be managed through
-  the `proxmox` host + `pct exec 101`.
-- Git/dokku access works directly from the local machine over SSH:
-  ```
-  ssh dokku@192.168.88.169 apps:list
-  ```
-  Authorization is the public key `~/.ssh/id_ed25519.pub`, added via
-  `dokku ssh-keys:add admin`.
-- `192.168.88.169` is a LAN address, reachable only when the dev machine is
-  on the same network as proxmox. Deploying directly from outside that
-  network won't work until port 22 is forwarded on `vitaly4uk.in.ua`.
-
-## Git remote
-
-Already configured in the repo root:
-```
-dokku	dokku@192.168.88.169:mahjong (fetch)
-dokku	dokku@192.168.88.169:mahjong (push)
-```
-
-## Deployment
-
-```
-git add .
-git commit -m "..."
-git push dokku main
-```
-
-Dokku deploys from the `Dockerfile` at the repo root (the web process
-command comes from `Procfile`). The Dockerfile already runs `collectstatic`
-(whitenoise), so the game's static assets are built during the build.
-
-## Useful admin commands (via proxmox)
-
-```
-ssh proxmox "sudo pct exec 101 -- bash -c 'dokku apps:list'"
-ssh proxmox "sudo pct exec 101 -- bash -c 'dokku logs mahjong -t'"
-ssh proxmox "sudo pct exec 101 -- bash -c 'dokku config:show mahjong'"
-```
+Host access, the dokku git remote and admin commands are documented in
+`DEPLOY.local.md` (not tracked in git — see Deploying to dokku above).

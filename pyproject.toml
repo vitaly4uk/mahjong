@@ -1,9 +1,10 @@
 [project]
 name = "mahjong"
 version = "0.1.0"
-description = "Add your description here"
+description = "Browser-based mahjong solitaire — Django + django-ninja server-authoritative backend, Phaser 3 frontend"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "GPL-3.0-or-later"
 dependencies = [
     "brotli>=1.2.0",
     "dj-database-url>=3.1.2",

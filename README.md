@@ -35,3 +35,17 @@ uv run manage.py test           # server (gameplay/, config/)
 ```
 
 Development and deployment details — in [CLAUDE.md](CLAUDE.md).
+
+## License
+
+Project code is **GPL-3.0-or-later** (see [LICENSE](LICENSE)). Two sets of
+bundled third-party assets keep their own license:
+
+- `layouts/*.layout` — board shapes from
+  [KDE kmahjongg](https://invent.kde.org/games/kmahjongg), GPL (attribution
+  in every file).
+- `static/game/tiles/*.svg` — Cangjie6's oblique tile art,
+  **CC BY-SA 4.0** (compatible with, but not relicensed under, GPLv3 — see
+  [`static/game/tiles/CREDITS.md`](static/game/tiles/CREDITS.md)).
+- `static/game/tiles/*.png` — the older FluffyStuff riichi tile set, CC0,
+  kept only as a source for icon generation.
