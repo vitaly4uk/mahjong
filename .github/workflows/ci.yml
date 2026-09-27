@@ -39,14 +39,19 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      - run: uv run ruff check .
-      - run: uv run manage.py test
+      # --no-sync on every uv run below: the venv is already exactly what
+      # --locked put there, and nothing in this job touches pyproject.toml/
+      # uv.lock afterwards, so a bare `uv run` re-checking that on each step
+      # is pure wasted work (a no-op every time, but still a real network
+      # round-trip against PyPI on a cache miss).
+      - run: uv run --no-sync ruff check .
+      - run: uv run --no-sync manage.py test
       # A model change without its migration would otherwise ship silently.
-      - run: uv run manage.py makemigrations --check --dry-run
+      - run: uv run --no-sync manage.py makemigrations --check --dry-run
       # Deploy-readiness checks (missing SECRET_KEY, insecure cookies, etc.)
       # — see the `if not DEBUG:` block in config/settings.py for what this
       # is verifying.
-      - run: uv run manage.py check --deploy --fail-level WARNING
+      - run: uv run --no-sync manage.py check --deploy --fail-level WARNING
 
   javascript:
     runs-on: ubuntu-latest
