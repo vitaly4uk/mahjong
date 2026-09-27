@@ -490,8 +490,9 @@ hand-rolled counter).
 
 ### CSRF behind a reverse proxy (do not break)
 
-Production traffic goes Cloudflare Tunnel → dokku nginx (terminates TLS
-here) → gunicorn over plain HTTP. `config/settings.py` sets:
+Production traffic goes browser → Cloudflare edge (**TLS terminates here**,
+not any closer to the app) → Cloudflare Tunnel → dokku nginx → gunicorn,
+with the last two hops both plain HTTP. `config/settings.py` sets:
 
 ```python
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
@@ -503,8 +504,32 @@ Without this Django considers every request insecure
 browser sends `https://...`) doesn't match the computed scheme (`http://...`)
 → **403 on every POST**, regardless of whether the CSRF token itself is
 correct (this affects the django-ninja API too — `CsrfOnly` in
-`config/api.py` relies on exactly this check). dokku nginx always sets
-`X-Forwarded-Proto`, so trusting it is safe.
+`config/api.py` relies on exactly this check).
+
+**This alone isn't sufficient** — dokku's nginx must also be told to
+*trust* the `X-Forwarded-Proto` Cloudflare itself sends, instead of its own
+default of stamping nginx's own connection scheme onto that header
+(`$scheme`, which here is always `http` — the Tunnel→nginx hop is plain
+HTTP, so left at the default this silently and permanently makes
+`request.is_secure()` `False` regardless of what the real client used; the
+CSRF check above still happens to pass in that state for a real browser,
+since it always sends an `Origin` header, so this can go unnoticed for a
+long time — found live in production 2026-09-27, only exposed once HSTS/
+secure-cookie settings started depending on `is_secure()`, see
+`DEPLOY.local.md`). This is a per-app **dokku host setting**, not something
+`config/settings.py` or the `Dockerfile` controls:
+
+```
+dokku nginx:set <app> x-forwarded-proto-value '$http_x_forwarded_proto'
+dokku proxy:build-config <app>
+```
+
+Safe specifically because the Tunnel is the *only* path to this dokku host
+(see `DEPLOY.local.md`: "External access") — trusting a proxied header is
+only safe when every request is guaranteed to have passed through that
+proxy. Verify with `curl -sI https://<host>/ | grep -i
+strict-transport-security` — present means nginx is forwarding the real
+scheme; absent means it's back to stamping its own.
 
 ## Deploying to dokku
 
