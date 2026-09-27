@@ -57,6 +57,11 @@ RATE_LIMIT_MAX_FINISHES = 60
 RATE_LIMIT_MAX_IMPORTS = 10
 RATE_LIMIT_MAX_SHUFFLES = 60
 RATE_LIMIT_MAX_PROFILE_UPDATES = 10
+# bump is the hottest endpoint in the app — called on every hint/undo/pair
+# match during a game, unlike the once-or-twice-per-session routes above —
+# so its quota is generous relative to theirs: a real game has at most 72
+# pair matches plus a bounded (if unenforced) number of hints/undos.
+RATE_LIMIT_MAX_BUMPS = 300
 
 # One throttle instance per quota, shared across all requests to the
 # route(s) it's attached to below — django-ninja calls .allow_request(request)
@@ -70,6 +75,7 @@ _finish_throttle = IpRateThrottle('finish', RATE_LIMIT_MAX_FINISHES)
 _import_throttle = IpRateThrottle('stats_import', RATE_LIMIT_MAX_IMPORTS)
 _shuffle_throttle = IpRateThrottle('shuffle', RATE_LIMIT_MAX_SHUFFLES)
 _profile_throttle = IpRateThrottle('profile', RATE_LIMIT_MAX_PROFILE_UPDATES)
+_bump_throttle = IpRateThrottle('bump', RATE_LIMIT_MAX_BUMPS)
 
 # Control characters (incl. newlines/tabs) stripped from a chosen display
 # name — cosmetic only, keeps it to a single visual line in the toolbar/
@@ -274,7 +280,7 @@ def session_state(request, token: uuid.UUID):
     return {'status': 'active', 'elapsed_ms': int(elapsed.total_seconds() * 1000)}
 
 
-@router.post('/{uuid:token}/bump', response=BumpResponse)
+@router.post('/{uuid:token}/bump', response=BumpResponse, throttle=_bump_throttle)
 def bump_stat(request, token: uuid.UUID, payload: BumpRequest):
     try:
         session = GameSession.objects.select_related('user__profile').get(token=token)

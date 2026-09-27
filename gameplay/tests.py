@@ -12,6 +12,7 @@ from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from .api import (  # noqa: F401 (SESSION_TTL import also registers the router when this module loads)
+    RATE_LIMIT_MAX_BUMPS,
     RATE_LIMIT_MAX_IMPORTS,
     RATE_LIMIT_MAX_SHUFFLES,
     SESSION_TTL,
@@ -246,8 +247,9 @@ class GeneratorTests(TestCase):
 
 class GameApiTests(TestCase):
     def setUp(self):
-        # Rate-limit counters (gameplay/api.py: _enforce_rate_limit) live in
-        # Django's cache, not the DB — TestCase's transaction rollback never
+        # Rate-limit counters (gameplay/ratelimit.py: IpRateThrottle, used
+        # via each route's throttle= kwarg) live in Django's cache, not the
+        # DB — TestCase's transaction rollback never
         # clears them, so calls from any earlier test in the same process
         # would otherwise carry over and eventually trip a real 429 here.
         cache.clear()
@@ -1066,9 +1068,10 @@ class StatsEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         return response.json()
 
-    def _bump(self, token, counter):
+    def _bump(self, token, counter, **extra):
         return self.client.post(
             f'/api/game/{token}/bump', data={'counter': counter}, content_type='application/json',
+            **extra,
         )
 
     def _win_moves(self, layout):
@@ -1188,6 +1191,18 @@ class StatsEndpointTests(TestCase):
         )
         # Field(ge=0) rejects negative values at the ninja request-validation layer.
         self.assertEqual(response.status_code, 422)
+
+    def test_bump_rate_limit_returns_429_past_the_quota(self):
+        data = self._start()
+        token = data['token']
+        # A unique IP so this test's quota can't collide with any other
+        # test's requests sharing the process-wide LocMemCache.
+        headers = {'HTTP_CF_CONNECTING_IP': '203.0.113.201'}
+        for _ in range(RATE_LIMIT_MAX_BUMPS):
+            response = self._bump(token, 'hint', **headers)
+            self.assertNotEqual(response.status_code, 429)
+        response = self._bump(token, 'hint', **headers)
+        self.assertEqual(response.status_code, 429)
 
 
 class ProfileEndpointTests(TestCase):
