@@ -403,9 +403,11 @@ tests above:
   Autofix: `npx --yes @biomejs/biome@2.5.5 lint --write static/game tests`
   (some fixes are `--unsafe` — review the diff before applying).
 
-Both linters are purely static analysis, there's no dedicated CI for them
-(no GitHub remote, deployment is dokku), so the commands above are run
-manually before committing/finishing a task.
+Both linters are purely static analysis. GitHub Actions
+(`.github/workflows/ci.yml`) runs them on every PR and push to `main`
+alongside `manage.py test`/`node --test` (jobs `python`/`javascript`) — these
+four are required status checks on `main` (see Deploying to dokku below), but
+run the commands above locally too before committing/finishing a task.
 
 ## Configuration via env
 
@@ -443,9 +445,15 @@ correct (this affects the django-ninja API too — `CsrfOnly` in
 ## Deploying to dokku
 
 There's a `Dockerfile` (dokku deploys from it automatically, no separate
-buildpack) plus a `Procfile` for the web process command. Deploys are a
-standard `git push dokku main` to the private dokku remote. Host addresses,
-SSH access and admin commands are not part of this public file — see
+buildpack) plus a `Procfile` for the web process command. `main` is a
+protected branch (a ruleset: PR + the four CI checks above required, no
+direct pushes) — merging a PR is what deploys: `.github/workflows/ci.yml`'s
+`deploy` job pushes the merge commit to the dokku remote over SSH, tunneled
+through the Cloudflare Tunnel already used for production traffic (dokku
+itself sits on a LAN address, unreachable to a GitHub-hosted runner
+otherwise). A manual `git push dokku main` from the dev machine still works
+and remains the fallback if the workflow is broken. Host addresses, SSH
+access and admin commands are not part of this public file — see
 `DEPLOY.local.md` (gitignored, machine-local).
 
 ### Ports in dokku (matters for the Dockerfile)
