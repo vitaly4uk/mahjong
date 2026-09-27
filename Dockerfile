@@ -76,10 +76,16 @@ RUN uv sync --locked --no-dev
 # which is pointless work AND overwrites their precompiled .mo files.
 # --ignore prunes those directories out of the walk before it ever descends
 # into them.
-RUN DJANGO_DEBUG=True uv run manage.py compilemessages --locale=uk --locale=en \
+#
+# --no-sync on both commands below: bare `uv run` re-syncs the venv against
+# pyproject.toml/uv.lock first, and that default sync brings the dev group
+# back (undoing the `--no-dev` above) — silently re-installing ruff into
+# what's supposed to be the prod image. `--no-sync` runs against the venv
+# exactly as `uv sync --locked --no-dev` left it.
+RUN DJANGO_DEBUG=True uv run --no-sync manage.py compilemessages --locale=uk --locale=en \
     --ignore='.venv' --ignore='node_modules' --ignore='staticfiles'
 
-RUN DJANGO_DEBUG=True uv run manage.py collectstatic --noinput
+RUN DJANGO_DEBUG=True uv run --no-sync manage.py collectstatic --noinput
 
 ENV PATH="/app/.venv/bin:$PATH"
 
