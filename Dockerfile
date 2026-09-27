@@ -55,12 +55,25 @@ COPY --from=jsbuild /app/static/game/bundle.js static/game/bundle.js
 COPY --from=jsbuild /app/static/game/tailwind.css static/game/tailwind.css
 RUN uv sync --locked --no-dev
 
+# DJANGO_DEBUG=True here only, for this build-time RUN's own process env —
+# NOT a Dockerfile ENV, so it never becomes part of the image and can't leak
+# into the running container. It exists solely so manage.py's settings
+# import succeeds during the build itself (compilemessages/collectstatic
+# below need nothing security-sensitive — just a working SECRET_KEY/
+# ALLOWED_HOSTS default, which DEBUG mode already provides — config/
+# settings.py: `if DEBUG` fallback). dokku doesn't inject the app's real
+# config vars (DJANGO_SECRET_KEY etc.) at `docker build` time, only at
+# `docker run`, where dokku's own DJANGO_DEBUG=False config
+# (DEPLOY.local.md: "Setting env vars on first deploy") overrides whatever
+# the image happens to default to — so this has zero effect on the actual
+# running app.
+#
 # -l/--locale scoped to our own catalogs — without it compilemessages also
 # walks every installed package's own locale/ (Django itself, etc.), which is
 # pointless work (those .mo ship precompiled already) and slows the build.
-RUN uv run manage.py compilemessages --locale=uk --locale=en
+RUN DJANGO_DEBUG=True uv run manage.py compilemessages --locale=uk --locale=en
 
-RUN uv run manage.py collectstatic --noinput
+RUN DJANGO_DEBUG=True uv run manage.py collectstatic --noinput
 
 ENV PATH="/app/.venv/bin:$PATH"
 
