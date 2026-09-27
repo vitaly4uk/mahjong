@@ -107,6 +107,37 @@
     transform: scale(0.93) translateY(2px);
     transition: background 0.15s ease, transform 0.08s ease;
   }
+  /* Visible focus indicator for keyboard navigation (issue #6) — the dark
+     theme otherwise gives the browser default outline nowhere to show up
+     against .bg-btn, and it's what makes the Tab focus trap (ui-dom.js)
+     usable at all. Matches the recipe #profile-name-input already used
+     (focus:outline focus:outline-2 focus:outline-white/40). */
+  .tactile-btn:focus-visible,
+  .newgame-option:focus-visible {
+    outline: 2px solid rgb(255 255 255 / 0.6);
+    outline-offset: 2px;
+  }
+
+  /* Keyboard-shortcut badge appended to toolbar buttons (ui-dom.js: SHORTCUTS)
+     — the letter names a physical key (event.code), not a translated word, so
+     it's never wrapped in {% trans %}/gettext(), same rule as the emoji
+     prefixes. Hidden below `sm`: a touch device has no keyboard, and the
+     toolbar already wraps there. */
+  .kbd-hint {
+    display: none;
+    margin-left: 2px;
+    padding: 1px 5px;
+    border: 1px solid rgb(255 255 255 / 0.25);
+    border-radius: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: rgb(255 255 255 / 0.55);
+  }
+  @media (min-width: 640px) {
+    .kbd-hint {
+      display: inline-block;
+    }
+  }
 
   /* Radio-button-style pickers (per project convention — not <select>): the
      newgame-modal's board/difficulty pickers, and the profile-modal's sound

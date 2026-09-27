@@ -17,14 +17,15 @@
 </head>
 <body class="flex h-screen min-h-0 flex-col overflow-hidden">
 <header id="toolbar" class="flex flex-none flex-wrap gap-2 bg-[rgba(13,26,16,.6)] pr-3 pl-[calc(var(--safe-left)+0.75rem)] py-2">
-  <button id="btn-new" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">🆕 {% trans "New game" %}</button>
-  <button id="btn-hint" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover"></button>
-  <button id="btn-undo" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover"></button>
-  <button id="btn-stats" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">📊 {% trans "Statistics" %}</button>
-  <button id="btn-daily" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">🏆 {% trans "Daily" %}</button>
-  <button id="btn-profile" class="tactile-btn ml-auto flex flex-none items-center gap-2 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">
+  <button id="btn-new" aria-keyshortcuts="n" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">🆕 {% trans "New game" %} <kbd class="kbd-hint">N</kbd></button>
+  <button id="btn-hint" aria-keyshortcuts="h" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover"><span id="btn-hint-label"></span> <kbd class="kbd-hint">H</kbd></button>
+  <button id="btn-undo" aria-keyshortcuts="u" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover"><span id="btn-undo-label"></span> <kbd class="kbd-hint">U</kbd></button>
+  <button id="btn-stats" aria-keyshortcuts="s" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">📊 {% trans "Statistics" %} <kbd class="kbd-hint">S</kbd></button>
+  <button id="btn-daily" aria-keyshortcuts="d" class="tactile-btn flex-1 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">🏆 {% trans "Daily" %} <kbd class="kbd-hint">D</kbd></button>
+  <button id="btn-profile" aria-keyshortcuts="p" class="tactile-btn ml-auto flex flex-none items-center gap-2 rounded-lg border-0 bg-btn px-3 py-2.5 text-[15px] font-medium text-white [-webkit-app-region:no-drag] hover:bg-btn-hover">
     <img id="profile-avatar" width="24" height="24" alt="" class="rounded-full">
     <span id="profile-name"></span>
+    <kbd class="kbd-hint">P</kbd>
   </button>
 </header>
 <main id="game-container" class="min-h-0 flex-1"></main>
@@ -36,8 +37,8 @@
 <a id="bg-credit" href="#" target="_blank" rel="noopener"
    class="hidden flex-none truncate bg-[rgba(13,26,16,.6)] px-2 py-0.5 text-right text-xs text-white/75 [-webkit-app-region:no-drag] hover:underline"></a>
 <div id="newgame-modal" class="modal-overlay fixed inset-0 z-10 items-center justify-center bg-black/50 backdrop-blur-[2px] [-webkit-app-region:no-drag]">
-  <div class="modal-panel max-h-[calc(100vh-40px)] min-w-[260px] overflow-y-auto rounded-[10px] border border-white/[.06] bg-panel px-7 py-6 shadow-[0_8px_30px_rgba(0,0,0,.4)]">
-    <h2 class="mb-5 text-center text-xl">🆕 {% trans "New game" %}</h2>
+  <div class="modal-panel max-h-[calc(100vh-40px)] min-w-[260px] overflow-y-auto rounded-[10px] border border-white/[.06] bg-panel px-7 py-6 shadow-[0_8px_30px_rgba(0,0,0,.4)]" role="dialog" aria-modal="true" aria-labelledby="newgame-title">
+    <h2 id="newgame-title" class="mb-5 text-center text-xl">🆕 {% trans "New game" %}</h2>
     <h3 class="mb-2.5 text-center text-[13px] uppercase tracking-[.04em] text-muted">{% trans "Layout" %}</h3>
     <div class="mb-4.5 grid grid-cols-3 justify-items-center gap-2.5">
       {% for board in boards %}
@@ -59,7 +60,7 @@
   </div>
 </div>
 <div id="stats-modal" class="modal-overlay fixed inset-0 z-10 items-center justify-center bg-black/50 backdrop-blur-[2px] [-webkit-app-region:no-drag]">
-  <div class="modal-panel max-h-[calc(100vh-40px)] min-w-[260px] overflow-y-auto rounded-[10px] border border-white/[.06] bg-panel px-7 py-6 shadow-[0_8px_30px_rgba(0,0,0,.4)]">
+  <div class="modal-panel max-h-[calc(100vh-40px)] min-w-[260px] overflow-y-auto rounded-[10px] border border-white/[.06] bg-panel px-7 py-6 shadow-[0_8px_30px_rgba(0,0,0,.4)]" role="dialog" aria-modal="true" aria-labelledby="stats-title">
     <h2 id="stats-title" class="mb-5 text-center text-xl">📊 {% trans "Statistics" %}</h2>
     <div id="stats-levels"></div>
     <div class="modal-actions -mt-1 border-t border-white/[.08] pt-4 text-center">
@@ -69,8 +70,8 @@
   </div>
 </div>
 <div id="deadlock-modal" class="modal-overlay fixed inset-0 z-10 items-center justify-center bg-black/50 backdrop-blur-[2px] [-webkit-app-region:no-drag]">
-  <div class="modal-panel max-h-[calc(100vh-40px)] min-w-[260px] overflow-y-auto rounded-[10px] border border-white/[.06] bg-panel px-7 py-6 shadow-[0_8px_30px_rgba(0,0,0,.4)]">
-    <h2 class="mb-5 text-center text-xl">🚫 {% trans "No moves left" %}</h2>
+  <div class="modal-panel max-h-[calc(100vh-40px)] min-w-[260px] overflow-y-auto rounded-[10px] border border-white/[.06] bg-panel px-7 py-6 shadow-[0_8px_30px_rgba(0,0,0,.4)]" role="dialog" aria-modal="true" aria-labelledby="deadlock-title">
+    <h2 id="deadlock-title" class="mb-5 text-center text-xl">🚫 {% trans "No moves left" %}</h2>
     <div class="modal-actions mt-1 flex flex-wrap justify-center gap-3">
       <button id="btn-deadlock-shuffle" class="tactile-btn min-w-[120px] rounded-md border-0 bg-btn px-5 py-1.5 text-sm font-medium text-white hover:bg-btn-hover">🔀 {% trans "Shuffle" %}</button>
       <button id="btn-deadlock-replay" class="tactile-btn min-w-[120px] rounded-md border-0 bg-btn px-5 py-1.5 text-sm font-medium text-white hover:bg-btn-hover">🔁 {% trans "Replay" %}</button>
@@ -79,8 +80,8 @@
   </div>
 </div>
 <div id="daily-modal" class="modal-overlay fixed inset-0 z-10 items-center justify-center bg-black/50 backdrop-blur-[2px] [-webkit-app-region:no-drag]">
-  <div class="modal-panel max-h-[calc(100vh-40px)] min-w-[260px] overflow-y-auto rounded-[10px] border border-white/[.06] bg-panel px-7 py-6 shadow-[0_8px_30px_rgba(0,0,0,.4)]">
-    <h2 class="mb-5 text-center text-xl">🏆 {% trans "Daily Tournament" %}</h2>
+  <div class="modal-panel max-h-[calc(100vh-40px)] min-w-[260px] overflow-y-auto rounded-[10px] border border-white/[.06] bg-panel px-7 py-6 shadow-[0_8px_30px_rgba(0,0,0,.4)]" role="dialog" aria-modal="true" aria-labelledby="daily-title">
+    <h2 id="daily-title" class="mb-5 text-center text-xl">🏆 {% trans "Daily Tournament" %}</h2>
     <div id="daily-info" class="daily-info mb-3.5 text-center text-sm text-info"></div>
     <ul id="daily-board" class="daily-board-list mb-4.5 max-h-[260px] min-w-[240px] list-none overflow-y-auto p-0"></ul>
     <div class="modal-actions mt-1 flex flex-wrap justify-center gap-3">
@@ -90,8 +91,8 @@
   </div>
 </div>
 <div id="profile-modal" class="modal-overlay fixed inset-0 z-10 items-center justify-center bg-black/50 backdrop-blur-[2px] [-webkit-app-region:no-drag]">
-  <div class="modal-panel max-h-[calc(100vh-40px)] min-w-[260px] overflow-y-auto rounded-[10px] border border-white/[.06] bg-panel px-7 py-6 shadow-[0_8px_30px_rgba(0,0,0,.4)]">
-    <h2 class="mb-5 text-center text-xl">👤 {% trans "Player" %}</h2>
+  <div class="modal-panel max-h-[calc(100vh-40px)] min-w-[260px] overflow-y-auto rounded-[10px] border border-white/[.06] bg-panel px-7 py-6 shadow-[0_8px_30px_rgba(0,0,0,.4)]" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+    <h2 id="profile-title" class="mb-5 text-center text-xl">👤 {% trans "Player" %}</h2>
     <div class="mb-4 flex justify-center">
       <img id="profile-modal-avatar" width="72" height="72" alt="" class="rounded-full">
     </div>
