@@ -338,7 +338,7 @@ name itself, but every time in `list_boards()` via `gettext(layout.name)`;
 known names are registered via `gettext_noop()` for `makemessages`.
 
 Catalogs are recompiled from `.po` to `.mo` on every Docker build
-(`Dockerfile: RUN uv run manage.py compilemessages`, requires system
+(`Dockerfile: RUN ... manage.py compilemessages`, requires system
 `gettext`) — `.mo` files aren't committed to git (`.gitignore:
 locale/**/*.mo`), same as `bundle.js`. After changing translatable text in the
 code — regenerate the catalogs:
@@ -472,6 +472,11 @@ When not `DEBUG`, `config/settings.py` also turns on `SESSION_COOKIE_SECURE`/
 redirects in front of gunicorn (see CSRF below), so Django's own redirect on
 top would risk a loop; `check --deploy`'s `W008` for this is silenced
 (`SILENCED_SYSTEM_CHECKS`) on purpose, not an oversight.
+
+`DATA_UPLOAD_MAX_MEMORY_SIZE = 1_000_000` (unconditional, not gated by
+`DEBUG`) caps request-body parsing cost — a legitimate move-log POST is a
+couple KB; this is headroom against an oversized payload, ahead of any
+per-field validation in `gameplay/schemas.py`.
 
 `/api/docs` and `/api/openapi.json` (django-ninja's interactive docs/schema)
 are only served when `DEBUG` — `CsrfOnly` authenticates everyone (see its

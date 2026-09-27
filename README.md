@@ -11,7 +11,7 @@ each deal guaranteed solvable.
 - **Backend**: Django 6 + **django-ninja** (the entire JSON API: board
   generation, anti-cheat session validation via move-log replay, background
   photo) — the server is authoritative for the layout, move legality and
-  game timing. Django views remain only for the page (`TemplateView`) and the
+  game timing. Django views remain only for the page (a plain view) and the
   admin.
 - **Tiles**: 42 oblique-3D Cangjie6 tiles, CC BY-SA 4.0 (see
   `static/game/tiles/CREDITS.md`).
@@ -19,6 +19,7 @@ each deal guaranteed solvable.
 ## Running it
 
 ```bash
+cp .env.example .env
 uv sync
 npm install
 uv run manage.py migrate
