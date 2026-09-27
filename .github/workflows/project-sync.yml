@@ -1,0 +1,145 @@
+name: Project board sync
+
+# Keeps the "Mahjong" GitHub Projects v2 board (github.com/users/vitaly4uk/projects)
+# in sync with each issue's triage state. Triage labels/assignment stay the single
+# source of truth (docs/agents/issue-tracker.md) — this workflow only mirrors them
+# onto the board's Status field. Never move a card by hand to change an issue's
+# status; edit the labels/assignee instead, the board will follow.
+#
+# A separate workflow file on purpose, not a job inside ci.yml: ci.yml gates
+# deploy on green lint/tests, and issue bookkeeping must never be able to
+# affect that gate.
+
+on:
+  issues:
+    types: [opened, reopened, closed, labeled, unlabeled, assigned, unassigned]
+
+permissions:
+  issues: read
+
+concurrency:
+  group: project-sync-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+env:
+  # GITHUB_TOKEN cannot write to a user-owned Projects v2 board (its permissions
+  # are scoped to the repository, not the account) — all project reads/writes
+  # below use a classic PAT stored as PROJECT_TOKEN, scope `project` only.
+  # Fine-grained PATs can't substitute here: GitHub only exposes a Projects
+  # permission when the resource owner is an organization, never a personal
+  # account (confirmed against GitHub's docs when this token was created).
+  # See docs/agents/issue-tracker.md for how it's provisioned and how
+  # PROJECT_NUMBER (a plain repo variable, not a secret) is set.
+  GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+  PROJECT_OWNER: vitaly4uk
+  PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+  # Event fields are passed through env, not interpolated directly into a run:
+  # script, so a label/title containing shell metacharacters can't break out
+  # of the string it's quoted in.
+  ISSUE_NODE_ID: ${{ github.event.issue.node_id }}
+  ISSUE_STATE: ${{ github.event.issue.state }}
+  ISSUE_STATE_REASON: ${{ github.event.issue.state_reason }}
+  ISSUE_LABELS_JSON: ${{ toJson(github.event.issue.labels.*.name) }}
+  ISSUE_ASSIGNEES_JSON: ${{ toJson(github.event.issue.assignees) }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine the target column
+        id: column
+        run: |
+          has_label() {
+            echo "$ISSUE_LABELS_JSON" | jq -e --arg l "$1" 'any(. == $l)' >/dev/null
+          }
+
+          if [ "$ISSUE_STATE" = "closed" ] && { [ "$ISSUE_STATE_REASON" = "not_planned" ] || has_label wontfix; }; then
+            column="Won't fix"
+          elif [ "$ISSUE_STATE" = "closed" ]; then
+            column="Done"
+          elif has_label needs-info; then
+            column="Needs info"
+          elif [ "$(echo "$ISSUE_ASSIGNEES_JSON" | jq 'length')" -gt 0 ]; then
+            column="In progress"
+          elif has_label ready-for-agent; then
+            column="Ready for agent"
+          elif has_label ready-for-human; then
+            column="Ready for human"
+          else
+            column="Needs triage"
+          fi
+
+          echo "name=$column" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve the project and Status field ids
+        id: ids
+        env:
+          COLUMN_NAME: ${{ steps.column.outputs.name }}
+        run: |
+          data=$(gh api graphql -f query='
+            query($owner: String!, $number: Int!) {
+              user(login: $owner) {
+                projectV2(number: $number) {
+                  id
+                  field(name: "Status") {
+                    ... on ProjectV2SingleSelectField {
+                      id
+                      options { id name }
+                    }
+                  }
+                }
+              }
+            }' -f owner="$PROJECT_OWNER" -F number="$PROJECT_NUMBER")
+
+          project_id=$(echo "$data" | jq -r '.data.user.projectV2.id')
+          field_id=$(echo "$data" | jq -r '.data.user.projectV2.field.id')
+          option_id=$(echo "$data" | jq -r --arg name "$COLUMN_NAME" \
+            '.data.user.projectV2.field.options[] | select(.name == $name) | .id')
+
+          if [ -z "$project_id" ] || [ "$project_id" = "null" ]; then
+            echo "::error::Could not load project $PROJECT_OWNER/$PROJECT_NUMBER. Check PROJECT_TOKEN and the PROJECT_NUMBER repo variable." >&2
+            exit 1
+          fi
+          if [ -z "$option_id" ] || [ "$option_id" = "null" ]; then
+            echo "::error::No Status option named '$COLUMN_NAME' on the project. Check the column names against docs/agents/issue-tracker.md." >&2
+            exit 1
+          fi
+
+          echo "project_id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "field_id=$field_id" >> "$GITHUB_OUTPUT"
+          echo "option_id=$option_id" >> "$GITHUB_OUTPUT"
+
+      - name: Add the issue to the project (idempotent)
+        id: add
+        env:
+          PROJECT_ID: ${{ steps.ids.outputs.project_id }}
+        run: |
+          data=$(gh api graphql -f query='
+            mutation($projectId: ID!, $contentId: ID!) {
+              addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+                item { id }
+              }
+            }' -f projectId="$PROJECT_ID" -f contentId="$ISSUE_NODE_ID")
+
+          item_id=$(echo "$data" | jq -r '.data.addProjectV2ItemById.item.id')
+          echo "item_id=$item_id" >> "$GITHUB_OUTPUT"
+
+      - name: Set the Status field to the target column
+        env:
+          PROJECT_ID: ${{ steps.ids.outputs.project_id }}
+          FIELD_ID: ${{ steps.ids.outputs.field_id }}
+          OPTION_ID: ${{ steps.ids.outputs.option_id }}
+          ITEM_ID: ${{ steps.add.outputs.item_id }}
+        run: |
+          gh api graphql -f query='
+            mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId
+                itemId: $itemId
+                fieldId: $fieldId
+                value: { singleSelectOptionId: $optionId }
+              }) {
+                projectV2Item { id }
+              }
+            }' -f projectId="$PROJECT_ID" -f itemId="$ITEM_ID" \
+               -f fieldId="$FIELD_ID" -f optionId="$OPTION_ID"
