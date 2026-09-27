@@ -123,9 +123,13 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   guaranteed-solvable board), `daily.py` (the deterministic daily tournament
   challenge), `models.py` (`GameSession`/`Profile`), `middleware.py`
   (resolves the player from the `mahjong_player` cookie), `stats.py`
-  (lifetime counters), `ratelimit.py` (the shared per-IP cache-counter quota
-  used by both `middleware.py`'s new-profile limit and `api.py`'s
-  per-endpoint ones), `schemas.py`, `api.py` (all endpoints).
+  (lifetime counters), `ratelimit.py` (`IpRateThrottle` — a thin subclass of
+  django-ninja's own `ninja.throttling.SimpleRateThrottle`, not a hand-rolled
+  counter; needed because ninja's built-in `AnonRateThrottle` would throttle
+  nothing here — see the module docstring for why), `schemas.py`, `api.py`
+  (all endpoints, most with a `throttle=` on the route; `middleware.py`'s
+  new-profile limit calls the same throttle class's `.allow_request()`
+  directly, since middleware runs before ninja's own routing).
   `GameSession.user` is nullable only for a painless migration of already
   existing rows (new code always sets it). Stats are attributed to the player
   who STARTED the session (`session.user`), not necessarily whoever makes the
@@ -478,9 +482,10 @@ PlayerIdentityMiddleware`) mints a `User`+`Profile` for any first-time
 visitor under `/api/game/` — bounded two ways: a path that doesn't resolve
 to a real view never touches the DB at all, and *new*-profile creation
 (never a returning player's cookie) is rate-limited per IP
-(`NEW_PROFILE_RATE_LIMIT`, shared cache-counter helper —
-`gameplay/ratelimit.py`, also used by the per-endpoint quotas in
-`gameplay/api.py`).
+(`NEW_PROFILE_RATE_LIMIT`, via the same `IpRateThrottle` —
+`gameplay/ratelimit.py` — that backs the per-endpoint quotas in
+`gameplay/api.py`; built on django-ninja's own `ninja.throttling`, not a
+hand-rolled counter).
 
 ### CSRF behind a reverse proxy (do not break)
 

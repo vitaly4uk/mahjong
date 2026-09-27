@@ -1,33 +1,38 @@
-"""Shared per-IP fixed-window rate limiting via Django's cache — used by both
-`gameplay/api.py` (the gameplay endpoints' quotas) and
-`gameplay/middleware.py` (the anonymous-identity creation quota). Pulled out
-on its own so the two don't duplicate `_client_ip`/the counter logic.
+"""Per-IP rate limiting on top of django-ninja's own `ninja.throttling`
+(the project already depends on django-ninja — no need for a second
+library, and no need to hand-roll the cache-window logic ninja already
+implements in `SimpleRateThrottle`).
+
+`IpRateThrottle` is the one piece worth owning: ninja's built-in
+`AnonRateThrottle` skips throttling entirely once `request.auth` is set
+(`get_cache_key` returns None), but `config/api.py: CsrfOnly` authenticates
+*every* request — it's a CSRF gate, not real auth — so `request.auth` is
+always truthy and `AnonRateThrottle` would silently throttle nothing here.
+`IpRateThrottle` always keys on IP, and identifies it via `CF-Connecting-IP`
+(production sits behind a Cloudflare Tunnel — `REMOTE_ADDR` would just see
+the proxy's own address) rather than ninja's default X-Forwarded-For
+parsing, which nothing here sets.
+
+Used directly as a `throttle=` on `gameplay/api.py` routes (ninja checks it
+before the view runs, raising `ninja.errors.Throttled` -> 429 itself), and
+called manually via `.allow_request(request)` from
+`gameplay/middleware.py`, which runs outside ninja's own routing and so
+can't use the `throttle=` operation kwarg.
 """
-from django.core.cache import cache
+from ninja.throttling import SimpleRateThrottle
 
 RATE_LIMIT_WINDOW_SECONDS = 300
 
 
-def client_ip(request):
-    """The client's real IP: production goes through Cloudflare Tunnel (see
-    CLAUDE.md), so REMOTE_ADDR is the proxy's own address, the same for every
-    player. CF-Connecting-IP is the header Cloudflare itself sets with the
-    real client IP; locally (without Cloudflare) it's absent, so falling back
-    to REMOTE_ADDR remains correct for the dev server.
-    """
-    return request.META.get('HTTP_CF_CONNECTING_IP') or request.META.get('REMOTE_ADDR', 'unknown')
+class IpRateThrottle(SimpleRateThrottle):
+    def __init__(self, scope, num_requests, window_seconds=RATE_LIMIT_WINDOW_SECONDS):
+        self.scope = scope
+        super().__init__(rate=f'{num_requests}/{window_seconds}s')
 
+    def get_ident(self, request):
+        return request.META.get('HTTP_CF_CONNECTING_IP') or super().get_ident(request)
 
-# Note: without a dedicated CACHES backend (config/settings.py), Django uses
-# LocMemCache — a per-process counter, so the effective limit is
-# ≈ limit × the number of gunicorn workers, not an exact global limit.
-# Acceptable at this project's scale; if an exact limit is ever needed, a
-# shared cache backend (Redis/Memcached) is required.
-def rate_limited(request, action, limit, window_seconds=RATE_LIMIT_WINDOW_SECONDS):
-    """A simple fixed-window per-IP rate quota via Django cache."""
-    key = f'gameplay:ratelimit:{action}:{client_ip(request)}'
-    count = cache.get(key, 0)
-    if count >= limit:
-        return True
-    cache.set(key, count + 1, window_seconds)
-    return False
+    def get_cache_key(self, request):
+        # Always throttle by IP — see module docstring for why this can't
+        # just be ninja's AnonRateThrottle.
+        return self.cache_format % {'scope': self.scope, 'ident': self.get_ident(request)}

@@ -12,7 +12,7 @@ from django.urls import Resolver404, resolve
 from django.utils.translation import gettext as _
 
 from .models import Profile
-from .ratelimit import rate_limited
+from .ratelimit import IpRateThrottle
 
 PLAYER_COOKIE_NAME = 'mahjong_player'
 PLAYER_COOKIE_SALT = 'mahjong.player'  # separate namespace for django.core.signing
@@ -27,6 +27,12 @@ PLAYER_IDENTITY_PATH_PREFIX = '/api/game/'
 # own) is not.
 NEW_PROFILE_RATE_LIMIT = 20
 NEW_PROFILE_RATE_LIMIT_WINDOW_SECONDS = 60 * 60
+# Called directly (.allow_request()), not via a `throttle=` operation kwarg
+# like gameplay/api.py's routes — this middleware runs before django-ninja's
+# own routing even sees the request, so that mechanism isn't available here.
+_new_profile_throttle = IpRateThrottle(
+    'new_profile', NEW_PROFILE_RATE_LIMIT, NEW_PROFILE_RATE_LIMIT_WINDOW_SECONDS,
+)
 
 
 class PlayerIdentityMiddleware:
@@ -54,10 +60,7 @@ class PlayerIdentityMiddleware:
                 # written — checking after create() would let an
                 # over-quota request still mint the row and only withhold
                 # the response, which defeats the point.
-                elif rate_limited(
-                    request, 'new_profile', NEW_PROFILE_RATE_LIMIT,
-                    NEW_PROFILE_RATE_LIMIT_WINDOW_SECONDS,
-                ):
+                elif not _new_profile_throttle.allow_request(request):
                     return JsonResponse(
                         {'detail': _('too many requests, slow down')}, status=429,
                     )
