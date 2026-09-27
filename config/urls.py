@@ -14,7 +14,6 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from django.conf import settings
 from django.contrib import admin
 from django.shortcuts import render
 from django.urls import include, path
@@ -36,10 +35,6 @@ from gameplay.layouts import list_boards
 def home_view(request):
     return render(request, 'game.html', {
         'version': get_build_version(),
-        # so the template picks raw ES modules (dev) or the minified
-        # bundle.js (prod). Explicit, since context_processors.debug only
-        # gives debug for INTERNAL_IPS.
-        'debug': settings.DEBUG,
         'boards': list_boards(),
     })
 

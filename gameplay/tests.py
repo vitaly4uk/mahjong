@@ -2,9 +2,11 @@ import datetime
 import random
 import uuid
 from datetime import timedelta
+from io import StringIO
 
 from django.contrib.auth.models import User
 from django.core.cache import cache
+from django.core.management import call_command
 from django.db import IntegrityError
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
@@ -26,7 +28,7 @@ from .layouts import (
     load_layouts,
     parse_layout,
 )
-from .middleware import PLAYER_COOKIE_NAME
+from .middleware import NEW_PROFILE_RATE_LIMIT, PLAYER_COOKIE_NAME
 from .models import GameSession, Profile
 from .schemas import AllStats, LevelStats
 from .stats import apply_loss, apply_win, merge_imported
@@ -1000,6 +1002,57 @@ class PlayerIdentityMiddlewareTests(TestCase):
         self.client.get('/api/background/')
         self.assertEqual(Profile.objects.count(), 0)
 
+    def test_unknown_subpath_under_prefix_does_not_create_profile(self):
+        response = self.client.get('/api/game/this-endpoint-does-not-exist')
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(Profile.objects.count(), 0)
+
+    def test_new_profile_rate_limit_returns_429_and_creates_no_row_past_quota(self):
+        cache.clear()  # a fresh quota window, isolated from other tests' counters
+        # A unique IP so this test's quota can't collide with any other
+        # test's requests sharing the process-wide LocMemCache.
+        headers = {'HTTP_CF_CONNECTING_IP': '203.0.113.77'}
+        for _i in range(NEW_PROFILE_RATE_LIMIT):
+            # A distinct client (no cookie carried over) each time — this
+            # quota is about *first-time* visitors, so a returning one must
+            # never count against it.
+            response = Client().post(
+                '/api/game/start', data={'level': 'easy'}, content_type='application/json',
+                **headers,
+            )
+            self.assertNotEqual(response.status_code, 429, response.content)
+        self.assertEqual(Profile.objects.count(), NEW_PROFILE_RATE_LIMIT)
+
+        response = Client().post(
+            '/api/game/start', data={'level': 'easy'}, content_type='application/json', **headers,
+        )
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(Profile.objects.count(), NEW_PROFILE_RATE_LIMIT)
+
+    def test_returning_player_unaffected_by_exhausted_new_profile_quota(self):
+        cache.clear()
+        headers = {'HTTP_CF_CONNECTING_IP': '203.0.113.78'}
+        client = Client()
+        start = client.post(
+            '/api/game/start', data={'level': 'easy'}, content_type='application/json', **headers,
+        )
+        self.assertEqual(start.status_code, 200, start.content)
+        self.assertEqual(Profile.objects.count(), 1)
+
+        # Exhaust the quota with OTHER, cookie-less clients on the same IP.
+        for _ in range(NEW_PROFILE_RATE_LIMIT):
+            Client().post(
+                '/api/game/start', data={'level': 'easy'}, content_type='application/json',
+                **headers,
+            )
+
+        # The original client, cookie intact, still works.
+        response = client.post(
+            '/api/game/start', data={'level': 'normal'}, content_type='application/json',
+            **headers,
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
 
 class StatsEndpointTests(TestCase):
     def setUp(self):
@@ -1493,3 +1546,65 @@ class DailyTournamentTests(TestCase):
         body = self.client.get('/api/game/daily').json()
         self.assertEqual(body['your_status'], 'new')
         self.assertIsNone(body['your_rank'])
+
+
+class PurgeSessionsTests(TestCase):
+    """gameplay/management/commands/purge_sessions.py."""
+
+    def _make_session(self, *, daily=False, age_days=0, layout=None, shuffles=None):
+        user = User.objects.create_user(username=f'purge-test-{uuid.uuid4().hex}')
+        Profile.objects.create(user=user)
+        session = GameSession.objects.create(
+            level='easy', layout=layout if layout is not None else [{'idx': 0}], seed='x',
+            user=user, daily_date=timezone.localdate() if daily else None,
+            shuffles=shuffles if shuffles is not None else [],
+        )
+        # created_at is auto_now_add — only .update() on the queryset can
+        # backdate it, a plain .save() would stamp "now" right back over it.
+        GameSession.objects.filter(pk=session.pk).update(
+            created_at=timezone.now() - timezone.timedelta(days=age_days),
+        )
+        return session
+
+    def _call(self, *args):
+        out = StringIO()
+        call_command('purge_sessions', *args, stdout=out)
+        return out.getvalue()
+
+    def test_old_non_daily_session_is_deleted(self):
+        old = self._make_session(age_days=10)
+        self._call('--days', '7')
+        self.assertFalse(GameSession.objects.filter(pk=old.pk).exists())
+
+    def test_recent_non_daily_session_is_kept(self):
+        recent = self._make_session(age_days=1)
+        self._call('--days', '7')
+        self.assertTrue(GameSession.objects.filter(pk=recent.pk).exists())
+
+    def test_old_daily_session_is_kept_but_blanked(self):
+        old = self._make_session(daily=True, age_days=10, layout=[{'idx': 0}], shuffles=[{'x': 1}])
+        self._call('--days', '7')
+        old.refresh_from_db()
+        self.assertEqual(old.layout, [])
+        self.assertEqual(old.shuffles, [])
+        # The lifetime-relevant fields survive the purge.
+        self.assertIsNotNone(old.daily_date)
+        self.assertIsNotNone(old.user_id)
+
+    def test_recent_daily_session_is_untouched(self):
+        recent = self._make_session(daily=True, age_days=1, layout=[{'idx': 0}])
+        self._call('--days', '7')
+        recent.refresh_from_db()
+        self.assertEqual(recent.layout, [{'idx': 0}])
+
+    def test_dry_run_changes_nothing(self):
+        old_non_daily = self._make_session(age_days=10)
+        old_daily = self._make_session(daily=True, age_days=10, layout=[{'idx': 0}])
+        output = self._call('--days', '7', '--dry-run')
+
+        self.assertTrue(GameSession.objects.filter(pk=old_non_daily.pk).exists())
+        old_daily.refresh_from_db()
+        self.assertEqual(old_daily.layout, [{'idx': 0}])
+        self.assertIn('Would delete', output)
+        self.assertIn('1 non-daily', output)
+        self.assertIn('1 daily', output)

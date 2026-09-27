@@ -13,7 +13,6 @@ import random
 import uuid
 from datetime import timedelta
 
-from django.core.cache import cache
 from django.db import IntegrityError
 from django.db.models import F
 from django.utils import timezone
@@ -26,6 +25,7 @@ from .daily import HINT_PENALTY_MS, UNDO_PENALTY_MS, daily_challenge, nickname_f
 from .generator import DIFFICULTIES, generate_for_difficulty, reshuffle_layout
 from .layouts import get_layout
 from .models import GameSession
+from .ratelimit import IpRateThrottle
 from .schemas import (
     AllStats,
     BumpRequest,
@@ -52,48 +52,30 @@ DAILY_LEADERBOARD_SIZE = 20
 router = Router(by_alias=True)
 
 SESSION_TTL = timedelta(hours=2)
-RATE_LIMIT_WINDOW_SECONDS = 300
 RATE_LIMIT_MAX_STARTS = 30
 RATE_LIMIT_MAX_FINISHES = 60
 RATE_LIMIT_MAX_IMPORTS = 10
 RATE_LIMIT_MAX_SHUFFLES = 60
 RATE_LIMIT_MAX_PROFILE_UPDATES = 10
 
+# One throttle instance per quota, shared across all requests to the
+# route(s) it's attached to below — django-ninja calls .allow_request(request)
+# on each before the view runs and turns a False into a 429 itself
+# (ninja.errors.Throttled). /start and /daily/start intentionally share
+# _start_throttle: the pre-refactor code rate-limited them under the same
+# 'start' cache key, and there's no reason a player should get separate
+# quotas for the two ways of starting a game.
+_start_throttle = IpRateThrottle('start', RATE_LIMIT_MAX_STARTS)
+_finish_throttle = IpRateThrottle('finish', RATE_LIMIT_MAX_FINISHES)
+_import_throttle = IpRateThrottle('stats_import', RATE_LIMIT_MAX_IMPORTS)
+_shuffle_throttle = IpRateThrottle('shuffle', RATE_LIMIT_MAX_SHUFFLES)
+_profile_throttle = IpRateThrottle('profile', RATE_LIMIT_MAX_PROFILE_UPDATES)
+
 # Control characters (incl. newlines/tabs) stripped from a chosen display
 # name — cosmetic only, keeps it to a single visual line in the toolbar/
 # leaderboard. HTML is not sanitized here: the client always renders names
 # via textContent, never innerHTML (static/game/ui-dom.js).
 _DISPLAY_NAME_MAX_LENGTH = 24
-
-
-def _client_ip(request):
-    """The client's real IP: production goes through Cloudflare Tunnel (see
-    CLAUDE.md), so REMOTE_ADDR is the proxy's own address, the same for every
-    player. CF-Connecting-IP is the header Cloudflare itself sets with the
-    real client IP; locally (without Cloudflare) it's absent, so falling back
-    to REMOTE_ADDR remains correct for the dev server.
-    """
-    return request.META.get('HTTP_CF_CONNECTING_IP') or request.META.get('REMOTE_ADDR', 'unknown')
-
-
-# Note: without a dedicated CACHES backend (config/settings.py), Django uses
-# LocMemCache — a per-process counter, so the effective limit is
-# ≈ RATE_LIMIT_MAX_STARTS × the number of gunicorn workers, not an exact
-# global limit. Acceptable at this project's scale; if an exact limit is ever
-# needed, a shared cache backend (Redis/Memcached) is required.
-def _rate_limited(request, action, limit):
-    """A simple fixed-window per-IP rate quota via Django cache."""
-    key = f'gameplay:ratelimit:{action}:{_client_ip(request)}'
-    count = cache.get(key, 0)
-    if count >= limit:
-        return True
-    cache.set(key, count + 1, RATE_LIMIT_WINDOW_SECONDS)
-    return False
-
-
-def _enforce_rate_limit(request, action, limit):
-    if _rate_limited(request, action, limit):
-        raise HttpError(429, _('too many requests, slow down'))
 
 
 def _session_elapsed(session):
@@ -125,14 +107,13 @@ def _lifetime_stats_after(profile, session, mutator):
     return update_level_stats(profile, session.level, mutator)
 
 
-@router.post('/start', response=StartResponse)
+@router.post('/start', response=StartResponse, throttle=_start_throttle)
 def start_game(request, payload: StartRequest):
     if payload.level not in DIFFICULTIES:
         raise HttpError(400, _('unknown level'))
     board = get_layout(payload.board)
     if board is None:
         raise HttpError(400, _('unknown board'))
-    _enforce_rate_limit(request, 'start', RATE_LIMIT_MAX_STARTS)
 
     seed = uuid.uuid4().hex
     tiles = generate_for_difficulty(payload.level, board, seed=seed)
@@ -234,7 +215,7 @@ def daily_info(request):
     }
 
 
-@router.post('/daily/start', response=DailyStartResponse)
+@router.post('/daily/start', response=DailyStartResponse, throttle=_start_throttle)
 def start_daily(request):
     """Get-or-create for today's attempt: resumes an ACTIVE row if one is
     still live, starts a brand new one (same deterministic board — the seed
@@ -243,7 +224,6 @@ def start_daily(request):
     WIN is on record for today (gameplay/models.py:
     one_daily_win_per_user_per_day — a lost attempt may be retried, a won one
     may not)."""
-    _enforce_rate_limit(request, 'start', RATE_LIMIT_MAX_STARTS)
     today = timezone.localdate()
     board_slug, level, seed, board, _today_sessions, won_session, active_session = (
         _daily_setup(request, today)
@@ -355,7 +335,7 @@ def _replay(session, moves):
     return board
 
 
-@router.post('/{uuid:token}/shuffle', response=ShuffleResponse)
+@router.post('/{uuid:token}/shuffle', response=ShuffleResponse, throttle=_shuffle_throttle)
 def shuffle_game(request, token: uuid.UUID, payload: ShuffleRequest):
     """Reshuffles the kinds of whatever tiles remain on the board — offered
     to the player as an alternative to giving up on a dead end (main.js:
@@ -363,8 +343,6 @@ def shuffle_game(request, token: uuid.UUID, payload: ShuffleRequest):
     position, gameplay/board.py), and the new arrangement is generated the
     same way as a fresh deal (generator.py: reshuffle_layout) — guaranteed
     solvable, never a repeat dead end."""
-    _enforce_rate_limit(request, 'shuffle', RATE_LIMIT_MAX_SHUFFLES)
-
     try:
         session = GameSession.objects.select_related('user__profile').get(token=token)
     except GameSession.DoesNotExist:
@@ -410,10 +388,8 @@ def shuffle_game(request, token: uuid.UUID, payload: ShuffleRequest):
     return {'kinds': kinds, 'stats': all_stats}
 
 
-@router.post('/finish', response=FinishResponse)
+@router.post('/finish', response=FinishResponse, throttle=_finish_throttle)
 def finish_game(request, payload: FinishRequest):
-    _enforce_rate_limit(request, 'finish', RATE_LIMIT_MAX_FINISHES)
-
     try:
         session = GameSession.objects.select_related('user__profile').get(token=payload.token)
     except GameSession.DoesNotExist:
@@ -507,23 +483,19 @@ def _sanitize_display_name(raw):
     return cleaned[:_DISPLAY_NAME_MAX_LENGTH]
 
 
-@router.post('/profile', response=ProfileResponse)
+@router.post('/profile', response=ProfileResponse, throttle=_profile_throttle)
 def update_profile(request, payload: ProfileUpdateRequest):
     """Sets the player's chosen display name — free-form, not unique (this
     isn't a login). Also doubles as the DiceBear avatar seed client-side
     (static/game/avatar.js), so no separate seed field exists."""
-    _enforce_rate_limit(request, 'profile', RATE_LIMIT_MAX_PROFILE_UPDATES)
-
     profile = request.profile
     profile.display_name = _sanitize_display_name(payload.name)
     profile.save(update_fields=['display_name', 'updated_at'])
     return {'name': nickname_for(profile)}
 
 
-@router.post('/stats/import', response=ImportResponse)
+@router.post('/stats/import', response=ImportResponse, throttle=_import_throttle)
 def import_stats(request, payload: ImportRequest):
-    _enforce_rate_limit(request, 'stats_import', RATE_LIMIT_MAX_IMPORTS)
-
     profile = request.profile
     if profile.legacy_imported:
         return {'imported': False, 'reason': _('already imported')}

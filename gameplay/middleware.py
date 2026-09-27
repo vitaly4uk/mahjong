@@ -7,13 +7,32 @@ so we don't spawn anonymous User rows on every hit to /admin/,
 import uuid
 
 from django.contrib.auth.models import User
+from django.http import JsonResponse
+from django.urls import Resolver404, resolve
+from django.utils.translation import gettext as _
 
 from .models import Profile
+from .ratelimit import IpRateThrottle
 
 PLAYER_COOKIE_NAME = 'mahjong_player'
 PLAYER_COOKIE_SALT = 'mahjong.player'  # separate namespace for django.core.signing
 PLAYER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 2  # 2 years
 PLAYER_IDENTITY_PATH_PREFIX = '/api/game/'
+# A budget on minting brand-new Users/Profiles, not on gameplay itself — a
+# returning player with a valid signed cookie is never affected by this.
+# Kept generous relative to the per-endpoint quotas in gameplay/api.py
+# because a legitimate burst of first-time visitors behind the same IP
+# (office/NAT/CGNAT) is normal; an unbounded loop against an unknown or
+# unrated path (gameplay/api.py: GET /stats, GET /daily have none of their
+# own) is not.
+NEW_PROFILE_RATE_LIMIT = 20
+NEW_PROFILE_RATE_LIMIT_WINDOW_SECONDS = 60 * 60
+# Called directly (.allow_request()), not via a `throttle=` operation kwarg
+# like gameplay/api.py's routes — this middleware runs before django-ninja's
+# own routing even sees the request, so that mechanism isn't available here.
+_new_profile_throttle = IpRateThrottle(
+    'new_profile', NEW_PROFILE_RATE_LIMIT, NEW_PROFILE_RATE_LIMIT_WINDOW_SECONDS,
+)
 
 
 class PlayerIdentityMiddleware:
@@ -22,7 +41,31 @@ class PlayerIdentityMiddleware:
 
     def __call__(self, request):
         if request.path.startswith(PLAYER_IDENTITY_PATH_PREFIX):
-            request.profile = self._get_or_create_profile(request)
+            # Resolve before touching the DB: request.path.startswith alone
+            # would mint a User+Profile for ANY subpath, including a typo'd
+            # or nonexistent one that 404s right after — an easy unbounded
+            # loop for a crawler or a broken client. A returning player (a
+            # valid signed cookie) is looked up below regardless — never
+            # rate-limited, never re-created; only a first-time visitor on a
+            # REAL endpoint reaches the creation quota.
+            try:
+                resolve(request.path)
+            except Resolver404:
+                pass
+            else:
+                existing = self._lookup_profile(request)
+                if existing is not None:
+                    request.profile = existing
+                # The quota gates CREATION itself, checked before any row is
+                # written — checking after create() would let an
+                # over-quota request still mint the row and only withhold
+                # the response, which defeats the point.
+                elif not _new_profile_throttle.allow_request(request):
+                    return JsonResponse(
+                        {'detail': _('too many requests, slow down')}, status=429,
+                    )
+                else:
+                    request.profile = self._create_profile()
 
         response = self.get_response(request)
 
@@ -40,17 +83,19 @@ class PlayerIdentityMiddleware:
         return response
 
     @staticmethod
-    def _get_or_create_profile(request):
+    def _lookup_profile(request):
+        """A returning player only, by a valid signed cookie — never creates
+        anything, so it's exempt from the new-profile rate limit."""
         public_id = request.get_signed_cookie(
             PLAYER_COOKIE_NAME, salt=PLAYER_COOKIE_SALT, default=None,
         )
-        profile = (
-            Profile.objects.select_related('user').filter(public_id=public_id).first()
-            if public_id else None
-        )
-        if profile is None:
-            # create_user(password=None) already sets make_password(None) —
-            # an unusable password, no separate set_unusable_password() needed.
-            user = User.objects.create_user(username=f'anon-{uuid.uuid4().hex[:12]}')
-            profile = Profile.objects.create(user=user)
-        return profile
+        if not public_id:
+            return None
+        return Profile.objects.select_related('user').filter(public_id=public_id).first()
+
+    @staticmethod
+    def _create_profile():
+        # create_user(password=None) already sets make_password(None) —
+        # an unusable password, no separate set_unusable_password() needed.
+        user = User.objects.create_user(username=f'anon-{uuid.uuid4().hex[:12]}')
+        return Profile.objects.create(user=user)

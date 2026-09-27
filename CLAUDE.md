@@ -123,13 +123,24 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   guaranteed-solvable board), `daily.py` (the deterministic daily tournament
   challenge), `models.py` (`GameSession`/`Profile`), `middleware.py`
   (resolves the player from the `mahjong_player` cookie), `stats.py`
-  (lifetime counters), `schemas.py`, `api.py` (all endpoints).
+  (lifetime counters), `ratelimit.py` (`IpRateThrottle` — a thin subclass of
+  django-ninja's own `ninja.throttling.SimpleRateThrottle`, not a hand-rolled
+  counter; needed because ninja's built-in `AnonRateThrottle` would throttle
+  nothing here — see the module docstring for why), `schemas.py`, `api.py`
+  (all endpoints, most with a `throttle=` on the route; `middleware.py`'s
+  new-profile limit calls the same throttle class's `.allow_request()`
+  directly, since middleware runs before ninja's own routing).
   `GameSession.user` is nullable only for a painless migration of already
   existing rows (new code always sets it). Stats are attributed to the player
   who STARTED the session (`session.user`), not necessarily whoever makes the
   current request. IP rate-limiting goes through `CF-Connecting-IP`
   (production sits behind a Cloudflare Tunnel — `REMOTE_ADDR` would just see
-  the proxy's own address). Design/plan:
+  the proxy's own address). `management/commands/purge_sessions.py` is the
+  retention job for `GameSession` — deletes old non-daily rows, blanks (but
+  keeps) old daily rows so the tournament record stays computable. Not
+  scheduled — a manual tool for if/when row growth ever becomes a real
+  problem (at ~6 KB/row for the board layout, that's years out at this
+  project's scale; see `DEPLOY.local.md` for the invocation). Design/plan:
   `docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md`,
   `docs/superpowers/specs/2026-07-28-daily-tournament-design.md`.
   `Profile.display_name` is a free-form (non-unique) player name; `daily.py:
@@ -260,6 +271,7 @@ breaks by accident:
 ## Local development
 
 ```
+cp .env.example .env         # once — sets DJANGO_DEBUG=True, see Configuration via env
 uv sync                      # install dependencies from uv.lock
 npm install                  # once — devDependencies for the esbuild/Tailwind watchers
 uv run manage.py migrate
@@ -404,25 +416,77 @@ tests above:
   (some fixes are `--unsafe` — review the diff before applying).
 
 Both linters are purely static analysis. GitHub Actions
-(`.github/workflows/ci.yml`) runs them on every PR and push to `main`
-alongside `manage.py test`/`node --test` (jobs `python`/`javascript`) — these
-four are required status checks on `main` (see Deploying to dokku below), but
-run the commands above locally too before committing/finishing a task.
+(`.github/workflows/ci.yml`) runs them, alongside `manage.py test`/
+`node --test` and the deploy-readiness checks below, on every PR and push to
+`main` (jobs `python`/`javascript`) — these two jobs are the required status
+checks on `main` (see Deploying to dokku below), but run the commands above
+locally too before committing/finishing a task.
+
+The `python` job also runs, after `manage.py test`:
+```
+uv run manage.py makemigrations --check --dry-run
+uv run manage.py check --deploy --fail-level WARNING
+```
+so a model change with no migration, or a setting `check --deploy` flags
+(see the `if not DEBUG:` block in Configuration via env below), fails CI
+instead of surfacing after a deploy. The job sets a placeholder
+`DJANGO_SECRET_KEY`/`DJANGO_ALLOWED_HOSTS` at job level — not real
+production config, just enough for settings to import at all (see below).
 
 ## Configuration via env
 
+All env vars go through **django-environ** (`config/settings.py: env =
+environ.Env(...)`) — one idiom instead of ad-hoc `os.environ.get(...)`/
+comma-splitting, `.env` picked up via `environ.Env.read_env()` (same file/
+role as the old `python-dotenv` call it replaced). Its key property: reading
+a var with no `default=` raises Django's `ImproperlyConfigured` if it's
+missing, rather than silently falling back to something insecure.
+
 `config/settings.py` reads:
-- `DJANGO_SECRET_KEY`
-- `DJANGO_DEBUG` (`True`/`False`, default `True`)
-- `DJANGO_ALLOWED_HOSTS` (comma-separated, e.g. `mahjong.vitaly4uk.in.ua`)
+- `DJANGO_DEBUG` (`True`/`False`) — **defaults to `False`.** Insecure
+  settings must be opted into, never assumed; a forgotten env var in
+  production must crash at boot, not silently ship `DEBUG=True` or an
+  insecure `SECRET_KEY`. Local development sets `DJANGO_DEBUG=True` in
+  `.env` (copy `.env.example`) — `manage.py runserver`/`dev.sh` alike need
+  nothing else.
+- `DJANGO_SECRET_KEY` — **required** when `DJANGO_DEBUG` is not `True`
+  (a hardcoded insecure literal is the default only in DEBUG mode).
+- `DJANGO_ALLOWED_HOSTS` (comma-separated, e.g. `mahjong.vitaly4uk.in.ua`) —
+  **required** when `DJANGO_DEBUG` is not `True`, for the same reason: an
+  empty list under `DEBUG=False` breaks every request anyway, and would
+  silently empty `CSRF_TRUSTED_ORIGINS` too (see CSRF below).
 - `PEXELS_API_KEY` — Pexels API key for the background photo (`config/api.py`);
   without it the background endpoint silently disables itself
   (`if not settings.PEXELS_API_KEY`), the rest of the game works normally.
 - `DATABASE_URL` — optionally overrides the default sqlite
-  (`dj_database_url.config()`, default `sqlite:///db.sqlite3`).
+  (`env.db_url(...)`, default `sqlite:///db.sqlite3`). Note `CONN_MAX_AGE`
+  is set explicitly in Python, not via a `?conn_max_age=` query param on the
+  URL — `env.db_url()` has no kwarg for it (unlike the old
+  `dj_database_url.config(conn_max_age=...)`), so it would otherwise
+  silently be lost the day someone sets `DATABASE_URL` without that query
+  string.
 
-Locally you can leave these unset — there are dev defaults (DEBUG=True, an
-insecure SECRET_KEY, sqlite, the background disabled without a Pexels key).
+When not `DEBUG`, `config/settings.py` also turns on `SESSION_COOKIE_SECURE`/
+`CSRF_COOKIE_SECURE`/`SECURE_CONTENT_TYPE_NOSNIFF`/HSTS — but deliberately
+**not** `SECURE_SSL_REDIRECT`: dokku nginx already terminates TLS and
+redirects in front of gunicorn (see CSRF below), so Django's own redirect on
+top would risk a loop; `check --deploy`'s `W008` for this is silenced
+(`SILENCED_SYSTEM_CHECKS`) on purpose, not an oversight.
+
+`/api/docs` and `/api/openapi.json` (django-ninja's interactive docs/schema)
+are only served when `DEBUG` — `CsrfOnly` authenticates everyone (see its
+docstring in `config/api.py`), so leaving them on in production would make
+the whole API schema public.
+
+Anonymous player identity (`gameplay/middleware.py:
+PlayerIdentityMiddleware`) mints a `User`+`Profile` for any first-time
+visitor under `/api/game/` — bounded two ways: a path that doesn't resolve
+to a real view never touches the DB at all, and *new*-profile creation
+(never a returning player's cookie) is rate-limited per IP
+(`NEW_PROFILE_RATE_LIMIT`, via the same `IpRateThrottle` —
+`gameplay/ratelimit.py` — that backs the per-endpoint quotas in
+`gameplay/api.py`; built on django-ninja's own `ninja.throttling`, not a
+hand-rolled counter).
 
 ### CSRF behind a reverse proxy (do not break)
 
@@ -446,7 +510,7 @@ correct (this affects the django-ninja API too — `CsrfOnly` in
 
 There's a `Dockerfile` (dokku deploys from it automatically, no separate
 buildpack) plus a `Procfile` for the web process command. `main` is a
-protected branch (a ruleset: PR + the four CI checks above required, no
+protected branch (a ruleset: PR + the two CI jobs above required, no
 direct pushes) — merging a PR is what deploys: `.github/workflows/ci.yml`'s
 `deploy` job pushes the merge commit to the dokku remote over SSH, tunneled
 through the Cloudflare Tunnel already used for production traffic (dokku
@@ -482,3 +546,22 @@ tunnel, with no manual port setup.
 
 Host access, the dokku git remote and admin commands are documented in
 `DEPLOY.local.md` (not tracked in git — see Deploying to dokku above).
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`vitaly4uk/mahjong`), managed via the `gh` CLI.
+See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default canonical labels (`needs-triage`, `needs-info`, `ready-for-agent`,
+`ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Neither `CONTEXT.md` nor `docs/adr/` exist yet in this repo — see
+`docs/agents/domain.md` for the (single-context) layout they'd take and how
+skills should consume them once created; the file itself says to proceed
+silently in their absence, not to flag or stub them.

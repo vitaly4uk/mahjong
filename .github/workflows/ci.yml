@@ -22,6 +22,17 @@ concurrency:
 jobs:
   python:
     runs-on: ubuntu-latest
+    # DEBUG defaults to False (config/settings.py) — every manage.py
+    # invocation below, including `test`, needs a secret or settings raise
+    # ImproperlyConfigured at import time (see CLAUDE.md: "Configuration via
+    # env"). Neither value is real production config, just enough to satisfy
+    # the check --deploy run further down.
+    env:
+      # 50+ chars, no 'django-insecure-' prefix — just long enough that
+      # check --deploy's W009 (weak/auto-generated key) doesn't fire. Not a
+      # real secret; production supplies its own via dokku config.
+      DJANGO_SECRET_KEY: ci-check-deploy-placeholder-key-not-used-in-production-0000000000
+      DJANGO_ALLOWED_HOSTS: example.com
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -30,6 +41,12 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run manage.py test
+      # A model change without its migration would otherwise ship silently.
+      - run: uv run manage.py makemigrations --check --dry-run
+      # Deploy-readiness checks (missing SECRET_KEY, insecure cookies, etc.)
+      # — see the `if not DEBUG:` block in config/settings.py for what this
+      # is verifying.
+      - run: uv run manage.py check --deploy --fail-level WARNING
 
   javascript:
     runs-on: ubuntu-latest
