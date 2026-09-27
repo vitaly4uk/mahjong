@@ -16,14 +16,14 @@
 # `@import "tailwindcss"` in the source, and fails with MissingFileError (a
 # documented WhiteNoise+Tailwind pitfall, not our own invention — the same
 # thing the django-tailwind-cli docs recommend around).
-FROM node:20-slim AS jsbuild
+FROM node:24-slim AS jsbuild
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY assets/ ./assets/
 COPY static/game/ ./static/game/
 COPY templates/ ./templates/
-RUN npx --yes esbuild@0.24.2 static/game/main.js \
+RUN npx --yes esbuild@0.28.2 static/game/main.js \
     --bundle --minify --format=esm --outfile=static/game/bundle.js
 RUN npx tailwindcss -i assets/tailwind.src.css \
     -o static/game/tailwind.css --minify
@@ -68,10 +68,16 @@ RUN uv sync --locked --no-dev
 # the image happens to default to — so this has zero effect on the actual
 # running app.
 #
-# -l/--locale scoped to our own catalogs — without it compilemessages also
-# walks every installed package's own locale/ (Django itself, etc.), which is
-# pointless work (those .mo ship precompiled already) and slows the build.
-RUN DJANGO_DEBUG=True uv run manage.py compilemessages --locale=uk --locale=en
+# --locale only restricts which LANGUAGES are compiled, not which paths are
+# walked: compilemessages does its own os.walk(".") looking for every
+# directory named locale/, and by this point uv sync has already created
+# .venv — without --ignore it also finds and recompiles every installed
+# package's own uk/en catalogs (Django's conf/locale, each django.contrib.*),
+# which is pointless work AND overwrites their precompiled .mo files.
+# --ignore prunes those directories out of the walk before it ever descends
+# into them.
+RUN DJANGO_DEBUG=True uv run manage.py compilemessages --locale=uk --locale=en \
+    --ignore='.venv' --ignore='node_modules' --ignore='staticfiles'
 
 RUN DJANGO_DEBUG=True uv run manage.py collectstatic --noinput
 

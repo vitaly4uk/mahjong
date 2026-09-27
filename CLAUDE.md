@@ -48,7 +48,7 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
 
 ## Stack
 
-- **Django 6.0** + **uv** as the package manager.
+- **Django 6.1** + **uv** as the package manager.
 - **django-ninja** — the entire project's JSON/HTTP API (no plain Django
   view/`JsonResponse` — only `admin/` (the standard Django admin) and `''`
   (renders the game's HTML page) stay outside ninja, since neither is an API).
@@ -89,7 +89,15 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   the prod image) and `dependencies`** (`@dicebear/core`+`@dicebear/collection`
   — actually shipped in `bundle.js`, imported by `static/game/avatar.js`).
   `npm install` is therefore required for local development too, not just for
-  the Docker build.
+  the Docker build. `@dicebear/core` is deliberately held on the `9.x` line
+  (not `^10`) — `@dicebear/collection` has no v10 release yet and peer-depends
+  on `@dicebear/core: ^9.0.0`; bumping `core` alone would break that pair.
+  `package.json`'s `overrides` pins the transitive `@dicebear/initials` to
+  `^9.4.3` — `@dicebear/collection@9.4.2` hard-pins it to the exact vulnerable
+  `9.4.2` (GHSA-gcr2-9v8m-gq45, an unescaped-option XSS; unreachable here
+  anyway since `avatar.js` only uses the `funEmoji` style and never sets
+  `rotate`), and there's no newer `collection` release yet to pick up the fix
+  on its own. Drop this override once `collection` bumps its own pin.
 
 ## Game structure
 
@@ -297,7 +305,7 @@ JS/CSS. If you only need one of the watchers on its own — the commands:
 
 ```
 uv run manage.py runserver
-npx --yes esbuild@0.24.2 static/game/main.js \
+npx --yes esbuild@0.28.2 static/game/main.js \
   --bundle --sourcemap --format=esm --outfile=static/game/bundle.js --watch=forever
 npx @tailwindcss/cli -i assets/tailwind.src.css -o static/game/tailwind.css --watch=always
 ```
@@ -360,7 +368,11 @@ uv run manage.py makemessages -l uk -l en \
 uv run manage.py makemessages -d djangojs -l uk -l en \
   --ignore='static/vendor/*' --ignore='static/game/bundle.js' \
   --ignore='staticfiles/*' --ignore='.venv/*' --ignore='node_modules/*'
-uv run manage.py compilemessages --locale=uk --locale=en   # for a local check
+# --locale only picks which LANGUAGES to compile; --ignore is what keeps
+# compilemessages' own directory walk out of .venv/node_modules (it would
+# otherwise also recompile every installed package's uk/en catalogs).
+uv run manage.py compilemessages --locale=uk --locale=en \
+  --ignore='.venv' --ignore='node_modules' --ignore='staticfiles'   # for a local check
 ```
 
 ## Tests
@@ -420,9 +432,9 @@ tests above:
   separate CSS tool (stylelint etc.) wasn't set up; the CSS formatter stays
   off (Biome's default), the criterion is `lint` only:
   ```
-  npx --yes @biomejs/biome@2.5.5 lint static/game tests
+  npx --yes @biomejs/biome@2.5.14 lint static/game tests
   ```
-  Autofix: `npx --yes @biomejs/biome@2.5.5 lint --write static/game tests`
+  Autofix: `npx --yes @biomejs/biome@2.5.14 lint --write static/game tests`
   (some fixes are `--unsafe` — review the diff before applying).
 
 Both linters are purely static analysis. GitHub Actions

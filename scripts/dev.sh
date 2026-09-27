@@ -22,7 +22,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 npx @tailwindcss/cli -i assets/tailwind.src.css -o static/game/tailwind.css --watch=always &
 TAILWIND_PID=$!
 
-npx --yes esbuild@0.24.2 static/game/main.js \
+npx --yes esbuild@0.28.2 static/game/main.js \
   --bundle --sourcemap --format=esm --outfile=static/game/bundle.js --watch=forever &
 ESBUILD_PID=$!
 
