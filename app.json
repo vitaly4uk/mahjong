@@ -1,0 +1,9 @@
+{
+  "cron": [
+    {
+      "command": "python manage.py purge_sessions --days 7",
+      "schedule": "0 3 * * *",
+      "concurrency_policy": "forbid"
+    }
+  ]
+}
