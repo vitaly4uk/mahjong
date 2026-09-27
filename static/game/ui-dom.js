@@ -61,7 +61,9 @@ const STATS_ROW_LABELS = {
 export function createUiDom(scene) {
   const btnNew = document.getElementById('btn-new');
   const btnHint = document.getElementById('btn-hint');
+  const btnHintLabel = document.getElementById('btn-hint-label');
   const btnUndo = document.getElementById('btn-undo');
+  const btnUndoLabel = document.getElementById('btn-undo-label');
   const btnStats = document.getElementById('btn-stats');
   const btnDaily = document.getElementById('btn-daily');
   const btnProfile = document.getElementById('btn-profile');
@@ -113,19 +115,22 @@ export function createUiDom(scene) {
   // Static base labels — set once, immediately (mirrors the old canvas
   // toolbar's construction-time text: createToolbar() baked HINT_LABEL/
   // UNDO_LABEL in directly, renderStats() only ever overwrites hint/undo
-  // with the "(N)" variant once a game has counters).
-  btnHint.textContent = HINT_LABEL;
-  btnUndo.textContent = UNDO_LABEL;
+  // with the "(N)" variant once a game has counters). Written into the inner
+  // <span id="btn-hint-label">/#btn-undo-label>, not btnHint/btnUndo's own
+  // textContent — the button also holds a static <kbd> shortcut badge
+  // (templates/game.html) that a textContent overwrite would wipe out.
+  btnHintLabel.textContent = HINT_LABEL;
+  btnUndoLabel.textContent = UNDO_LABEL;
 
   function renderStats() {
     statusText.textContent = scene.registry.get('status') || '';
 
     const hints = scene.registry.get('gameHints') || 0;
     const undos = scene.registry.get('gameUndos') || 0;
-    btnHint.textContent = hints > 0
+    btnHintLabel.textContent = hints > 0
       ? `💡 ${interpolate(HINT_TEMPLATE, { n: hints }, true)}`
       : HINT_LABEL;
-    btnUndo.textContent = undos > 0
+    btnUndoLabel.textContent = undos > 0
       ? `↩️ ${interpolate(UNDO_TEMPLATE, { n: undos }, true)}`
       : UNDO_LABEL;
     // scene.currentLevel isn't assigned until later in create() (after the
@@ -272,13 +277,59 @@ export function createUiDom(scene) {
     }
   }
 
+  // modal.type -> its overlay element — the single map the Escape/Tab/focus
+  // handling below and the .open toggling here both read, so they can never
+  // disagree about which overlay is "the open one" ('stats' and 'result'
+  // share the same statsModal — see renderModal's showStats).
+  const MODAL_ELEMENTS = {
+    stats: statsModal,
+    result: statsModal,
+    newgame: newgameModal,
+    deadlock: deadlockModal,
+    daily: dailyModal,
+    profile: profileModal,
+  };
+
+  // 'deadlock' has no close path at all (the player must pick shuffle/replay/
+  // give-up — templates/game.html), and the boot-time forced 'newgame' modal
+  // (scene.js: `{type: 'newgame', canClose: false}`) already hides its own ✖
+  // button for the same reason — Escape shouldn't invent a dismissal neither
+  // of them offers otherwise.
+  function closable(modal) {
+    if (!modal) return false;
+    if (modal.type === 'deadlock') return false;
+    if (modal.type === 'newgame') return modal.canClose;
+    return true;
+  }
+
+  // Focusable, currently-visible elements inside an open overlay, in DOM
+  // order — the Tab-wrap trap's universe. offsetParent === null is what
+  // filters out elements this file already hides via style.display = 'none'
+  // while a modal is open (newgameCloseBtn when !canClose, dailyPlayBtn after
+  // a daily win).
+  function focusables(overlay) {
+    return [...overlay.querySelectorAll('button, input, a[href], [tabindex]:not([tabindex="-1"])')]
+      .filter((el) => el.offsetParent !== null);
+  }
+
+  // Tracks the open<->closed transition across renderModal() calls — the
+  // function also re-runs on every picker/sound/lang click *while* a modal
+  // stays open (see the click handlers below), so focus must only move on an
+  // actual transition, not on every one of those re-renders.
+  let currentOpenOverlay = null;
+  let modalTrigger = null;
+
   function renderModal(modal) {
     const showStats = modal?.type === 'stats' || modal?.type === 'result';
-    statsModal.classList.toggle('open', showStats);
-    newgameModal.classList.toggle('open', modal?.type === 'newgame');
-    deadlockModal.classList.toggle('open', modal?.type === 'deadlock');
-    dailyModal.classList.toggle('open', modal?.type === 'daily');
-    profileModal.classList.toggle('open', modal?.type === 'profile');
+    const openOverlay = modal ? MODAL_ELEMENTS[modal.type] : null;
+    const opened = openOverlay && openOverlay !== currentOpenOverlay;
+    const closed = !openOverlay && currentOpenOverlay;
+    if (opened) modalTrigger = document.activeElement;
+    currentOpenOverlay = openOverlay;
+
+    for (const overlay of new Set(Object.values(MODAL_ELEMENTS))) {
+      overlay.classList.toggle('open', overlay === openOverlay);
+    }
 
     if (showStats) {
       let title = `📊 ${gettext('Statistics')}`;
@@ -322,6 +373,19 @@ export function createUiDom(scene) {
         btn.classList.toggle('selected', btn.dataset.lang === window.MAHJONG_LANG);
       }
     }
+
+    // Focus the panel on open (after the per-type rendering above, so
+    // display:none toggles like newgameCloseBtn's already happened — see
+    // focusables()'s offsetParent filter), restore it to the triggering
+    // button on close. Guarded to a real transition only (see currentOpenOverlay
+    // above) so this never fights the user while they click pickers inside an
+    // already-open modal.
+    if (opened) {
+      focusables(openOverlay)[0]?.focus();
+    } else if (closed) {
+      if (modalTrigger?.isConnected) modalTrigger.focus();
+      modalTrigger = null;
+    }
   }
 
   scene.registry.events.on('changedata', renderStats);
@@ -345,25 +409,98 @@ export function createUiDom(scene) {
     if (key === 'player') renderPlayer();
   });
 
-  btnNew.addEventListener('click', () => {
-    if (scene.registry.get('modal')) return;
-    scene.registry.set('modal', { type: 'newgame', canClose: true });
-  });
-  btnHint.addEventListener('click', () => { if (!scene.registry.get('modal')) scene.hint(); });
-  btnUndo.addEventListener('click', () => { if (!scene.registry.get('modal')) scene.undo(); });
-  btnStats.addEventListener('click', () => {
-    if (scene.registry.get('modal')) return;
-    const open = scene.registry.get('modal')?.type === 'stats';
-    scene.registry.set('modal', open ? null : { type: 'stats' });
-  });
-  btnDaily.addEventListener('click', () => {
-    if (scene.registry.get('modal')) return;
-    const open = scene.registry.get('modal')?.type === 'daily';
-    scene.registry.set('modal', open ? null : { type: 'daily' });
-  });
-  btnProfile.addEventListener('click', () => {
-    if (scene.registry.get('modal')) return;
-    scene.registry.set('modal', { type: 'profile' });
+  // The toolbar's click handlers and their keyboard shortcuts (issue #6) are
+  // one table, not two parallel code paths — each button's badge
+  // (templates/game.html: <kbd class="kbd-hint">) is exactly the `code` entry
+  // here. Matched on event.code (physical key, e.g. "KeyN"), not event.key —
+  // the default UI language is Ukrainian, and event.key for the same
+  // physical key would be the Cyrillic letter under a Ukrainian keyboard
+  // layout, which would silently break the shortcut for anyone using one.
+  const SHORTCUTS = [
+    {
+      code: 'KeyN',
+      btn: btnNew,
+      action: () => {
+        if (scene.registry.get('modal')) return;
+        scene.registry.set('modal', { type: 'newgame', canClose: true });
+      },
+    },
+    { code: 'KeyH', btn: btnHint, action: () => { if (!scene.registry.get('modal')) scene.hint(); } },
+    { code: 'KeyU', btn: btnUndo, action: () => { if (!scene.registry.get('modal')) scene.undo(); } },
+    {
+      code: 'KeyS',
+      btn: btnStats,
+      action: () => {
+        if (scene.registry.get('modal')) return;
+        const open = scene.registry.get('modal')?.type === 'stats';
+        scene.registry.set('modal', open ? null : { type: 'stats' });
+      },
+    },
+    {
+      code: 'KeyD',
+      btn: btnDaily,
+      action: () => {
+        if (scene.registry.get('modal')) return;
+        const open = scene.registry.get('modal')?.type === 'daily';
+        scene.registry.set('modal', open ? null : { type: 'daily' });
+      },
+    },
+    {
+      code: 'KeyP',
+      btn: btnProfile,
+      action: () => {
+        if (scene.registry.get('modal')) return;
+        scene.registry.set('modal', { type: 'profile' });
+      },
+    },
+  ];
+  for (const { btn, action } of SHORTCUTS) btn.addEventListener('click', action);
+
+  // Escape (close the open modal, when closable), Tab (wrap focus inside the
+  // open modal instead of escaping it into the toolbar behind it), and the
+  // toolbar shortcuts above (only when no modal is open, and not while the
+  // player is typing — e.g. the profile-modal name input).
+  document.addEventListener('keydown', (event) => {
+    const modal = scene.registry.get('modal');
+
+    if (modal && event.key === 'Escape') {
+      if (!closable(modal)) return;
+      event.preventDefault();
+      scene.registry.set('modal', null);
+      return;
+    }
+
+    if (modal && event.key === 'Tab') {
+      const items = focusables(MODAL_ELEMENTS[modal.type]);
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+      return;
+    }
+
+    if (!modal && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      const { target } = event;
+      const isTyping = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+      if (isTyping) return;
+      const shortcut = SHORTCUTS.find((s) => s.code === event.code);
+      if (shortcut) {
+        event.preventDefault();
+        // Focus the button before running its action — a mouse click would
+        // have focused it natively, and renderModal()'s "opened" branch
+        // reads document.activeElement as the trigger to restore focus to on
+        // close. Without this, a keyboard-triggered open would record <body>
+        // as the trigger instead of the button whose shortcut was pressed.
+        shortcut.btn.focus();
+        shortcut.action();
+      }
+    }
   });
 
   document.getElementById('btn-stats-close').addEventListener('click', () => scene.registry.set('modal', null));

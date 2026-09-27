@@ -212,7 +212,15 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   `scene.registry` (**both `changedata` and `setdata`** — Phaser only sends
   `changedata` from the SECOND write of a key; the first always comes as
   `setdata` with no per-key variant; missing this means the initial render of
-  every freshly-set registry key silently never happens).
+  every freshly-set registry key silently never happens). Also owns all
+  keyboard behavior (issue #6): Escape closes the open modal (except
+  `deadlock` and a non-`canClose` `newgame`, which have no other close path
+  either), Tab wraps inside it instead of escaping into the toolbar behind
+  it, closing restores focus to whichever button opened it, and each toolbar
+  button has a single-key shortcut advertised by its own `<kbd>` badge
+  (`templates/game.html`). Shortcuts match `event.code`, not `event.key` — the
+  default UI language is Ukrainian, and `event.key` for the same physical key
+  differs under a Ukrainian keyboard layout.
 - `static/game/main.js` — a thin entry point: assembles the `Phaser.Game`
   with `MainScene`, exports `window.mahjongGame` (access to the game for
   debugging/tests).
