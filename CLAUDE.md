@@ -582,7 +582,10 @@ Host access, the dokku git remote and admin commands are documented in
 ### Issue tracker
 
 Issues live in GitHub Issues (`vitaly4uk/mahjong`), managed via the `gh` CLI.
-See `docs/agents/issue-tracker.md`.
+See `docs/agents/issue-tracker.md`. A GitHub Projects v2 board mirrors triage
+labels/assignment onto kanban columns automatically
+(`.github/workflows/project-sync.yml`) — labels stay the source of truth, the
+board is derived, never edited by hand.
 
 ### Triage labels
 

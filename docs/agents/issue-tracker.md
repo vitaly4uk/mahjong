@@ -25,6 +25,47 @@ When set to `yes`, PRs run through the same labels and states as issues, using t
 
 GitHub shares one number space across issues and PRs, so a bare `#42` may be either: resolve with `gh pr view 42` and fall back to `gh issue view 42`.
 
+## Project board
+
+A GitHub Projects v2 board, user-owned by `vitaly4uk`, linked to this repo
+(`gh project list --owner vitaly4uk`). **Triage labels and assignment are the
+source of truth; the board's Status column is derived from them, never the
+other way round** — to move a card, edit the issue's labels/assignee, not the
+board. `.github/workflows/project-sync.yml` mirrors every `issues` event onto
+the board's Status field via the GraphQL API:
+
+| Status column      | Derived from                                          |
+| ------------------- | ------------------------------------------------------ |
+| `Needs triage`      | default — none of the rows below match                 |
+| `Needs info`        | label `needs-info`                                     |
+| `Ready for agent`   | label `ready-for-agent`                                |
+| `Ready for human`   | label `ready-for-human`                                |
+| `In progress`       | open and has at least one assignee (outranks the `ready-*` labels) |
+| `Done`              | closed (any reason other than not-planned)              |
+| `Won't fix`         | label `wontfix`, or closed with reason not-planned      |
+
+Two things only exist in the board's web UI, not in code — check them after
+touching project settings, they don't show up in a diff:
+
+- Built-in workflow **Auto-add to project** (`is:issue`) is **on** — a safety
+  net so a card exists even if a workflow run fails.
+- Built-in workflow **Item closed → Done** is **off** — it would race the
+  Action's `Won't fix` rule; the Action alone owns Status.
+
+The Action authenticates with the repo secret `PROJECT_TOKEN` — a **classic**
+PAT, scope `project` only (`secrets.GITHUB_TOKEN` cannot write to a
+user-owned project, and a **fine-grained** PAT can't substitute: GitHub only
+exposes a Projects permission when the token's resource owner is an
+organization, never a personal account — confirmed directly against GitHub's
+own permissions docs, not assumed). Currently expires 2026-12-26 (90 days from
+creation) — regenerate at
+<https://github.com/settings/tokens> and re-run `gh secret set PROJECT_TOKEN`
+before then, or the sync silently stops (a failed workflow run, not a failed
+issue write, so it's easy to miss). Reads the project number from the repo
+variable `PROJECT_NUMBER` (`gh variable set PROJECT_NUMBER --body <n>`).
+
+PRs are not added to the board — see "PRs as a request surface: no" above.
+
 ## When a skill says "publish to the issue tracker"
 
 Create a GitHub issue.
