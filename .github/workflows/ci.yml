@@ -1,0 +1,87 @@
+name: CI
+
+# Runs the project's four existing lint/test suites on every PR and on every
+# push to main. On a push to main, once both suites are green, `deploy` pushes
+# the same commit to the dokku remote over an SSH tunnel exposed through the
+# Cloudflare Tunnel that already runs on the production host (dokku lives on
+# a LAN address a GitHub-hosted runner can't otherwise reach). Deploy is a
+# `needs` job in this same workflow, not a separate workflow triggered by
+# `workflow_run` — that way "deployed" always implies "CI was green for this
+# exact commit", with no race between two independently-triggered workflows.
+# See CLAUDE.md ("Linting", "Deploying to dokku") for the commands themselves.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run manage.py test
+
+  javascript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npx --yes @biomejs/biome@2.5.5 lint static/game tests
+      - run: node --test 'tests/*.test.js'
+
+  deploy:
+    needs: [python, javascript]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install cloudflared
+        run: |
+          curl -fsSL -o cloudflared.deb \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+
+      - name: Configure SSH over the Cloudflare Tunnel
+        env:
+          DOKKU_SSH_KEY: ${{ secrets.DOKKU_SSH_KEY }}
+          DOKKU_KNOWN_HOSTS: ${{ secrets.DOKKU_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DOKKU_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$DOKKU_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat >> ~/.ssh/config <<'EOF'
+          Host dokku-tunnel
+            HostName ssh.vitaly4uk.in.ua
+            User dokku
+            IdentityFile ~/.ssh/id_ed25519
+            IdentitiesOnly yes
+            ProxyCommand cloudflared access ssh --hostname %h
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Push to dokku
+        env:
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: git push dokku-tunnel:mahjong HEAD:refs/heads/main
