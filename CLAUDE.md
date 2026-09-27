@@ -137,11 +137,10 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   (production sits behind a Cloudflare Tunnel — `REMOTE_ADDR` would just see
   the proxy's own address). `management/commands/purge_sessions.py` is the
   retention job for `GameSession` — deletes old non-daily rows, blanks (but
-  keeps) old daily rows so the tournament record stays computable; scheduled
-  daily via dokku's own `app.json: cron` (root `app.json`, not the
-  `Procfile`'s one-shot `release` step, and not a separate `dokku-cron`
-  plugin — recent dokku reads `cron` out of `app.json` natively and writes
-  it into the `dokku` user's crontab on deploy). Design/plan:
+  keeps) old daily rows so the tournament record stays computable. Not
+  scheduled — a manual tool for if/when row growth ever becomes a real
+  problem (at ~6 KB/row for the board layout, that's years out at this
+  project's scale; see `DEPLOY.local.md` for the invocation). Design/plan:
   `docs/superpowers/plans/2026-07-17-server-authoritative-gameplay.md`,
   `docs/superpowers/specs/2026-07-28-daily-tournament-design.md`.
   `Profile.display_name` is a free-form (non-unique) player name; `daily.py:
@@ -544,18 +543,6 @@ gunicorn crashes with `'' is not a valid port number`. This pattern is worth
 repeating in future Dockerfile-based apps — then every new
 `<name>.vitaly4uk.in.ua` will work immediately through the existing wildcard
 tunnel, with no manual port setup.
-
-### Scheduled cron tasks
-
-Root `app.json: cron` (not `Procfile`) declares recurring jobs — currently
-just `gameplay: purge_sessions` daily. dokku reads this on every deploy and
-writes it into the `dokku` user's own crontab (no separate `dokku-cron`
-plugin needed on a recent dokku — this is native `app.json` support); each
-run gets the app's normal runtime env (config vars, `DATABASE_URL`, etc.),
-same as the web process. `dokku cron:list mahjong` / `dokku cron:report
-mahjong` show what's scheduled; `dokku cron:run mahjong <cron_id>` triggers
-one on demand (useful for an ad-hoc run without waiting for the schedule —
-see `DEPLOY.local.md`).
 
 Host access, the dokku git remote and admin commands are documented in
 `DEPLOY.local.md` (not tracked in git — see Deploying to dokku above).
