@@ -97,6 +97,10 @@ class GameSession(models.Model):
         indexes = [
             models.Index(fields=['created_at']),
             models.Index(fields=['daily_date', 'score_ms']),
+            # GameSessionAdmin.list_filter includes 'status' (gameplay/admin.py),
+            # and gameplay/management/commands/purge_sessions.py filters on
+            # created_at but the admin's status filter scans without this.
+            models.Index(fields=['status']),
         ]
 
     def __str__(self):

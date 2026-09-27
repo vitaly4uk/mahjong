@@ -10,34 +10,51 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
-import os
 from pathlib import Path
 
-import dj_database_url
+import environ
 from django.utils.translation import gettext_lazy as _
-from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# All env vars in this file go through django-environ: one idiom instead of
+# ad-hoc os.environ.get(...)/comma-splitting, and — the property this project
+# actually relies on below — env.str(name) with no default raises Django's
+# own ImproperlyConfigured when the var is missing, instead of silently
+# falling back to something insecure.
+env = environ.Env(DJANGO_DEBUG=(bool, False))
 # Local development: pick up .env from the project root (in .gitignore).
-# override=False (default) — in prod (dokku injects env, no .env present) this is a no-op.
-load_dotenv(BASE_DIR / '.env')
+# overwrite=False (default) — in prod (dokku injects env, no .env present)
+# this is a no-op; missing entirely is also fine (read_env tolerates it).
+environ.Env.read_env(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
+# SECURITY WARNING: don't run with debug turned on in production!
+# Defaults to False — insecure settings must be opted into, never assumed.
+# Local dev sets DJANGO_DEBUG=True in .env (see .env.example).
+DEBUG = env('DJANGO_DEBUG')
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    'DJANGO_SECRET_KEY',
-    'django-insecure-)9u#_m)-fi$l#tzetjy2d971n#q6$$)l$-2*y8h!qaw*l1vn0+',
+# The insecure literal is only ever a default in DEBUG mode; in production a
+# missing DJANGO_SECRET_KEY must crash at boot, not silently ship a key
+# that's public in this file's git history.
+_INSECURE_DEV_KEY = 'django-insecure-)9u#_m)-fi$l#tzetjy2d971n#q6$$)l$-2*y8h!qaw*l1vn0+'
+SECRET_KEY = (
+    env.str('DJANGO_SECRET_KEY', default=_INSECURE_DEV_KEY) if DEBUG
+    else env.str('DJANGO_SECRET_KEY')
 )
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
-
-ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h]
+# Same reasoning as SECRET_KEY above: with DEBUG=False an empty ALLOWED_HOSTS
+# doesn't just 400 every request, it also silently empties
+# CSRF_TRUSTED_ORIGINS below — so require it rather than defaulting to [].
+ALLOWED_HOSTS = (
+    env.list('DJANGO_ALLOWED_HOSTS', default=[]) if DEBUG
+    else env.list('DJANGO_ALLOWED_HOSTS')
+)
 
 # Prod goes through Cloudflare Tunnel -> dokku nginx (terminates TLS) -> gunicorn
 # over plain HTTP. Without this Django considers every request insecure
@@ -48,9 +65,32 @@ ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(','
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 CSRF_TRUSTED_ORIGINS = [f'https://{h}' for h in ALLOWED_HOSTS]
 
+if not DEBUG:
+    # Cookies only ever travel over the Cloudflare Tunnel's HTTPS front door.
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    # Deliberately NOT SECURE_SSL_REDIRECT: dokku nginx already terminates
+    # TLS and redirects http->https in front of gunicorn (see the
+    # SECURE_PROXY_SSL_HEADER comment above) — enabling Django's own redirect
+    # on top would risk a loop, since request.is_secure() here reflects the
+    # trusted proxy header, not the actual connection to this process.
+    # `manage.py check --deploy`'s W008 for this is expected and silenced
+    # below, not an oversight.
+    SILENCED_SYSTEM_CHECKS = ['security.W008']
+
+# A legitimate request body (a move-log POST) is a couple KB; this caps
+# parsing cost for an oversized payload well before gameplay/schemas.py even
+# sees it (see FinishRequest/ShuffleRequest.moves, which have no max_length
+# of their own).
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1_000_000
+
 # Pexels API key for the game's background photos (docs/superpowers/specs/... background).
 # Empty string = background disabled, client gets {"url": null} and keeps the default color.
-PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY', '')
+PEXELS_API_KEY = env.str('PEXELS_API_KEY', default='')
 
 
 # Application definition
@@ -106,11 +146,14 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
-    'default': dj_database_url.config(
-        default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
-        conn_max_age=600,
-    )
+    'default': env.db_url('DATABASE_URL', default=f'sqlite:///{BASE_DIR / "db.sqlite3"}'),
 }
+# django-environ's db_url() only promotes conn_max_age when it's a query
+# parameter INSIDE the URL (?conn_max_age=600) — there's no kwarg for it like
+# the old dj_database_url.config(conn_max_age=...) had. Set it explicitly so
+# connection reuse doesn't silently vanish the day DATABASE_URL is set
+# without that query string.
+DATABASES['default']['CONN_MAX_AGE'] = 600
 
 
 # Password validation

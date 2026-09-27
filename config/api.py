@@ -38,7 +38,15 @@ class CsrfOnly(APIKeyCookie):
         return True
 
 
-api = NinjaAPI(auth=CsrfOnly())
+# CsrfOnly authenticates everyone (see its docstring), so without this the
+# interactive docs (/api/docs) and raw schema (/api/openapi.json) would be
+# public in production too — both need disabling independently (NinjaAPI
+# treats them as separate URLs). Both stay available in dev.
+api = NinjaAPI(
+    auth=CsrfOnly(),
+    docs_url='/docs' if settings.DEBUG else None,
+    openapi_url='/openapi.json' if settings.DEBUG else None,
+)
 api.add_router('/game', gameplay_router)
 
 
@@ -47,8 +55,10 @@ def get_build_version():
     unique per deploy (WhiteNoise/Django regenerates it whenever the content
     of even one static file changes), so it's a cheap indicator of "the client
     is holding a stale version". Empty string in local dev if collectstatic
-    hasn't run yet."""
-    return staticfiles_storage.manifest_hash
+    hasn't run yet, or under a non-manifest storage backend (config/tests.py:
+    SmokeTests swaps STORAGES to plain StaticFilesStorage, which has no
+    manifest_hash attribute at all)."""
+    return getattr(staticfiles_storage, 'manifest_hash', '')
 
 
 def _fetch_pool():

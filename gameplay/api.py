@@ -13,7 +13,6 @@ import random
 import uuid
 from datetime import timedelta
 
-from django.core.cache import cache
 from django.db import IntegrityError
 from django.db.models import F
 from django.utils import timezone
@@ -26,6 +25,7 @@ from .daily import HINT_PENALTY_MS, UNDO_PENALTY_MS, daily_challenge, nickname_f
 from .generator import DIFFICULTIES, generate_for_difficulty, reshuffle_layout
 from .layouts import get_layout
 from .models import GameSession
+from .ratelimit import rate_limited
 from .schemas import (
     AllStats,
     BumpRequest,
@@ -52,7 +52,6 @@ DAILY_LEADERBOARD_SIZE = 20
 router = Router(by_alias=True)
 
 SESSION_TTL = timedelta(hours=2)
-RATE_LIMIT_WINDOW_SECONDS = 300
 RATE_LIMIT_MAX_STARTS = 30
 RATE_LIMIT_MAX_FINISHES = 60
 RATE_LIMIT_MAX_IMPORTS = 10
@@ -66,33 +65,8 @@ RATE_LIMIT_MAX_PROFILE_UPDATES = 10
 _DISPLAY_NAME_MAX_LENGTH = 24
 
 
-def _client_ip(request):
-    """The client's real IP: production goes through Cloudflare Tunnel (see
-    CLAUDE.md), so REMOTE_ADDR is the proxy's own address, the same for every
-    player. CF-Connecting-IP is the header Cloudflare itself sets with the
-    real client IP; locally (without Cloudflare) it's absent, so falling back
-    to REMOTE_ADDR remains correct for the dev server.
-    """
-    return request.META.get('HTTP_CF_CONNECTING_IP') or request.META.get('REMOTE_ADDR', 'unknown')
-
-
-# Note: without a dedicated CACHES backend (config/settings.py), Django uses
-# LocMemCache — a per-process counter, so the effective limit is
-# ≈ RATE_LIMIT_MAX_STARTS × the number of gunicorn workers, not an exact
-# global limit. Acceptable at this project's scale; if an exact limit is ever
-# needed, a shared cache backend (Redis/Memcached) is required.
-def _rate_limited(request, action, limit):
-    """A simple fixed-window per-IP rate quota via Django cache."""
-    key = f'gameplay:ratelimit:{action}:{_client_ip(request)}'
-    count = cache.get(key, 0)
-    if count >= limit:
-        return True
-    cache.set(key, count + 1, RATE_LIMIT_WINDOW_SECONDS)
-    return False
-
-
 def _enforce_rate_limit(request, action, limit):
-    if _rate_limited(request, action, limit):
+    if rate_limited(request, action, limit):
         raise HttpError(429, _('too many requests, slow down'))
 
 

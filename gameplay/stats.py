@@ -4,6 +4,8 @@ the same porting pattern already used for board.py/generator.py. The server
 is the sole source of truth for applyWin/applyLoss: the client no longer
 computes these changes itself, it only displays what the server returned.
 """
+from django.db import transaction
+
 from .schemas import AllStats, LevelStats
 
 LEVELS = ('easy', 'normal', 'hard')
@@ -89,9 +91,26 @@ def update_level_stats(profile, level, mutator) -> AllStats:
     the read/mutate/save sequence shared by every gameplay/api.py endpoint
     that touches lifetime stats (start/bump/finish). `mutator` is one of the
     LevelStats -> LevelStats transformers above (bump_counter partial,
-    apply_win, apply_loss, ...)."""
-    all_stats = AllStats.model_validate(profile.stats)
-    setattr(all_stats, level, mutator(getattr(all_stats, level)))
-    profile.stats = all_stats.model_dump(by_alias=True)
-    profile.save(update_fields=['stats', 'updated_at'])
+    apply_win, apply_loss, ...).
+
+    Locks the row for the duration of the read-modify-write:
+    Profile.stats is a JSONField, so without this two concurrent calls (two
+    tabs, or a hint and a pair landing in the same tick) each read the same
+    starting blob and the second save silently clobbers the first's
+    increment — the same failure mode GameSession.hints/undos avoids next
+    door via an F() expression (gameplay/api.py: bump_stat). select_for_update
+    re-fetches under the lock rather than trusting the possibly-stale
+    `profile` the caller passed in; the fresh blob is copied back onto that
+    instance so callers holding onto it still see up-to-date values.
+    select_for_update() is a no-op on SQLite (the local/test default), so
+    this is real protection only under Postgres in production — harmless
+    either way."""
+    with transaction.atomic():
+        locked = type(profile).objects.select_for_update().get(pk=profile.pk)
+        all_stats = AllStats.model_validate(locked.stats)
+        setattr(all_stats, level, mutator(getattr(all_stats, level)))
+        locked.stats = all_stats.model_dump(by_alias=True)
+        locked.save(update_fields=['stats', 'updated_at'])
+    profile.stats = locked.stats
+    profile.updated_at = locked.updated_at
     return all_stats
