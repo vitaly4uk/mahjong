@@ -54,6 +54,8 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   (renders the game's HTML page) stay outside ninja, since neither is an API).
 - Django project: `config/` (settings/urls/api/wsgi), `manage.py` at the root.
 - Production server: `gunicorn` (`config.wsgi:application`).
+- **Cache**: `django-redis`, active only when `REDIS_URL` is set (see
+  Configuration via env below); otherwise Django's default `LocMemCache`.
 - Game frontend: **Phaser 3.90** vanilla JS ES modules. Phaser is a local file
   `static/vendor/phaser.min.js`. **JS build**: `templates/game.html` always
   loads a **single** `static/game/bundle.js` (no `{% if debug %}` branching),
@@ -465,6 +467,19 @@ missing, rather than silently falling back to something insecure.
   `dj_database_url.config(conn_max_age=...)`), so it would otherwise
   silently be lost the day someone sets `DATABASE_URL` without that query
   string.
+- `REDIS_URL` — optionally points `CACHES['default']` at a shared Redis
+  (`django-redis`, not Django's built-in redis backend — the built-in one
+  raises on every op during an outage; `django-redis`'s
+  `IGNORE_EXCEPTIONS` degrades to a cache miss instead, so rate limits fail
+  open rather than 500ing). Unset ⇒ Django's default `LocMemCache`, a
+  per-process cache — under gunicorn with multiple workers this means
+  `gameplay/ratelimit.py`'s per-IP quotas are effectively
+  `quota × worker count`, and `config/api.py`'s Pexels pool is fetched once
+  per worker. Point it at a database index dedicated to this app (not
+  shared with another service) — `gameplay/tests.py`'s `setUp` calls
+  `cache.clear()` (FLUSHDB) freely, since everything in this cache is
+  derived/ephemeral (rate-limit windows, the Pexels pool). CI never sets
+  `REDIS_URL`, so `manage.py test` there always runs on LocMem.
 
 When not `DEBUG`, `config/settings.py` also turns on `SESSION_COOKIE_SECURE`/
 `CSRF_COOKIE_SECURE`/`SECURE_CONTENT_TYPE_NOSNIFF`/HSTS — but deliberately
