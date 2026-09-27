@@ -30,6 +30,7 @@ from .layouts import (
 )
 from .middleware import NEW_PROFILE_RATE_LIMIT, PLAYER_COOKIE_NAME
 from .models import GameSession, Profile
+from .ratelimit import IpRateThrottle
 from .schemas import AllStats, LevelStats
 from .stats import apply_loss, apply_win, merge_imported
 
@@ -1546,6 +1547,45 @@ class DailyTournamentTests(TestCase):
         body = self.client.get('/api/game/daily').json()
         self.assertEqual(body['your_status'], 'new')
         self.assertIsNone(body['your_rank'])
+
+
+@override_settings(
+    CACHES={
+        'default': {
+            # A closed loopback port — refused instantly, no server needed,
+            # no network access, so this is fast and deterministic in CI too.
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': 'redis://127.0.0.1:6399/0',
+            'OPTIONS': {
+                'IGNORE_EXCEPTIONS': True,
+                'SOCKET_CONNECT_TIMEOUT': 1,
+                'SOCKET_TIMEOUT': 1,
+            },
+        },
+    },
+)
+class RedisFailOpenTests(TestCase):
+    """Guards the config/settings.py choice (IGNORE_EXCEPTIONS + django-redis
+    over Django's built-in redis backend), not django-redis's own code: with
+    the cache backend unreachable, rate limiting must fail open — a cache
+    miss, not a 500 — rather than propagating redis.exceptions.RedisError.
+    Must not call cache.clear() (that's a real op against this same
+    unreachable backend, and there's nothing in it to reset anyway)."""
+
+    def test_throttle_allows_request_when_cache_unreachable(self):
+        throttle = IpRateThrottle('redis_fail_open_test', num_requests=1)
+        request = type('_Req', (), {'META': {'HTTP_CF_CONNECTING_IP': '203.0.113.99'}})()
+        # Called repeatedly, well past num_requests=1 — a raising backend
+        # would surface on the first call already, but this also confirms
+        # nothing here quietly starts throttling once a fallback engages.
+        for _ in range(3):
+            self.assertTrue(throttle.allow_request(request))
+
+    def test_throttled_endpoint_still_responds_when_cache_unreachable(self):
+        response = self.client.post(
+            '/api/game/start', data={'level': 'easy'}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
 
 
 class PurgeSessionsTests(TestCase):

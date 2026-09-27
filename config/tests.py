@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import requests
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.test import TestCase, override_settings
 
 from .api import PEXELS_POOL_CACHE_KEY
@@ -63,6 +63,16 @@ class SmokeTests(TestCase):
     """The one place that ever renders '/' — a broken template or a stale
     {% static %} reference otherwise ships to production undetected (no
     other test in the project touches home_view/get_build_version)."""
+
+    def test_suite_runs_on_locmem_cache(self):
+        # Regression guard: CI (and any local run without REDIS_URL) must
+        # exercise the LocMemCache path settings.py falls back to, not a
+        # real Redis — the many `cache.clear()` calls across the test suite
+        # (gameplay/tests.py) would otherwise FLUSHDB whatever REDIS_URL
+        # points at. See CLAUDE.md ("Configuration via env" / REDIS_URL).
+        self.assertEqual(
+            type(caches['default']).__module__, 'django.core.cache.backends.locmem',
+        )
 
     @override_settings(STORAGES=_SMOKE_TEST_STORAGES)
     def test_homepage_renders_and_injects_build_version(self):

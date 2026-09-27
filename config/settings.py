@@ -161,6 +161,55 @@ DATABASES = {
 DATABASES['default']['CONN_MAX_AGE'] = 600
 
 
+# Cache
+# Optional — unset REDIS_URL keeps Django's default LocMemCache, a
+# per-process cache. That's fine for a single worker, but under gunicorn with
+# WEB_CONCURRENCY > 1 it means gameplay/ratelimit.py's per-IP quotas are
+# effectively quota × worker count (each worker counts independently), and
+# config/api.py's Pexels photo pool is fetched once per worker instead of
+# once per TTL. Setting REDIS_URL makes both exact across the whole cluster.
+REDIS_URL = env.str('REDIS_URL', default='')
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            # django-redis, not Django's built-in
+            # django.core.cache.backends.redis.RedisCache: the built-in one
+            # raises redis.exceptions.RedisError from every cache op when the
+            # server is unreachable (verified — even a plain socket timeout
+            # still raises), which would 500 every rate-limited endpoint and
+            # /api/background during a Redis blip. IGNORE_EXCEPTIONS below
+            # makes an outage degrade to a cache miss instead — rate limits
+            # fail open, the Pexels pool re-fetches — which is the right
+            # trade for a solitaire game. Not env.cache_url('REDIS_URL'):
+            # that helper's redis:// scheme resolves to this same backend
+            # only if django-redis happens to be installed, and silently to
+            # the raising built-in one otherwise (environ/compat.py:
+            # choose_rediscache_driver) — removing the dependency would
+            # quietly swap in the backend that 500s and feed it OPTIONS keys
+            # it doesn't understand, so the backend is named explicitly here.
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            # Namespaces this app on a Redis instance that may be shared with
+            # other home-LAN services; which logical database is selected by
+            # the path in REDIS_URL (e.g. .../1) — see CLAUDE.md.
+            'KEY_PREFIX': 'mahjong',
+            'OPTIONS': {
+                'IGNORE_EXCEPTIONS': True,
+                # IGNORE_EXCEPTIONS bounds the *outcome* of an outage, not
+                # the *wait* — against a host that drops packets instead of
+                # refusing the connection, an unbounded connect would hang a
+                # gunicorn worker. 1s is already generous for a LAN hop.
+                'SOCKET_CONNECT_TIMEOUT': 1,
+                'SOCKET_TIMEOUT': 1,
+            },
+        },
+    }
+    # Without this, IGNORE_EXCEPTIONS silently swallows every failure — an
+    # outage would look like "quotas mysteriously stopped applying" with
+    # nothing in the log.
+    DJANGO_REDIS_LOG_IGNORED_EXCEPTIONS = True
+
+
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
