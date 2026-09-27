@@ -56,12 +56,17 @@ ALLOWED_HOSTS = (
     else env.list('DJANGO_ALLOWED_HOSTS')
 )
 
-# Prod goes through Cloudflare Tunnel -> dokku nginx (terminates TLS) -> gunicorn
-# over plain HTTP. Without this Django considers every request insecure
-# (request.is_secure() == False) and the CSRF Origin-header check (the browser
-# sends "https://...") doesn't match the computed "http://..." scheme -> 403
-# on every POST, regardless of whether the CSRF token itself is correct. dokku
-# nginx always sets X-Forwarded-Proto, so it's safe to trust it.
+# Prod goes browser -> Cloudflare edge (TLS terminates HERE, not any closer
+# to the app) -> Cloudflare Tunnel -> dokku nginx -> gunicorn, with the last
+# two hops both plain HTTP. Without this Django considers every request
+# insecure (request.is_secure() == False) and the CSRF Origin-header check
+# (the browser sends "https://...") doesn't match the computed "http://..."
+# scheme -> 403 on every POST, regardless of whether the CSRF token itself is
+# correct. This alone isn't sufficient, though: dokku's nginx must also be
+# told to trust Cloudflare's own X-Forwarded-Proto instead of stamping its
+# own connection scheme onto it (always "http" here) — a per-app dokku nginx
+# setting, not something this file controls. See CLAUDE.md ("CSRF behind a
+# reverse proxy") for the exact command and why this was easy to miss.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 CSRF_TRUSTED_ORIGINS = [f'https://{h}' for h in ALLOWED_HOSTS]
 
