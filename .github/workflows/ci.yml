@@ -81,10 +81,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Pinned (like esbuild/Biome elsewhere): the deploy transport must not
+      # change under us from an upstream release with no commit in this repo.
       - name: Install cloudflared
         run: |
           curl -fsSL -o cloudflared.deb \
-            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+            https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared.deb
 
       - name: Configure SSH over the Cloudflare Tunnel
