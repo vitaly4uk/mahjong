@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  emptyStats, emptyAllStats, winRate, fmtTime, load,
+  emptyStats, emptyOverall, emptyLevels, emptyAllStats, averageScore, fmtTime, load,
   STORAGE_KEY, STORAGE_KEY_V1, LEVELS,
 } from '../static/game/stats.js';
 
@@ -18,10 +18,9 @@ test('emptyStats: zeros and null best time', () => {
   assert.equal(stats.bestStreak, 0);
 });
 
-test('winRate: 0 when no games played, rounds otherwise', () => {
-  assert.equal(winRate(emptyStats()), 0);
-  const stats = { ...emptyStats(), gamesPlayed: 2, gamesWon: 1 };
-  assert.equal(winRate(stats), 50);
+test('averageScore: 0 when nothing scored, rounded mean otherwise', () => {
+  assert.equal(averageScore(emptyOverall()), 0);
+  assert.equal(averageScore({ ...emptyOverall(), gamesScored: 3, totalScore: 1000 }), 333);
 });
 
 test('fmtTime: formats milliseconds as mm:ss', () => {
@@ -41,10 +40,11 @@ function fakeStorage(initial = {}) {
   };
 }
 
-test('emptyAllStats: one empty level per difficulty', () => {
+test('emptyAllStats: one empty level per difficulty plus the overall block', () => {
   const all = emptyAllStats();
-  assert.deepEqual(Object.keys(all).sort(), [...LEVELS].sort());
+  assert.deepEqual(Object.keys(all).sort(), [...LEVELS, 'overall'].sort());
   for (const level of LEVELS) assert.deepEqual(all[level], emptyStats());
+  assert.deepEqual(all.overall, emptyOverall());
 });
 
 test('load: merges partial stored data with defaults, per level', () => {
@@ -60,7 +60,7 @@ test('load: merges partial stored data with defaults, per level', () => {
 });
 
 test('load: returns empty per-level defaults when storage is empty', () => {
-  assert.deepEqual(load(fakeStorage()), emptyAllStats());
+  assert.deepEqual(load(fakeStorage()), emptyLevels());
 });
 
 test('load: migrates v1 (single-level) stats into the hard level, drops v1 key', () => {
@@ -80,5 +80,5 @@ test('load: does not throw when storage throws', () => {
   const badStorage = {
     getItem: () => { throw new Error('nope'); },
   };
-  assert.deepEqual(load(badStorage), emptyAllStats());
+  assert.deepEqual(load(badStorage), emptyLevels());
 });

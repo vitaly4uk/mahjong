@@ -10,7 +10,7 @@
 import {
   fetchDaily, saveProfile, setLanguage,
 } from './sync.js';
-import { winRate, fmtTime, LEVELS } from './stats.js';
+import { averageScore, fmtTime } from './stats.js';
 import { avatarDataUri } from './avatar.js';
 import { setSoundOn } from './audio.js';
 
@@ -39,17 +39,12 @@ const UNDO_LABEL = `↩️ ${gettext('Undo')}`;
 const UNDO_TEMPLATE = gettext('Undo (%(n)s)');
 
 const STATS_ROW_LABELS = {
-  started: `🎲 ${gettext('Games started')}`,
-  played: `📋 ${gettext('Games played')}`,
+  bestScore: `⭐ ${gettext('Best score')}`,
+  averageScore: `📊 ${gettext('Average score')}`,
+  totalScore: `💰 ${gettext('Total points')}`,
   wins: `🏆 ${gettext('Wins')}`,
-  winRate: `📈 ${gettext('Win rate')}`,
   currentStreak: `🔥 ${gettext('Current streak')}`,
   bestStreak: `⭐ ${gettext('Best streak')}`,
-  bestTime: `⏱️ ${gettext('Best time')}`,
-  totalHints: `💡 ${gettext('Total hints')}`,
-  totalUndos: `↩️ ${gettext('Total undos')}`,
-  totalPairs: `🀄 ${gettext('Total pairs removed')}`,
-  totalShuffles: `🔀 ${gettext('Total shuffles')}`,
 };
 
 // Sets up the DOM toolbar/status-bar/modals and wires them to `scene`
@@ -73,11 +68,13 @@ export function createUiDom(scene) {
   const statusText = document.getElementById('status-text');
   const statusDifficulty = document.getElementById('status-difficulty');
   const statusSummary = document.getElementById('status-summary');
+  const statusScore = document.getElementById('status-score');
   const bgCredit = document.getElementById('bg-credit');
 
   const statsModal = document.getElementById('stats-modal');
   const statsTitleEl = document.getElementById('stats-title');
-  const statsLevelsEl = document.getElementById('stats-levels');
+  const statsOverallEl = document.getElementById('stats-overall');
+  const statsScoreEl = document.getElementById('stats-score');
   const newgameModal = document.getElementById('newgame-modal');
   const newgameLevelButtons = [...newgameModal.querySelectorAll('[data-level]')];
   // The modal's own icon spans start empty (templates/game.html) — fill them
@@ -133,16 +130,18 @@ export function createUiDom(scene) {
     btnUndoLabel.textContent = undos > 0
       ? `↩️ ${interpolate(UNDO_TEMPLATE, { n: undos }, true)}`
       : UNDO_LABEL;
+    const score = scene.registry.get('gameScore');
+    statusScore.textContent = score == null ? '' : `⭐ ${score}`;
     // scene.currentLevel isn't assigned until later in create() (after the
     // first 'allStats' registry.set, which this listener already reacts to
     // — attached earlier here than the old canvas code attached it) — guard
     // so an early tick doesn't render the literal string "undefined".
     if (scene.currentLevel) statusDifficulty.textContent = LEVEL_LABELS[scene.currentLevel];
 
-    const stats = scene.currentLevel && scene.registry.get('allStats')?.[scene.currentLevel];
+    const overall = scene.registry.get('allStats')?.overall;
     const elapsed = scene.registry.get('gameElapsedMs') || 0;
-    if (stats) {
-      statusSummary.textContent = `🏆 ${stats.gamesWon}/${stats.gamesPlayed} · 🔥 ${stats.currentStreak} · ⏱️ ${fmtTime(elapsed)}`;
+    if (overall) {
+      statusSummary.textContent = `🏆 ${overall.gamesWon} · 🔥 ${overall.currentStreak} · ⏱️ ${fmtTime(elapsed)}`;
     }
   }
 
@@ -156,35 +155,22 @@ export function createUiDom(scene) {
     profileAvatarEl.src = avatarDataUri(name, 24);
   }
 
-  // The stats-modal HTML (3 levels × 9 rows) — split out from renderStats()
-  // since it's far more expensive to rebuild (innerHTML) and doesn't need to
-  // run on every registry tick, only when allStats changes or the modal opens.
+  // The stats-modal HTML — one points-based block for all difficulties. Split
+  // out from renderStats() so it only rebuilds when allStats changes or the
+  // modal opens, not on every registry tick.
   function renderStatsModal() {
-    const allStats = scene.registry.get('allStats');
-    if (!allStats) return;
-    statsLevelsEl.innerHTML = LEVELS.map((level) => {
-      const s = allStats[level];
-      const current = level === scene.currentLevel ? ' current' : '';
-      const currentTag = current ? ` <span class="current-tag">← ${gettext('current')}</span>` : '';
-      return `
-        <div class="level-block${current}">
-          <h3>${LEVEL_LABELS[level]}${currentTag}</h3>
-          <dl>
-            <dt>${STATS_ROW_LABELS.started}</dt><dd>${s.gamesStarted}</dd>
-            <dt>${STATS_ROW_LABELS.played}</dt><dd>${s.gamesPlayed}</dd>
-            <dt>${STATS_ROW_LABELS.wins}</dt><dd>${s.gamesWon}</dd>
-            <dt>${STATS_ROW_LABELS.winRate}</dt><dd>${winRate(s)}%</dd>
-            <dt>${STATS_ROW_LABELS.currentStreak}</dt><dd>${s.currentStreak}</dd>
-            <dt>${STATS_ROW_LABELS.bestStreak}</dt><dd>${s.bestStreak}</dd>
-            <dt>${STATS_ROW_LABELS.bestTime}</dt><dd>${s.bestTimeMs == null ? '—' : fmtTime(s.bestTimeMs)}</dd>
-            <dt>${STATS_ROW_LABELS.totalHints}</dt><dd>${s.hintsTotal}</dd>
-            <dt>${STATS_ROW_LABELS.totalUndos}</dt><dd>${s.undosTotal}</dd>
-            <dt>${STATS_ROW_LABELS.totalPairs}</dt><dd>${s.pairsTotal}</dd>
-            <dt>${STATS_ROW_LABELS.totalShuffles}</dt><dd>${s.shufflesTotal}</dd>
-          </dl>
-        </div>
-      `;
-    }).join('');
+    const overall = scene.registry.get('allStats')?.overall;
+    if (!overall) return;
+    statsOverallEl.innerHTML = `
+      <dl>
+        <dt>${STATS_ROW_LABELS.bestScore}</dt><dd>${overall.bestScore}</dd>
+        <dt>${STATS_ROW_LABELS.averageScore}</dt><dd>${averageScore(overall)}</dd>
+        <dt>${STATS_ROW_LABELS.totalScore}</dt><dd>${overall.totalScore}</dd>
+        <dt>${STATS_ROW_LABELS.wins}</dt><dd>${overall.gamesWon}</dd>
+        <dt>${STATS_ROW_LABELS.currentStreak}</dt><dd>${overall.currentStreak}</dd>
+        <dt>${STATS_ROW_LABELS.bestStreak}</dt><dd>${overall.bestStreak}</dd>
+      </dl>
+    `;
   }
 
   // Fills the daily-tournament modal: today's board/level, the caller's own
@@ -277,6 +263,33 @@ export function createUiDom(scene) {
     }
   }
 
+  // The end-of-game score block (result modal only): the server's total and
+  // its parts. Zero-valued bonus/penalty lines are skipped, so a loss (no
+  // bonuses) and a game without hints/undos stay compact. Labels are gettext
+  // strings and the numbers are ints, so innerHTML is safe here.
+  function renderScoreBlock(modal) {
+    const b = modal?.type === 'result' && !modal.error ? modal.breakdown : null;
+    statsScoreEl.classList.toggle('hidden', !b);
+    if (!b) return;
+    const pairs = b.pairPoints.reduce((sum, p) => sum + p, 0);
+    const signed = (n) => (n > 0 ? `+${n}` : String(n));
+    const rows = [
+      [gettext('Pairs'), pairs],
+      ...[
+        [gettext('Hint penalty'), -b.hintPenalty],
+        [gettext('Undo penalty'), -b.undoPenalty],
+        [gettext('Shuffle penalty'), -b.shufflePenalty],
+        [gettext('No-help bonus'), b.noHelpBonus],
+        [gettext('Time bonus'), b.timeBonus],
+      ].filter(([, value]) => value !== 0),
+    ];
+    statsScoreEl.innerHTML = `
+      <div class="mb-1 text-center text-[13px] uppercase tracking-[.04em] text-muted">${gettext('Final score')}</div>
+      <div class="score-total">⭐ ${modal.score}</div>
+      <dl>${rows.map(([label, value]) => `<dt>${label}</dt><dd>${signed(value)}</dd>`).join('')}</dl>
+    `;
+  }
+
   // modal.type -> its overlay element — the single map the Escape/Tab/focus
   // handling below and the .open toggling here both read, so they can never
   // disagree about which overlay is "the open one" ('stats' and 'result'
@@ -345,11 +358,11 @@ export function createUiDom(scene) {
         }
       }
       statsTitleEl.textContent = title;
-      // Not just relying on the changedata-allStats listener: currentLevel
-      // (which controls the "current" highlight) can change without a fresh
-      // allStats push, so refresh the content on every open too.
+      // Refresh on every open too, not just via the changedata-allStats
+      // listener.
       renderStatsModal();
     }
+    renderScoreBlock(modal);
     if (modal?.type === 'newgame') {
       for (const btn of newgameLevelButtons) {
         btn.classList.toggle('selected', btn.dataset.level === scene.currentLevel);

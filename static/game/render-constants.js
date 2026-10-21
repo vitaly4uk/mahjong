@@ -101,3 +101,10 @@ export const DEAL_LAYER_STAGGER = 240; // delay between the start of each layer 
 export const DEAL_TILE_STAGGER = 7; // extra delay between tiles of the same layer
 export const DEAL_START_SCALE = 0.5; // starting scale (grows to 1 on landing)
 export const DEAL_OFFSCREEN_PAD = 140; // how far past the screen edge the start point is (base, ×dpr)
+
+// --- Score popup ("+N" / "Chain xK") at a removed pair ---
+export const SCORE_POPUP_RISE = 40; // how far the label floats up (base, ×dpr)
+export const SCORE_POPUP_MS = 900; // rise + fade duration
+export const SCORE_POPUP_STATIC_MS = 700; // how long the label stays under reduced motion
+export const SCORE_POPUP_COLOR = '#ffd54a';
+export const SCORE_POPUP_FONT = 26; // "+N" font size (base, ×dpr); the chain line is 0.6x

@@ -1,7 +1,7 @@
 // Game stats: a pure module, no Phaser/DOM.
 // Lifetime numbers live on the server (gameplay/models.py: Profile.stats) —
-// this module only keeps presentation helpers (winRate/fmtTime), an empty
-// shape (emptyStats/emptyAllStats, a placeholder before the first network
+// this module only keeps presentation helper (fmtTime), an empty
+// shape (emptyStats/emptyOverall/emptyAllStats, a placeholder before the first network
 // request) and load() — now used ONLY as a one-time "legacy blob reader" for
 // transferring the old localStorage data to the server (main.js: create()).
 // applyWin/applyLoss/save() were removed — the win/loss counting logic lives
@@ -29,13 +29,33 @@ export function emptyStats() {
   };
 }
 
-export function emptyAllStats() {
+// The points-based block the stats modal shows (gameplay/schemas.py:
+// OverallStats) — one for all difficulties; the per-level blocks next to it
+// are still stored server-side but no longer displayed.
+export function emptyOverall() {
+  return {
+    gamesScored: 0,
+    totalScore: 0,
+    bestScore: 0,
+    gamesWon: 0,
+    currentStreak: 0,
+    bestStreak: 0,
+  };
+}
+
+// Just the per-difficulty blocks — the shape of the legacy localStorage blob
+// (and of what load() returns for the one-time server import).
+export function emptyLevels() {
   return Object.fromEntries(LEVELS.map((level) => [level, emptyStats()]));
 }
 
-export function winRate(stats) {
-  if (stats.gamesPlayed === 0) return 0;
-  return Math.round((stats.gamesWon / stats.gamesPlayed) * 100);
+export function emptyAllStats() {
+  return { ...emptyLevels(), overall: emptyOverall() };
+}
+
+export function averageScore(overall) {
+  if (overall.gamesScored === 0) return 0;
+  return Math.round(overall.totalScore / overall.gamesScored);
 }
 
 export function fmtTime(ms) {
@@ -50,13 +70,14 @@ export function fmtTime(ms) {
 // private mode/a disabled store doesn't break the game (everything is in
 // try/catch).
 //
-// Returns { easy, normal, hard }, each level a full emptyStats() structure.
+// Returns { easy, normal, hard }, each level a full emptyStats() structure
+// (no `overall` — the legacy blob predates points; the server seeds it).
 // Migration: if the v2 key is absent but the old mahjong.stats.v1 (a single
 // stats blob, no levels) exists — the old numbers become the hard level's
 // stats wholesale, easy/normal stay empty; the result is immediately saved
 // as v2, and the v1 key is removed.
 export function load(storage = globalThis.localStorage) {
-  const defaults = emptyAllStats();
+  const defaults = emptyLevels();
   try {
     const raw = storage?.getItem(STORAGE_KEY);
     if (raw) {

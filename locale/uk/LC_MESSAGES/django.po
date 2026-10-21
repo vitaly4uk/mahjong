@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: mahjong\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-15 12:12+0000\n"
+"POT-Creation-Date: 2026-10-21 07:17+0000\n"
 "PO-Revision-Date: 2026-07-26 08:34+0000\n"
 "Last-Translator: \n"
 "Language-Team: Ukrainian\n"
@@ -15,92 +15,92 @@ msgstr ""
 "100 > 14) ? 1 : n % 1 == 0 && (n % 10 ==0 || (n % 10 >=5 && n % 10 <=9) || "
 "(n % 100 >=11 && n % 100 <=14 )) ? 2: 3);\n"
 
-#: config/settings.py:142
+#: config/settings.py:239
 msgid "Ukrainian"
 msgstr "Українська"
 
-#: config/settings.py:143
+#: config/settings.py:240
 msgid "English"
 msgstr "Англійська"
 
-#: gameplay/api.py:96
-msgid "too many requests, slow down"
-msgstr "забагато запитів, зачекайте"
-
-#: gameplay/api.py:131
+#: gameplay/api.py:127
 msgid "unknown level"
 msgstr "невідома складність"
 
-#: gameplay/api.py:134
+#: gameplay/api.py:130
 msgid "unknown board"
 msgstr "невідома розкладка"
 
-#: gameplay/api.py:302 gameplay/api.py:371 gameplay/api.py:420
+#: gameplay/api.py:296 gameplay/api.py:364 gameplay/api.py:411
 msgid "unknown session"
 msgstr "невідома сесія"
 
-#: gameplay/api.py:304 gameplay/api.py:373 gameplay/api.py:423
-#: gameplay/api.py:474
+#: gameplay/api.py:298 gameplay/api.py:366 gameplay/api.py:414
+#: gameplay/api.py:473
 msgid "session already claimed"
 msgstr "сесія вже закрита"
 
-#: gameplay/api.py:375 gameplay/api.py:428
+#: gameplay/api.py:368 gameplay/api.py:419
 msgid "session expired"
 msgstr "сесія протермінована"
 
-#: gameplay/api.py:390 gameplay/api.py:435
+#: gameplay/api.py:383 gameplay/api.py:426
 msgid "illegal move"
 msgstr "недозволений хід"
 
-#: gameplay/api.py:392 gameplay/api.py:440
+#: gameplay/api.py:385 gameplay/api.py:431
 msgid "board is not deadlocked"
 msgstr "у полі ще є доступні ходи"
 
-#: gameplay/api.py:431
+#: gameplay/api.py:422
 msgid "unknown outcome"
 msgstr "невідомий результат"
 
-#: gameplay/api.py:438
+#: gameplay/api.py:429
 msgid "board not fully cleared"
 msgstr "поле не повністю очищене"
 
-#: gameplay/api.py:472
+#: gameplay/api.py:471
 msgid "daily tournament already won today"
 msgstr "турнір дня вже виграно сьогодні"
 
-#: gameplay/api.py:529
+#: gameplay/api.py:528
 msgid "already imported"
 msgstr "вже перенесено"
 
-#: gameplay/layouts.py:43
+#: gameplay/layouts.py:54
 msgid "Turtle"
 msgstr "Черепаха"
 
-#: gameplay/layouts.py:44
+#: gameplay/layouts.py:55
 msgid "Dragon"
 msgstr "Дракон"
 
-#: gameplay/layouts.py:45
+#: gameplay/layouts.py:56
 msgid "Cat"
 msgstr "Кіт"
 
-#: gameplay/layouts.py:46
+#: gameplay/layouts.py:57
 msgid "Spider"
 msgstr "Павук"
 
-#: gameplay/layouts.py:47
+#: gameplay/layouts.py:58
 msgid "Crab"
 msgstr "Краб"
+
+#: gameplay/middleware.py:65
+msgid "too many requests, slow down"
+msgstr "забагато запитів, зачекайте"
 
 #: templates/game.html:16
 msgid "Mahjong"
 msgstr "Маджонг"
 
-#: templates/game.html:20 templates/game.html:40 templates/game.html:65
+#: templates/game.html:20 templates/game.html:42 templates/game.html:69
 msgid "New game"
 msgstr "Нова гра"
 
-#: templates/game.html:23 templates/game.html:62
+#: templates/game.html:23 templates/game.html:65
 msgid "Statistics"
 msgstr "Статистика"
 
@@ -108,87 +108,91 @@ msgstr "Статистика"
 msgid "Daily"
 msgstr "Турнір"
 
-#: templates/game.html:41
+#: templates/game.html:35
+msgid "Score"
+msgstr "Рахунок"
+
+#: templates/game.html:43
 msgid "Layout"
 msgstr "Розкладка"
 
-#: templates/game.html:46
+#: templates/game.html:48
 msgid "Random"
 msgstr "Випадкова"
 
-#: templates/game.html:48
+#: templates/game.html:50
 msgid "Difficulty"
 msgstr "Складність"
 
-#: templates/game.html:50
+#: templates/game.html:53
 msgid "Easy"
 msgstr "Легко"
 
-#: templates/game.html:51
+#: templates/game.html:54
 msgid "Normal"
 msgstr "Нормально"
 
-#: templates/game.html:52
+#: templates/game.html:55
 msgid "Hard"
 msgstr "Складно"
 
-#: templates/game.html:55
+#: templates/game.html:58
 msgid "Start"
 msgstr "Почати"
 
-#: templates/game.html:56 templates/game.html:66 templates/game.html:87
-#: templates/game.html:113
+#: templates/game.html:59 templates/game.html:70 templates/game.html:91
+#: templates/game.html:117
 msgid "Close"
 msgstr "Закрити"
 
-#: templates/game.html:72
+#: templates/game.html:76
 msgid "No moves left"
 msgstr "Немає ходів"
 
-#: templates/game.html:74
+#: templates/game.html:78
 msgid "Shuffle"
 msgstr "Перемішати"
 
-#: templates/game.html:75
+#: templates/game.html:79
 msgid "Replay"
 msgstr "Переграти"
 
-#: templates/game.html:76
+#: templates/game.html:80
 msgid "Give up"
 msgstr "Здатися"
 
-#: templates/game.html:82
+#: templates/game.html:86
 msgid "Daily Tournament"
 msgstr "Турнір дня"
 
-#: templates/game.html:93
+#: templates/game.html:97
 msgid "Player"
 msgstr "Гравець"
 
-#: templates/game.html:97
+#: templates/game.html:101
 msgid "Name"
 msgstr "Ім'я"
 
-#: templates/game.html:98
+#: templates/game.html:102
 msgid "Leave empty for an auto-generated name"
 msgstr "Залиште порожнім для автогенерованого імені"
 
-#: templates/game.html:101
+#: templates/game.html:105
 msgid "Sound"
 msgstr "Звук"
 
-#: templates/game.html:103
+#: templates/game.html:107
 msgid "On"
 msgstr "Увімк."
 
-#: templates/game.html:104
+#: templates/game.html:108
 msgid "Off"
 msgstr "Вимк."
 
-#: templates/game.html:106
+#: templates/game.html:110
 msgid "Language"
 msgstr "Мова"
 
-#: templates/game.html:112
+#: templates/game.html:116
 msgid "Save"
 msgstr "Зберегти"

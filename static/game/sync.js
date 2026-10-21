@@ -53,6 +53,9 @@ export async function finishGame(token, moves, outcome) {
     stats: data.stats ?? null,
     // Only set for a won daily-tournament session (gameplay/api.py: finish_game).
     dailyRank: data.daily_rank ?? null,
+    // Server-authoritative score and its parts (gameplay/scoring.py).
+    score: data.score ?? null,
+    scoreBreakdown: data.score_breakdown ?? null,
   };
 }
 

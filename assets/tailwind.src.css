@@ -16,7 +16,7 @@
 @import "tailwindcss";
 
 /* Where Tailwind scans for class names — the DOM lives in templates/*.html,
-   but a few classes (`.open`, `.you`, `.empty`, `.current-tag`, ...) are only
+   but a few classes (`.open`, `.you`, `.empty`, ...) are only
    ever written from JS via classList/innerHTML, so the JS source needs
    scanning too. */
 @source "../templates/**/*.html";
@@ -158,40 +158,33 @@
     height: 100%;
   }
 
-  /* stats-modal's per-difficulty breakdown — built by
-     main.js: renderStatsModal() via innerHTML; class names below are
-     literal strings in that template, so no @source scanning of the JS is
-     needed for THESE (hand-named selectors, not Tailwind utilities). */
-  .level-block {
-    margin-bottom: 22px;
-  }
-  .level-block h3 {
-    margin: 0 0 10px;
-    font-size: 15px;
-    color: var(--color-info);
-  }
-  .level-block.current h3 {
-    color: #fff;
-  }
-  .current-tag {
-    margin-left: 4px;
-    font-size: 12px;
-    color: var(--color-muted);
-  }
-  #stats-levels dl {
+  /* stats-modal's points block — built by ui-dom.js: renderStatsModal()
+     via innerHTML; the elements below are hand-named selectors, not Tailwind
+     utilities, so no @source scanning of the JS is needed for them. */
+  #stats-modal dl {
     display: grid;
     grid-template-columns: auto auto;
     gap: 9px 20px;
     margin: 0 0 12px;
     font-size: 14px;
   }
-  #stats-levels dt {
+  #stats-modal dt {
     color: var(--color-muted);
   }
-  #stats-levels dd {
+  #stats-modal dd {
     margin: 0;
     text-align: right;
     font-weight: 600;
+  }
+
+  #stats-score {
+    margin-bottom: 22px;
+  }
+  #stats-score .score-total {
+    margin-bottom: 10px;
+    text-align: center;
+    font-size: 28px;
+    font-weight: 700;
   }
 
   /* daily-modal's leaderboard — built by main.js: renderDailyModal(). */
