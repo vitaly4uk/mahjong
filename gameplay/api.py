@@ -47,6 +47,7 @@ from .schemas import (
 )
 from .scoring import compute_score
 from .stats import (
+    apply_best_score,
     apply_loss,
     apply_score,
     apply_win,
@@ -107,7 +108,9 @@ def _session_profile(request, session):
     return request.profile
 
 
-def _lifetime_stats_after(profile, session, mutator, overall_mutator=None):
+def _lifetime_stats_after(
+    profile, session, mutator, overall_mutator=None, best_scores_mutator=None,
+):
     """Applies `mutator` to profile.stats[session.level] and persists it —
     except for a daily-tournament session, whose progress (hints/undos/
     shuffles/wins/losses) never touches lifetime per-difficulty stats. Those
@@ -118,7 +121,9 @@ def _lifetime_stats_after(profile, session, mutator, overall_mutator=None):
     unmodified for a daily session."""
     if session.daily_date is not None:
         return AllStats.model_validate(profile.stats)
-    return update_level_stats(profile, session.level, mutator, overall_mutator)
+    return update_level_stats(
+        profile, session.level, mutator, overall_mutator, best_scores_mutator,
+    )
 
 
 @router.post('/start', response=StartResponse, throttle=_start_throttle)
@@ -134,7 +139,8 @@ def start_game(request, payload: StartRequest):
     layout = [{'x': x, 'y': y, 'z': z, 'kind': kind} for x, y, z, kind in tiles]
 
     session = GameSession.objects.create(
-        level=payload.level, layout=layout, seed=seed, user=request.profile.user,
+        level=payload.level, board=payload.board, layout=layout, seed=seed,
+        user=request.profile.user,
     )
 
     all_stats = update_level_stats(
@@ -265,7 +271,8 @@ def start_daily(request):
     tiles = generate_for_difficulty(level, board, seed=seed)
     layout = [{'x': x, 'y': y, 'z': z, 'kind': kind} for x, y, z, kind in tiles]
     session = GameSession.objects.create(
-        level=level, layout=layout, seed=seed, user=request.profile.user, daily_date=today,
+        level=level, board=board_slug, layout=layout, seed=seed,
+        user=request.profile.user, daily_date=today,
     )
 
     return {
@@ -481,6 +488,7 @@ def finish_game(request, payload: FinishRequest):
     all_stats = _lifetime_stats_after(
         profile, session, mutator,
         lambda o: apply_score(o, score.total, payload.outcome == 'win'),
+        lambda b: apply_best_score(b, session.board, session.level, score.total),
     )
 
     daily_rank = None

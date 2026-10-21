@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  emptyStats, emptyOverall, emptyLevels, emptyAllStats, averageScore, bestTime, fmtTime, load,
+  emptyStats, emptyOverall, emptyLevels, emptyAllStats, bestScoreFor, averageScore, bestTime, fmtTime, load,
   STORAGE_KEY, STORAGE_KEY_V1, LEVELS,
 } from '../static/game/stats.js';
 
@@ -90,4 +90,13 @@ test('load: does not throw when storage throws', () => {
     getItem: () => { throw new Error('nope'); },
   };
   assert.deepEqual(load(badStorage), emptyLevels());
+});
+
+test('bestScoreFor: null for no stats, unknown board or level; the record otherwise', () => {
+  const all = { ...emptyAllStats(), bestScores: { dragon: { normal: 1840 } } };
+  assert.equal(bestScoreFor(undefined, 'dragon', 'normal'), null);
+  assert.equal(bestScoreFor(emptyAllStats(), 'dragon', 'normal'), null);
+  assert.equal(bestScoreFor(all, 'cat', 'normal'), null);
+  assert.equal(bestScoreFor(all, 'dragon', 'hard'), null);
+  assert.equal(bestScoreFor(all, 'dragon', 'normal'), 1840);
 });

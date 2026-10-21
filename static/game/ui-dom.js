@@ -10,7 +10,9 @@
 import {
   fetchDaily, saveProfile, setLanguage,
 } from './sync.js';
-import { averageScore, bestTime, fmtTime } from './stats.js';
+import {
+  averageScore, bestScoreFor, bestTime, fmtTime,
+} from './stats.js';
 import { avatarDataUri } from './avatar.js';
 import { setSoundOn } from './audio.js';
 
@@ -77,6 +79,7 @@ export function createUiDom(scene) {
   const statsOverallEl = document.getElementById('stats-overall');
   const statsScoreEl = document.getElementById('stats-score');
   const newgameModal = document.getElementById('newgame-modal');
+  const newgameBestEl = document.getElementById('newgame-best');
   const newgameLevelButtons = [...newgameModal.querySelectorAll('[data-level]')];
   // The modal's own icon spans start empty (templates/game.html) — fill them
   // from DIFFICULTY_ICONS so this module is the only place the glyph is
@@ -290,8 +293,48 @@ export function createUiDom(scene) {
     statsScoreEl.innerHTML = `
       <div class="mb-1 text-center text-[13px] uppercase tracking-[.04em] text-muted">${gettext('Final score')}</div>
       <div class="score-total">⭐ ${modal.score}</div>
+      <div class="mb-2 text-center text-[13px] text-muted">${recordLine(modal)}</div>
       <dl>${rows.map(([label, value]) => `<dt>${label}</dt><dd>${signed(value)}</dd>`).join('')}</dl>
     `;
+  }
+
+  // "Dragon · Normal" for a board slug and level; the board name is read off
+  // the picker button (already translated by list_boards()).
+  function boardLevelLabel(slug, level) {
+    const btn = newgameBoardButtons.find((b) => b.dataset.board === slug);
+    return `${btn ? btn.title : slug} · ${LEVEL_LABELS[level]}`;
+  }
+
+  // The result modal's record line: a new record (with the old one, if any)
+  // or the standing best for this board and difficulty. `previousBest` was
+  // captured by scene.js: finishGame before the stats refresh.
+  function recordLine(modal) {
+    const previous = modal.previousBest;
+    const where = boardLevelLabel(modal.board, modal.level);
+    if (modal.score > (previous ?? 0)) {
+      const was = previous == null
+        ? ''
+        : ` (${interpolate(gettext('previous best: %(n)s'), { n: previous }, true)})`;
+      return `🎉 ${gettext('New record!')} ${where}${was}`;
+    }
+    if (previous == null) return '';
+    return `🏅 ${where}: ${interpolate(gettext('Best: %(n)s'), { n: previous }, true)}`;
+  }
+
+  // The new-game modal's record line for the picked board and difficulty.
+  // Empty for Random: there is no single board to show a record for.
+  function renderNewgameBest() {
+    const choice = scene.boardChoice;
+    const btn = newgameBoardButtons.find((b) => b.dataset.board === choice);
+    if (choice === 'random' || !btn) {
+      newgameBestEl.textContent = '';
+      return;
+    }
+    const best = bestScoreFor(scene.registry.get('allStats'), choice, scene.currentLevel);
+    const where = boardLevelLabel(choice, scene.currentLevel);
+    newgameBestEl.textContent = best == null
+      ? `🏅 ${where}: ${gettext('no record yet')}`
+      : `🏅 ${where}: ${best}`;
   }
 
   // modal.type -> its overlay element — the single map the Escape/Tab/focus
@@ -375,6 +418,7 @@ export function createUiDom(scene) {
         btn.classList.toggle('selected', btn.dataset.board === scene.boardChoice);
       }
       newgameCloseBtn.style.display = modal.canClose ? '' : 'none';
+      renderNewgameBest();
     }
     if (modal?.type === 'daily') renderDailyModal();
     if (modal?.type === 'profile') {

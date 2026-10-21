@@ -14,7 +14,7 @@ import {
   startDaily,
 } from './sync.js';
 import {
-  load as loadLegacyStats, clearLegacy, emptyAllStats, LEVELS,
+  load as loadLegacyStats, clearLegacy, emptyAllStats, bestScoreFor, LEVELS,
 } from './stats.js';
 import {
   TILE_ASPECT, LAYER_DX_FRAC, LAYER_DY_FRAC, STEP_X_FRAC, STEP_Y_FRAC, MARGIN,
@@ -888,6 +888,9 @@ export class MainScene extends Phaser.Scene {
     }
 
     clearActiveGame();
+    // Read before allStats is overwritten below: the result modal compares
+    // the new score against the record as it stood before this game.
+    const previousBest = bestScoreFor(this.registry.get('allStats'), this.currentBoard, this.currentLevel);
     this.registry.set('gameElapsedMs', result.elapsedMs);
     this.registry.set('allStats', result.stats);
     this.registry.set('gameScore', result.score);
@@ -905,6 +908,7 @@ export class MainScene extends Phaser.Scene {
       } else {
         this.registry.set('modal', {
           type: 'result', won: result.won, score: result.score, breakdown: result.scoreBreakdown,
+          previousBest, board: this.currentBoard, level: this.currentLevel,
         });
       }
     });

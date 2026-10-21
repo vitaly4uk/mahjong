@@ -63,6 +63,12 @@ class AllStats(Schema):
     # streak carry over; scores and the current streak start from zero), so
     # no data migration is needed. The per-level blocks stay stored as-is.
     overall: OverallStats | None = None
+    # Best score per board and level: {"<board slug>": {"<level>": score}}.
+    # Sparse on purpose — a board added later simply has no entry yet, and a
+    # removed board's entry is never looked up. Regular free play only.
+    best_scores: dict[str, dict[str, int]] = Field(default_factory=dict, alias='bestScores')
+
+    model_config = {'populate_by_name': True}
 
     @model_validator(mode='after')
     def _seed_overall(self):

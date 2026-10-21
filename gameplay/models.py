@@ -48,6 +48,10 @@ class GameSession(models.Model):
 
     token = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     level = models.CharField(max_length=16)
+    # Slug of the board shape (layouts/<slug>.layout). Feeds the per-board
+    # best score (gameplay/stats.py: apply_best_score). Blank for rows that
+    # predate the field and could not be matched to a layout (migration 0013).
+    board = models.CharField(max_length=32, blank=True, default='')
     layout = models.JSONField()
     seed = models.CharField(max_length=64)
     # Shuffle events applied during the game, in order:
