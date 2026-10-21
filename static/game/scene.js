@@ -584,20 +584,26 @@ export class MainScene extends Phaser.Scene {
   }
 
   relayoutTiles() {
-    const { tileW, tileH } = this.LM;
     for (const [tile, sprite] of this.sprites) {
-      if (sprite._flying) continue; // flying to the counter — don't touch it
-      const { x, y } = this.tileScreenPos(tile);
-      sprite.setDisplaySize(tileW, tileH);
-      sprite.setPosition(x, y);
-      // rasterizeTiles() just resized the shared per-kind CanvasTexture's
-      // frame — but a hit area Rectangle created by setInteractive() is a
-      // snapshot, not a live reference, and doesn't follow the frame's new
-      // size on its own. Without this, the hitbox stays stuck at whatever
-      // size the tile first rendered at, drifting away from the visible
-      // sprite on every resize.
-      sprite.input?.hitArea.setTo(0, 0, sprite.width, sprite.height);
+      // Mid-flight (deal-in, or a pair flying to the counter) — don't touch
+      // it; the deal-in tween re-lays itself out via relayoutSprite() when it ends.
+      if (sprite._flying) continue;
+      this.relayoutSprite(tile, sprite);
     }
+  }
+
+  relayoutSprite(tile, sprite) {
+    const { tileW, tileH } = this.LM;
+    const { x, y } = this.tileScreenPos(tile);
+    sprite.setDisplaySize(tileW, tileH);
+    sprite.setPosition(x, y);
+    // rasterizeTiles() just resized the shared per-kind CanvasTexture's
+    // frame — but a hit area Rectangle created by setInteractive() is a
+    // snapshot, not a live reference, and doesn't follow the frame's new
+    // size on its own. Without this, the hitbox stays stuck at whatever
+    // size the tile first rendered at, drifting away from the visible
+    // sprite on every resize.
+    sprite.input?.hitArea.setTo(0, 0, sprite.width, sprite.height);
   }
 
   // Toolbar/status bar/credit are DOM now (templates/game.html) — they
