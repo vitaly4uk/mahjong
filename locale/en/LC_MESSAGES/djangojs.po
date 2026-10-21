@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: mahjong\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 07:17+0000\n"
+"POT-Creation-Date: 2026-10-21 08:09+0000\n"
 "PO-Revision-Date: 2026-07-26 08:34+0000\n"
 "Last-Translator: \n"
 "Language-Team: English\n"
@@ -35,27 +35,27 @@ msgstr ""
 msgid "Failed to start the daily tournament — check your connection"
 msgstr ""
 
-#: static/game/scene.js:876
+#: static/game/scene.js:878
 msgid "Failed to confirm the game result"
 msgstr ""
 
-#: static/game/scene.js:882 static/game/ui-dom.js:349
+#: static/game/scene.js:884 static/game/ui-dom.js:355
 msgid "The game was not confirmed by the server"
 msgstr ""
 
-#: static/game/scene.js:958
+#: static/game/scene.js:960
 msgid "Failed to shuffle — check your connection"
 msgstr ""
 
-#: static/game/scene.js:1106 static/game/ui-dom.js:353
+#: static/game/scene.js:1107 static/game/ui-dom.js:359
 msgid "Victory!"
 msgstr ""
 
-#: static/game/scene.js:1109
+#: static/game/scene.js:1110
 msgid "No moves left"
 msgstr ""
 
-#: static/game/scene.js:1114
+#: static/game/scene.js:1115
 msgid "Remaining: %(n)s"
 msgstr ""
 
@@ -100,97 +100,101 @@ msgid "Total points"
 msgstr ""
 
 #: static/game/ui-dom.js:45
-msgid "Wins"
+msgid "Best time"
 msgstr ""
 
 #: static/game/ui-dom.js:46
-msgid "Current streak"
+msgid "Wins"
 msgstr ""
 
 #: static/game/ui-dom.js:47
+msgid "Current streak"
+msgstr ""
+
+#: static/game/ui-dom.js:48
 msgid "Best streak"
 msgstr ""
 
-#: static/game/ui-dom.js:180
+#: static/game/ui-dom.js:184
 msgid "Loading…"
 msgstr ""
 
-#: static/game/ui-dom.js:189
+#: static/game/ui-dom.js:193
 msgid "Failed to load the daily tournament"
 msgstr ""
 
-#: static/game/ui-dom.js:191
+#: static/game/ui-dom.js:195
 msgid "Retry"
 msgstr ""
 
-#: static/game/ui-dom.js:206
+#: static/game/ui-dom.js:210
 msgid "Play"
 msgstr ""
 
-#: static/game/ui-dom.js:207
+#: static/game/ui-dom.js:211
 msgid "Resume"
 msgstr ""
 
-#: static/game/ui-dom.js:208
+#: static/game/ui-dom.js:212
 msgid "Play again"
 msgstr ""
 
-#: static/game/ui-dom.js:217
+#: static/game/ui-dom.js:221
 msgid "Participants: %(n)s"
 msgstr ""
 
-#: static/game/ui-dom.js:221
-msgid "Your score: %(time)s (rank #%(rank)s)"
+#: static/game/ui-dom.js:225
+msgid "Your score: %(score)s points (rank #%(rank)s)"
 msgstr ""
 
-#: static/game/ui-dom.js:225
+#: static/game/ui-dom.js:229
 msgid "You didn't finish — try again!"
 msgstr ""
 
-#: static/game/ui-dom.js:261
+#: static/game/ui-dom.js:265
 msgid "No winners yet today"
 msgstr ""
 
-#: static/game/ui-dom.js:277
+#: static/game/ui-dom.js:281
 msgid "Pairs"
 msgstr ""
 
-#: static/game/ui-dom.js:278
+#: static/game/ui-dom.js:283
 msgid "Hint penalty"
 msgstr ""
 
-#: static/game/ui-dom.js:279
+#: static/game/ui-dom.js:284
 msgid "Undo penalty"
 msgstr ""
 
-#: static/game/ui-dom.js:280
+#: static/game/ui-dom.js:285
 msgid "Shuffle penalty"
 msgstr ""
 
-#: static/game/ui-dom.js:281
+#: static/game/ui-dom.js:286
 msgid "No-help bonus"
 msgstr ""
 
-#: static/game/ui-dom.js:282
+#: static/game/ui-dom.js:287
 msgid "Time bonus"
 msgstr ""
 
-#: static/game/ui-dom.js:285
+#: static/game/ui-dom.js:291
 msgid "Final score"
 msgstr ""
 
-#: static/game/ui-dom.js:346
+#: static/game/ui-dom.js:352
 msgid "Statistics"
 msgstr ""
 
-#: static/game/ui-dom.js:355
+#: static/game/ui-dom.js:361
 msgid "Dead end — no moves left"
 msgstr ""
 
-#: static/game/ui-dom.js:561
+#: static/game/ui-dom.js:567
 msgid "Failed to save — check your connection"
 msgstr "Failed to save — check your connection"
 
-#: static/game/ui-dom.js:596
+#: static/game/ui-dom.js:602
 msgid "Photo: %(name)s · Pexels"
 msgstr ""

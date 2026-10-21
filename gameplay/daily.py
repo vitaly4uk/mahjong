@@ -9,13 +9,6 @@ from .layouts import load_layouts
 # per day, comparable across players, rather than one per difficulty level.
 DAILY_LEVEL = 'normal'
 
-# Score penalties for hints/undos (server-authoritative counters on
-# GameSession, incremented via the existing /bump endpoint — gameplay/api.py:
-# bump_stat). Lower score wins; only used for daily tournament ranking, not
-# for lifetime stats.
-HINT_PENALTY_MS = 5_000
-UNDO_PENALTY_MS = 3_000
-
 
 def daily_challenge(date):
     """(board_slug, level, seed) for the given date.date — identical for

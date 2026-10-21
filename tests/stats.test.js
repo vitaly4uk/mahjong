@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  emptyStats, emptyOverall, emptyLevels, emptyAllStats, averageScore, fmtTime, load,
+  emptyStats, emptyOverall, emptyLevels, emptyAllStats, averageScore, bestTime, fmtTime, load,
   STORAGE_KEY, STORAGE_KEY_V1, LEVELS,
 } from '../static/game/stats.js';
 
@@ -21,6 +21,15 @@ test('emptyStats: zeros and null best time', () => {
 test('averageScore: 0 when nothing scored, rounded mean otherwise', () => {
   assert.equal(averageScore(emptyOverall()), 0);
   assert.equal(averageScore({ ...emptyOverall(), gamesScored: 3, totalScore: 1000 }), 333);
+});
+
+test('bestTime: fastest win across levels, null before any win', () => {
+  assert.equal(bestTime(emptyAllStats()), null);
+  assert.equal(bestTime(undefined), null);
+  const all = emptyAllStats();
+  all.easy.bestTimeMs = 90_000;
+  all.hard.bestTimeMs = 70_000;
+  assert.equal(bestTime(all), 70_000);
 });
 
 test('fmtTime: formats milliseconds as mm:ss', () => {

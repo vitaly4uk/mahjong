@@ -139,11 +139,11 @@ export async function fetchDaily() {
     boardLayers: data.board_layers,
     level: data.level,
     yourStatus: data.your_status,
-    yourScoreMs: data.your_score_ms,
+    yourScore: data.your_score,
     yourRank: data.your_rank,
     totalParticipants: data.total_participants,
     leaderboard: data.leaderboard.map((entry) => (
-      { rank: entry.rank, nickname: entry.nickname, scoreMs: entry.score_ms }
+      { rank: entry.rank, nickname: entry.nickname, score: entry.score }
     )),
   };
 }

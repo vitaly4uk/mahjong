@@ -22,7 +22,7 @@ from .api import (  # noqa: F401 (SESSION_TTL import also registers the router w
     SESSION_TTL,
 )
 from .board import FLOWERS, SEASONS, Board, Tile, is_free_position, match_key
-from .daily import HINT_PENALTY_MS, UNDO_PENALTY_MS, daily_challenge
+from .daily import daily_challenge
 from .generator import DIFFICULTIES, KINDS, generate_for_difficulty, reshuffle_layout
 from .layouts import (
     LAYOUTS_DIR,
@@ -1107,6 +1107,48 @@ class BackfillScoresMigrationTests(TestCase):
         self.assertEqual((overall['gamesWon'], overall['bestStreak']), (2, 2))
 
 
+class BackfillDailyScoresMigrationTests(TestCase):
+    """gameplay/migrations/0011_backfill_daily_scores.py, run against live rows."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.migration = importlib.import_module('gameplay.migrations.0011_backfill_daily_scores')
+
+    def _session(self, user, **kwargs):
+        defaults = dict(
+            level='normal', layout=[], seed='x', user=user, elapsed_ms=100_000,
+            status=GameSession.Status.CLAIMED, won=True, daily_date=datetime.date(2026, 1, 1),
+        )
+        return GameSession.objects.create(**{**defaults, **kwargs})
+
+    def test_scores_unscored_daily_wins_even_with_a_purged_layout(self):
+        user = User.objects.create(username='p')
+        Profile.objects.create(user=user)
+        win = self._session(user)
+        # 72 pairs x 10 x 2 = 1440; no-help +720; time (600-100) x 2 = 1000.
+        helped = self._session(user, daily_date=datetime.date(2026, 1, 2), hints=1)
+        loss = self._session(user, daily_date=datetime.date(2026, 1, 3), won=False)
+        regular = self._session(user, daily_date=None)
+        scored = self._session(user, daily_date=datetime.date(2026, 1, 4), score=5)
+        stats_before = Profile.objects.get(user=user).stats
+
+        self.migration.backfill(django_apps, None)
+        self.migration.backfill(django_apps, None)  # idempotent
+
+        scores = {
+            s.pk: GameSession.objects.get(pk=s.pk).score
+            for s in (win, helped, loss, regular, scored)
+        }
+        self.assertEqual(scores[win.pk], 3160)
+        self.assertEqual(scores[helped.pk], 1440 + 1000 - 40)
+        self.assertIsNone(scores[loss.pk])
+        self.assertIsNone(scores[regular.pk])  # regular games are 0009's job
+        self.assertEqual(scores[scored.pk], 5)
+        # Daily games never fed lifetime stats; neither does the backfill.
+        self.assertEqual(Profile.objects.get(user=user).stats, stats_before)
+
+
 class PlayerIdentityMiddlewareTests(TestCase):
     def test_start_without_cookie_creates_user_profile_and_cookie_binds_session(self):
         response = self.client.post(
@@ -1400,7 +1442,7 @@ class DailyTournamentTests(TestCase):
             board.remove_pair(a, b)
         return moves
 
-    def _make_winner(self, score_ms, claimed_at=None):
+    def _make_winner(self, score, claimed_at=None):
         """A GameSession row that already stands as a claimed daily win —
         bypasses the full start/finish flow for tests only about leaderboard
         ordering."""
@@ -1408,7 +1450,7 @@ class DailyTournamentTests(TestCase):
         Profile.objects.create(user=user)
         return GameSession.objects.create(
             level='easy', layout=[], seed='x', user=user, daily_date=timezone.localdate(),
-            status=GameSession.Status.CLAIMED, won=True, score_ms=score_ms,
+            status=GameSession.Status.CLAIMED, won=True, score=score,
             claimed_at=claimed_at or timezone.now(),
         )
 
@@ -1496,12 +1538,12 @@ class DailyTournamentTests(TestCase):
         today = timezone.localdate()
         GameSession.objects.create(
             level='normal', layout=[], seed='x', user=user, daily_date=today, won=True,
-            status=GameSession.Status.CLAIMED, score_ms=1000,
+            status=GameSession.Status.CLAIMED, score=1000,
         )
         with self.assertRaises(IntegrityError):
             GameSession.objects.create(
                 level='normal', layout=[], seed='y', user=user, daily_date=today, won=True,
-                status=GameSession.Status.CLAIMED, score_ms=2000,
+                status=GameSession.Status.CLAIMED, score=2000,
             )
 
     def _force_deadlock(self, token):
@@ -1581,17 +1623,15 @@ class DailyTournamentTests(TestCase):
 
     # --- finish (scoring) -----------------------------------------------------
 
-    def test_daily_finish_sets_score_ms_with_hint_and_undo_penalties(self):
+    def test_daily_finish_stores_score_and_ranks_by_it(self):
         data = self.client.post(
             '/api/game/daily/start', data={}, content_type='application/json',
         ).json()
         token = data['token']
-        for counter in ('hint', 'hint', 'undo'):
-            self.client.post(
-                f'/api/game/{token}/bump',
-                data={'counter': counter}, content_type='application/json',
-            )
         moves = self._win_moves(data['layout'])
+        # Seed one clearly higher and one clearly lower win around the caller.
+        self._make_winner(score=10**9)
+        self._make_winner(score=0)
         response = self.client.post(
             '/api/game/finish',
             data={'token': token, 'moves': moves, 'outcome': 'win'},
@@ -1599,10 +1639,8 @@ class DailyTournamentTests(TestCase):
         )
         body = response.json()
         self.assertTrue(body['valid'], body)
-        session = GameSession.objects.get(token=token)
-        expected = body['elapsed_ms'] + 2 * HINT_PENALTY_MS + 1 * UNDO_PENALTY_MS
-        self.assertEqual(session.score_ms, expected)
-        self.assertEqual(body['daily_rank'], 1)  # sole winner today
+        self.assertEqual(GameSession.objects.get(token=token).score, body['score'])
+        self.assertEqual(body['daily_rank'], 2)
 
     def test_daily_play_never_touches_lifetime_normal_stats(self):
         """Tournament and regular-play stats must never mix: hints/undos/
@@ -1634,7 +1672,7 @@ class DailyTournamentTests(TestCase):
         # The response's own stats blob reflects the same untouched state.
         self.assertEqual(response.json()['stats']['normal'], before)
 
-    def test_daily_loss_leaves_score_ms_null_and_off_leaderboard(self):
+    def test_daily_loss_is_off_leaderboard(self):
         data = self.client.post(
             '/api/game/daily/start', data={}, content_type='application/json',
         ).json()
@@ -1645,28 +1683,76 @@ class DailyTournamentTests(TestCase):
 
         leaderboard = self.client.get('/api/game/daily').json()['leaderboard']
         self.assertEqual(leaderboard, [])
-        self.assertIsNone(GameSession.objects.get(token=data['token']).score_ms)
 
     # --- leaderboard / status -------------------------------------------------
 
-    def test_leaderboard_orders_by_score_then_claimed_at(self):
+    def test_leaderboard_orders_by_score_desc_then_claimed_at(self):
         now = timezone.now()
-        self._make_winner(score_ms=5000, claimed_at=now)
-        self._make_winner(score_ms=3000, claimed_at=now)
-        self._make_winner(score_ms=3000, claimed_at=now - timedelta(seconds=10))  # earlier tie
+        self._make_winner(score=3000, claimed_at=now)
+        self._make_winner(score=5000, claimed_at=now)
+        self._make_winner(score=5000, claimed_at=now - timedelta(seconds=10))  # earlier tie
 
         body = self.client.get('/api/game/daily').json()
-        self.assertEqual([e['score_ms'] for e in body['leaderboard']], [3000, 3000, 5000])
+        self.assertEqual([e['score'] for e in body['leaderboard']], [5000, 5000, 3000])
         self.assertEqual(body['total_participants'], 3)
 
-    def test_leaderboard_nickname_uses_chosen_display_name_or_auto_fallback(self):
-        named = self._make_winner(score_ms=1000)
-        named.user.profile.display_name = 'Vitaly'
-        named.user.profile.save(update_fields=['display_name'])
-        unnamed = self._make_winner(score_ms=2000)
+    def test_leaderboard_ignores_unscored_legacy_wins(self):
+        self._make_winner(score=None)
+        self._make_winner(score=700)
+
+        response = self.client.get('/api/game/daily')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual([e['score'] for e in body['leaderboard']], [700])
+        self.assertEqual(body['total_participants'], 1)
+
+    def test_tied_scores_rank_matches_leaderboard_position(self):
+        data = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        moves = self._win_moves(data['layout'])
+        finish = self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        ).json()
+        mine = GameSession.objects.get(token=data['token'])
+        # One tied win claimed earlier (ahead of me), one claimed later (behind).
+        self._make_winner(score=mine.score, claimed_at=mine.claimed_at - timedelta(seconds=5))
+        self._make_winner(score=mine.score, claimed_at=mine.claimed_at + timedelta(seconds=5))
 
         body = self.client.get('/api/game/daily').json()
-        by_score = {e['score_ms']: e['nickname'] for e in body['leaderboard']}
+        self.assertEqual(body['your_rank'], 2)
+        self.assertEqual(finish['daily_rank'], 1)  # before the other two existed
+        self.assertEqual(body['leaderboard'][1]['rank'], 2)
+        self.assertEqual(body['your_score'], mine.score)
+
+    def test_own_rank_reported_outside_displayed_top(self):
+        data = self.client.post(
+            '/api/game/daily/start', data={}, content_type='application/json',
+        ).json()
+        moves = self._win_moves(data['layout'])
+        self.client.post(
+            '/api/game/finish',
+            data={'token': data['token'], 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        )
+        for _i in range(25):
+            self._make_winner(score=10**9)
+
+        body = self.client.get('/api/game/daily').json()
+        self.assertEqual(len(body['leaderboard']), 20)
+        self.assertEqual(body['your_rank'], 26)
+        self.assertEqual(body['total_participants'], 26)
+
+    def test_leaderboard_nickname_uses_chosen_display_name_or_auto_fallback(self):
+        named = self._make_winner(score=1000)
+        named.user.profile.display_name = 'Vitaly'
+        named.user.profile.save(update_fields=['display_name'])
+        unnamed = self._make_winner(score=2000)
+
+        body = self.client.get('/api/game/daily').json()
+        by_score = {e['score']: e['nickname'] for e in body['leaderboard']}
         self.assertEqual(by_score[1000], 'Vitaly')
         self.assertEqual(
             by_score[2000], f'Player #{unnamed.user.profile.public_id.hex[:4]}',
@@ -1682,16 +1768,15 @@ class DailyTournamentTests(TestCase):
             data={'token': data['token'], 'moves': moves, 'outcome': 'win'},
             content_type='application/json',
         )
-        # Seed one faster and one slower win *relative to the caller's own
-        # real score* — avoids a flaky assumption about how fast the test's
-        # greedy solve itself runs.
-        my_score = GameSession.objects.get(token=data['token']).score_ms
-        self._make_winner(score_ms=max(0, my_score - 100))
-        self._make_winner(score_ms=my_score + 100)
+        # Seed one higher and one lower win *relative to the caller's own
+        # real score* — avoids a flaky assumption about the exact total.
+        my_score = GameSession.objects.get(token=data['token']).score
+        self._make_winner(score=max(0, my_score - 100))
+        self._make_winner(score=my_score + 100)
 
         body = self.client.get('/api/game/daily').json()
         self.assertEqual(body['your_status'], 'won')
-        self.assertEqual(body['your_rank'], 2)  # one faster winner ahead of me
+        self.assertEqual(body['your_rank'], 2)  # one higher-scoring winner ahead of me
 
     def test_daily_info_your_status_new_before_any_attempt(self):
         body = self.client.get('/api/game/daily').json()

@@ -196,7 +196,7 @@ class ImportResponse(Schema):
 class LeaderboardEntry(Schema):
     rank: int
     nickname: str
-    score_ms: int
+    score: int
 
 
 class DailyResponse(Schema):
@@ -211,7 +211,7 @@ class DailyResponse(Schema):
     # — already claimed today (a second /daily/start won't hand out a new
     # board — gameplay/api.py: start_daily).
     your_status: Literal['new', 'active', 'won', 'lost']
-    your_score_ms: int | None = None
+    your_score: int | None = None
     your_rank: int | None = None
     total_participants: int
     leaderboard: list[LeaderboardEntry]

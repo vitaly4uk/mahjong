@@ -33,7 +33,7 @@ class Command(BaseCommand):
 
         old = GameSession.objects.filter(created_at__lt=cutoff)
         non_daily = old.filter(daily_date__isnull=True)
-        # Daily rows keep score_ms/won/daily_date/user (the lifetime
+        # Daily rows keep score/won/daily_date/user (the lifetime
         # tournament record — see docs/superpowers/specs/
         # 2026-07-28-daily-tournament-design.md) but shed the bulk: the
         # full board layout and the shuffle log, which nothing reads once

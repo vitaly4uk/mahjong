@@ -14,14 +14,14 @@ import uuid
 from datetime import timedelta
 
 from django.db import IntegrityError
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.translation import gettext as _
 from ninja import Router
 from ninja.errors import HttpError
 
 from .board import Board, Tile
-from .daily import HINT_PENALTY_MS, UNDO_PENALTY_MS, daily_challenge, nickname_for
+from .daily import daily_challenge, nickname_for
 from .generator import DIFFICULTIES, generate_for_difficulty, reshuffle_layout
 from .layouts import get_layout
 from .models import GameSession
@@ -180,10 +180,21 @@ def _board_payload(board_slug, board, level):
     }
 
 
-def _daily_rank(daily_date, score_ms):
-    """1-based standing among today's wins, lower score_ms ranks higher."""
+def _daily_wins(daily_date):
+    """The ranked rows of a day's tournament, best first: higher score wins,
+    the earlier claim breaks a tie. Rows claimed before scoring existed have
+    no score and are not ranked. The single definition of the ordering —
+    _daily_rank must mirror it so a rank never disagrees with the board."""
     return GameSession.objects.filter(
-        daily_date=daily_date, won=True, score_ms__lt=score_ms,
+        daily_date=daily_date, won=True, score__isnull=False,
+    ).order_by('-score', 'claimed_at')
+
+
+def _daily_rank(session):
+    """1-based standing of a ranked daily win, consistent with _daily_wins."""
+    return _daily_wins(session.daily_date).filter(
+        Q(score__gt=session.score)
+        | Q(score=session.score, claimed_at__lt=session.claimed_at),
     ).count() + 1
 
 
@@ -205,25 +216,24 @@ def daily_info(request):
     else:
         your_status = 'new'
 
-    wins = GameSession.objects.filter(daily_date=today, won=True)
-    ranked = wins.select_related('user__profile').order_by('score_ms', 'claimed_at')
-    top = list(ranked[:DAILY_LEADERBOARD_SIZE])
+    wins = _daily_wins(today)
+    top = list(wins.select_related('user__profile')[:DAILY_LEADERBOARD_SIZE])
     leaderboard = [
-        {'rank': i + 1, 'nickname': nickname_for(s.user.profile), 'score_ms': s.score_ms}
+        {'rank': i + 1, 'nickname': nickname_for(s.user.profile), 'score': s.score}
         for i, s in enumerate(top)
     ]
     # The slice length IS the total whenever it didn't hit the cap — only a
     # full page needs a separate COUNT query to know how many more there are.
     total_participants = len(top) if len(top) < DAILY_LEADERBOARD_SIZE else wins.count()
 
-    your_score_ms = your_rank = None
-    if won_session is not None and won_session.score_ms is not None:
-        your_score_ms = won_session.score_ms
-        your_rank = _daily_rank(today, your_score_ms)
+    your_score = your_rank = None
+    if won_session is not None and won_session.score is not None:
+        your_score = won_session.score
+        your_rank = _daily_rank(won_session)
 
     return {
         'date': today.isoformat(), 'board_name': _(board.name),
-        'your_status': your_status, 'your_score_ms': your_score_ms, 'your_rank': your_rank,
+        'your_status': your_status, 'your_score': your_score, 'your_rank': your_rank,
         'total_participants': total_participants, 'leaderboard': leaderboard,
         **_board_payload(board_slug, board, level),
     }
@@ -452,12 +462,6 @@ def finish_game(request, payload: FinishRequest):
         won=payload.outcome == 'win',
         score=score.total,
     )
-    if session.daily_date is not None and payload.outcome == 'win':
-        # F-expressions read hints/undos as they stand in the DB right now —
-        # avoids a read-modify-write race against a concurrent /bump.
-        update_kwargs['score_ms'] = (
-            elapsed_ms + F('hints') * HINT_PENALTY_MS + F('undos') * UNDO_PENALTY_MS
-        )
     # A daily win can also collide with the one_daily_win_per_user_per_day
     # constraint (gameplay/models.py) — only reachable if the same player
     # somehow holds two still-ACTIVE daily rows for today (e.g. two tabs
@@ -481,8 +485,8 @@ def finish_game(request, payload: FinishRequest):
 
     daily_rank = None
     if session.daily_date is not None and payload.outcome == 'win':
-        session.refresh_from_db(fields=['score_ms'])
-        daily_rank = _daily_rank(session.daily_date, session.score_ms)
+        session.refresh_from_db(fields=['score', 'claimed_at'])
+        daily_rank = _daily_rank(session)
 
     return {
         'valid': True, 'won': payload.outcome == 'win',

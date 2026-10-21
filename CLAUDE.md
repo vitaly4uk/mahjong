@@ -143,7 +143,9 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   `GameSession.hints`/`undos` are bumped server-side for every session (not
   just daily ones) and, with the replayed move log, feed `GameSession.score`,
   the point score set on every claimed game (see the `scoring.py` entry
-  below). The daily tournament still ranks by `score_ms` (time), not points.
+  below). The daily tournament ranks by `score` (descending, ties by earlier
+  `claimed_at`; `api.py: _daily_wins`/`_daily_rank`); rows claimed before
+  scoring existed have no score and are not ranked.
   `GameSession.user` is nullable only for a painless migration of already
   existing rows (new code always sets it). Stats are attributed to the player
   who STARTED the session (`session.user`), not necessarily whoever makes the
@@ -178,9 +180,10 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   (`gameplay/models.py: Profile.stats`); the module keeps only presentation
   helpers and a one-time reader for the legacy `localStorage` blob, used to
   migrate it to the server. A pure module, no Phaser/DOM. The stats modal
-  shows only the points-based `overall` block (`schemas.py: OverallStats`,
-  updated in `finish_game` for regular games, never daily); the per-level
-  blocks are still written but no longer displayed. A profile blob without
+  shows the points-based `overall` block (`schemas.py: OverallStats`,
+  updated in `finish_game` for regular games, never daily) plus the best
+  win time, the minimum of the per-level `bestTimeMs` (`stats.js: bestTime`);
+  the other per-level fields are still written but not displayed. A profile blob without
   `overall` is seeded from them on read (wins/best streak only).
   `migrations/0009_backfill_scores.py` scored old regular wins (a chain-free
   lower bound — the move log was never stored) and folded them into `overall`.
