@@ -63,6 +63,20 @@ class StartResponse(Schema):
     stats: AllStats
 
 
+class ScoreResult(Schema):
+    """Output of `gameplay/scoring.py: compute_score` — the total plus the
+    parts the client shows ("+N" per pair, end-of-game bonuses/penalties)."""
+    total: int = Field(ge=0)
+    pair_points: list[int] = Field(alias='pairPoints')
+    hint_penalty: int = Field(alias='hintPenalty')
+    undo_penalty: int = Field(alias='undoPenalty')
+    shuffle_penalty: int = Field(alias='shufflePenalty')
+    no_help_bonus: int = Field(alias='noHelpBonus')
+    time_bonus: int = Field(alias='timeBonus')
+
+    model_config = {'populate_by_name': True}
+
+
 class FinishRequest(Schema):
     token: uuid.UUID
     moves: list[tuple[int, int]]
@@ -79,6 +93,10 @@ class FinishResponse(Schema):
     # finish_game) — the caller's rank on today's leaderboard right after
     # claiming, so the client can show it without a second /daily fetch.
     daily_rank: int | None = None
+    # Server-computed from the replayed move log and the session's own
+    # counters (gameplay/scoring.py), never from anything the client sends.
+    score: int | None = None
+    score_breakdown: ScoreResult | None = None
 
 
 class ShuffleRequest(Schema):

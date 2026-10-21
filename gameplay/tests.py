@@ -1,9 +1,11 @@
 import datetime
+import json
 import random
 import uuid
 from datetime import timedelta
 from io import StringIO
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.core.management import call_command
@@ -33,6 +35,7 @@ from .middleware import NEW_PROFILE_RATE_LIMIT, PLAYER_COOKIE_NAME
 from .models import GameSession, Profile
 from .ratelimit import IpRateThrottle
 from .schemas import AllStats, LevelStats
+from .scoring import compute_score, suit_of
 from .stats import apply_loss, apply_win, merge_imported
 
 
@@ -1663,3 +1666,182 @@ class PurgeSessionsTests(TestCase):
         self.assertIn('Would delete', output)
         self.assertIn('1 non-daily', output)
         self.assertIn('1 daily', output)
+
+
+class ScoringTests(TestCase):
+    """gameplay/scoring.py against tests/fixtures/scoring_cases.json — the
+    same file tests/scoring.test.js asserts on, so the two implementations
+    cannot drift."""
+
+    def test_matches_shared_fixture_cases(self):
+        path = settings.BASE_DIR / 'tests' / 'fixtures' / 'scoring_cases.json'
+        cases = json.loads(path.read_text(encoding='utf-8'))
+        self.assertTrue(cases)
+        for case in cases:
+            with self.subTest(case['name']):
+                args = case['input']
+                result = compute_score(
+                    args['pairKinds'], args['level'], args['hints'], args['undos'],
+                    args['shuffles'], args['elapsedMs'], args['won'],
+                )
+                self.assertEqual(result.model_dump(by_alias=True), case['expected'])
+
+    def test_suit_of_groups_kinds(self):
+        self.assertEqual(suit_of('Man5'), 'man')
+        self.assertEqual(suit_of('Pin9'), 'pin')
+        self.assertEqual(suit_of('Sou3'), 'sou')
+        self.assertEqual(suit_of('Pei'), 'winds')
+        self.assertEqual(suit_of('Chun'), 'dragons')
+        self.assertEqual(suit_of('Plum'), 'flower')
+        self.assertEqual(suit_of('Winter'), 'season')
+
+
+class FinishScoreTests(TestCase):
+    """finish_game computes the point score only from the server's replay and
+    its own hint/undo/shuffle counters, stores it on the session and returns
+    it with the breakdown."""
+
+    # A free Sou1 pair (idx 0/1, side by side) plus two stacked pairs that
+    # can't match anything — removing the Sou1 pair leaves a dead end.
+    DEADLOCK_AFTER_ONE_PAIR = [
+        {'x': 30, 'y': 0, 'z': 0, 'kind': 'Sou1'},
+        {'x': 32, 'y': 0, 'z': 0, 'kind': 'Sou1'},
+        *ShuffleApiTests.DEADLOCK_LAYOUT,
+    ]
+
+    def setUp(self):
+        cache.clear()  # see GameApiTests.setUp for why
+
+    def _start(self, level='easy'):
+        response = self.client.post(
+            '/api/game/start', data={'level': level}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def _bump(self, token, counter):
+        response = self.client.post(
+            f'/api/game/{token}/bump',
+            data={'counter': counter}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+    def _finish(self, token, moves, outcome='win', **extra):
+        response = self.client.post(
+            '/api/game/finish',
+            data={'token': token, 'moves': moves, 'outcome': outcome, **extra},
+            content_type='application/json',
+        )
+        return response.json()
+
+    def _solve(self, tiles):
+        """Greedy full solution: (move log, kind of each removed pair)."""
+        board = Board(tiles)
+        moves, kinds = [], []
+        while board.remaining > 0:
+            a, b = board.find_matching_pair()
+            moves.append([a.idx, b.idx])
+            kinds.append(a.kind)
+            board.remove_pair(a, b)
+        return moves, kinds
+
+    def _tiles(self, layout, shuffled_kinds=None):
+        shuffled_kinds = shuffled_kinds or {}
+        return [
+            Tile(i, t['x'], t['y'], t['z'], shuffled_kinds.get(str(i), t['kind']))
+            for i, t in enumerate(layout)
+        ]
+
+    def test_win_stores_score_and_returns_breakdown(self):
+        data = self._start('normal')
+        moves, kinds = self._solve(self._tiles(data['layout']))
+        body = self._finish(data['token'], moves)
+        self.assertTrue(body['valid'], body)
+
+        expected = compute_score(kinds, 'normal', 0, 0, 0, body['elapsed_ms'], True)
+        self.assertEqual(body['score'], expected.total)
+        self.assertEqual(body['score_breakdown'], expected.model_dump(by_alias=True))
+        self.assertEqual(len(body['score_breakdown']['pairPoints']), 72)
+        self.assertGreater(body['score_breakdown']['noHelpBonus'], 0)
+        self.assertEqual(GameSession.objects.get(token=data['token']).score, expected.total)
+
+    def test_hints_and_undos_come_from_server_counters(self):
+        data = self._start()
+        token = data['token']
+        for counter in ('hint', 'undo', 'undo'):
+            self._bump(token, counter)
+        moves, kinds = self._solve(self._tiles(data['layout']))
+        body = self._finish(token, moves)
+
+        expected = compute_score(kinds, 'easy', 1, 2, 0, body['elapsed_ms'], True)
+        self.assertEqual(body['score_breakdown'], expected.model_dump(by_alias=True))
+        self.assertEqual(body['score_breakdown']['hintPenalty'], 20)
+        self.assertEqual(body['score_breakdown']['undoPenalty'], 20)
+        self.assertEqual(body['score_breakdown']['noHelpBonus'], 0)
+
+    def test_client_cannot_influence_score(self):
+        data = self._start()
+        token = data['token']
+        self._bump(token, 'hint')
+        moves, kinds = self._solve(self._tiles(data['layout']))
+        body = self._finish(
+            token, moves, score=999999, hints=0, undos=0, shuffles=0,
+            score_breakdown={'total': 999999},
+        )
+        self.assertTrue(body['valid'], body)
+        expected = compute_score(kinds, 'easy', 1, 0, 0, body['elapsed_ms'], True)
+        self.assertEqual(body['score'], expected.total)
+        self.assertEqual(body['score_breakdown']['hintPenalty'], 20)
+        self.assertEqual(GameSession.objects.get(token=token).score, expected.total)
+
+    def test_shuffled_game_scores_post_shuffle_kinds_and_charges_the_shuffle(self):
+        data = self._start()
+        token = data['token']
+        GameSession.objects.filter(token=token).update(layout=ShuffleApiTests.DEADLOCK_LAYOUT)
+        response = self.client.post(
+            f'/api/game/{token}/shuffle', data={'moves': []}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+        session = GameSession.objects.get(token=token)
+        moves, kinds = self._solve(
+            self._tiles(session.layout, session.shuffles[0]['kinds']),
+        )
+        body = self._finish(token, moves)
+        self.assertTrue(body['valid'], body)
+
+        expected = compute_score(kinds, 'easy', 0, 0, 1, body['elapsed_ms'], True)
+        self.assertEqual(body['score_breakdown'], expected.model_dump(by_alias=True))
+        self.assertEqual(body['score_breakdown']['shufflePenalty'], 20)
+        self.assertEqual(body['score_breakdown']['noHelpBonus'], 0)
+
+    def test_undone_moves_do_not_count(self):
+        """An undone move never reaches the server's move log, so only the
+        pairs still removed at finish score — the undo costs its penalty only."""
+        data = self._start()
+        token = data['token']
+        self._bump(token, 'undo')
+        moves, kinds = self._solve(self._tiles(data['layout']))
+        body = self._finish(token, moves)
+        self.assertEqual(len(body['score_breakdown']['pairPoints']), len(kinds))
+        self.assertEqual(body['score_breakdown']['undoPenalty'], 10)
+
+    def test_deadlock_loss_is_scored_without_bonuses(self):
+        data = self._start()
+        token = data['token']
+        GameSession.objects.filter(token=token).update(layout=self.DEADLOCK_AFTER_ONE_PAIR)
+        body = self._finish(token, [[0, 1]], outcome='deadlock')
+        self.assertTrue(body['valid'], body)
+        self.assertFalse(body['won'])
+        self.assertEqual(body['score'], 10)
+        self.assertEqual(body['score_breakdown']['pairPoints'], [10])
+        self.assertEqual(body['score_breakdown']['noHelpBonus'], 0)
+        self.assertEqual(body['score_breakdown']['timeBonus'], 0)
+        self.assertEqual(GameSession.objects.get(token=token).score, 10)
+
+    def test_rejected_finish_returns_no_score(self):
+        data = self._start()
+        body = self._finish(data['token'], [], outcome='win')
+        self.assertFalse(body['valid'])
+        self.assertIsNone(body['score'])
+        self.assertIsNone(GameSession.objects.get(token=data['token']).score)
