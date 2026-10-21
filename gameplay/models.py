@@ -67,23 +67,17 @@ class GameSession(models.Model):
     elapsed_ms = models.PositiveIntegerField(null=True, blank=True)
     won = models.BooleanField(null=True, blank=True)
     # Server-authoritative penalty counters (gameplay/api.py: bump_stat), fed
-    # into the point score (gameplay/scoring.py) and, for daily tournament
-    # sessions, into score_ms — never trusted from the client.
+    # into the point score (gameplay/scoring.py) — never trusted from the client.
     hints = models.PositiveIntegerField(default=0)
     undos = models.PositiveIntegerField(default=0)
     # None = a regular free-play game; a date = a daily-tournament attempt for
     # that local calendar day (gameplay/daily.py: daily_challenge). This IS the
     # is-daily marker — no separate boolean.
     daily_date = models.DateField(null=True, blank=True)
-    # Set on a winning daily claim only (gameplay/api.py: finish_game) —
-    # elapsed_ms plus hint/undo penalties (gameplay/daily.py:
-    # HINT_PENALTY_MS/UNDO_PENALTY_MS). Stays null for regular games and for
-    # daily losses/deadlocks, so those never appear on the leaderboard
-    # (gameplay/api.py: daily_info's `won=True` filter).
-    score_ms = models.PositiveIntegerField(null=True, blank=True)
     # Point score (gameplay/scoring.py: compute_score), set on every claimed
     # game, win or loss. Null for unclaimed sessions and for rows claimed
-    # before scoring existed.
+    # before scoring existed. Also the daily tournament's rank key
+    # (gameplay/api.py: _daily_wins): unscored rows are not ranked.
     score = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
@@ -100,7 +94,7 @@ class GameSession(models.Model):
         ]
         indexes = [
             models.Index(fields=['created_at']),
-            models.Index(fields=['daily_date', 'score_ms']),
+            models.Index(fields=['daily_date', 'score']),
             # GameSessionAdmin.list_filter includes 'status' (gameplay/admin.py),
             # and gameplay/management/commands/purge_sessions.py filters on
             # created_at but the admin's status filter scans without this.

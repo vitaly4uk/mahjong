@@ -30,8 +30,8 @@ export function emptyStats() {
 }
 
 // The points-based block the stats modal shows (gameplay/schemas.py:
-// OverallStats) — one for all difficulties; the per-level blocks next to it
-// are still stored server-side but no longer displayed.
+// OverallStats) — one for all difficulties; of the per-level blocks next to
+// it only bestTimeMs is displayed (bestTime below), the rest is stored only.
 export function emptyOverall() {
   return {
     gamesScored: 0,
@@ -56,6 +56,13 @@ export function emptyAllStats() {
 export function averageScore(overall) {
   if (overall.gamesScored === 0) return 0;
   return Math.round(overall.totalScore / overall.gamesScored);
+}
+
+// Fastest win across all difficulties, or null before the first win
+// (the per-level bestTimeMs blocks are still maintained server-side).
+export function bestTime(allStats) {
+  const times = LEVELS.map((level) => allStats?.[level]?.bestTimeMs).filter((t) => t != null);
+  return times.length ? Math.min(...times) : null;
 }
 
 export function fmtTime(ms) {

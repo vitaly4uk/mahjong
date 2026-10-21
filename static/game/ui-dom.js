@@ -10,7 +10,7 @@
 import {
   fetchDaily, saveProfile, setLanguage,
 } from './sync.js';
-import { averageScore, fmtTime } from './stats.js';
+import { averageScore, bestTime, fmtTime } from './stats.js';
 import { avatarDataUri } from './avatar.js';
 import { setSoundOn } from './audio.js';
 
@@ -42,6 +42,7 @@ const STATS_ROW_LABELS = {
   bestScore: `⭐ ${gettext('Best score')}`,
   averageScore: `📊 ${gettext('Average score')}`,
   totalScore: `💰 ${gettext('Total points')}`,
+  bestTime: `⏱️ ${gettext('Best time')}`,
   wins: `🏆 ${gettext('Wins')}`,
   currentStreak: `🔥 ${gettext('Current streak')}`,
   bestStreak: `⭐ ${gettext('Best streak')}`,
@@ -159,13 +160,16 @@ export function createUiDom(scene) {
   // out from renderStats() so it only rebuilds when allStats changes or the
   // modal opens, not on every registry tick.
   function renderStatsModal() {
-    const overall = scene.registry.get('allStats')?.overall;
+    const allStats = scene.registry.get('allStats');
+    const overall = allStats?.overall;
     if (!overall) return;
+    const fastest = bestTime(allStats);
     statsOverallEl.innerHTML = `
       <dl>
         <dt>${STATS_ROW_LABELS.bestScore}</dt><dd>${overall.bestScore}</dd>
         <dt>${STATS_ROW_LABELS.averageScore}</dt><dd>${averageScore(overall)}</dd>
         <dt>${STATS_ROW_LABELS.totalScore}</dt><dd>${overall.totalScore}</dd>
+        <dt>${STATS_ROW_LABELS.bestTime}</dt><dd>${fastest == null ? '—' : fmtTime(fastest)}</dd>
         <dt>${STATS_ROW_LABELS.wins}</dt><dd>${overall.gamesWon}</dd>
         <dt>${STATS_ROW_LABELS.currentStreak}</dt><dd>${overall.currentStreak}</dd>
         <dt>${STATS_ROW_LABELS.bestStreak}</dt><dd>${overall.bestStreak}</dd>
@@ -216,10 +220,10 @@ export function createUiDom(scene) {
       info.boardName,
       interpolate(gettext('Participants: %(n)s'), { n: info.totalParticipants }, true),
     ];
-    if (info.yourStatus === 'won' && info.yourScoreMs != null) {
+    if (info.yourStatus === 'won' && info.yourScore != null) {
       lines.push(interpolate(
-        gettext('Your score: %(time)s (rank #%(rank)s)'),
-        { time: fmtTime(info.yourScoreMs), rank: info.yourRank }, true,
+        gettext('Your score: %(score)s points (rank #%(rank)s)'),
+        { score: info.yourScore, rank: info.yourRank }, true,
       ));
     } else if (info.yourStatus === 'lost') {
       lines.push(gettext("You didn't finish — try again!"));
@@ -248,11 +252,11 @@ export function createUiDom(scene) {
         nickname.className = 'nickname';
         nickname.textContent = entry.nickname;
 
-        const time = document.createElement('span');
-        time.className = 'time';
-        time.textContent = fmtTime(entry.scoreMs);
+        const score = document.createElement('span');
+        score.className = 'score';
+        score.textContent = String(entry.score);
 
-        li.append(rank, avatar, nickname, time);
+        li.append(rank, avatar, nickname, score);
         dailyBoardEl.appendChild(li);
       }
     } else {

@@ -2,6 +2,11 @@
 
 Date: 2026-07-28. Status: implemented.
 
+> **Update (issue #35):** ranking moved from completion time to the point
+> `score` (descending, ties by earlier `claimed_at`). `score_ms` and its
+> hint/undo millisecond penalties described below no longer exist; the
+> penalties live only in `gameplay/scoring.py`. Pre-scoring rows are unranked.
+
 ## Goal
 
 A classic "daily challenge": all players on a given calendar day play the
