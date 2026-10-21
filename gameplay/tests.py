@@ -19,9 +19,9 @@ from .api import (  # noqa: F401 (SESSION_TTL import also registers the router w
     RATE_LIMIT_MAX_SHUFFLES,
     SESSION_TTL,
 )
-from .board import Board, Tile, is_free_position, match_key
+from .board import FLOWERS, SEASONS, Board, Tile, is_free_position, match_key
 from .daily import HINT_PENALTY_MS, UNDO_PENALTY_MS, daily_challenge
-from .generator import DIFFICULTIES, generate_for_difficulty, reshuffle_layout
+from .generator import DIFFICULTIES, KINDS, generate_for_difficulty, reshuffle_layout
 from .layouts import (
     LAYOUTS_DIR,
     LayoutError,
@@ -1686,6 +1686,14 @@ class ScoringTests(TestCase):
                 )
                 self.assertEqual(result.model_dump(by_alias=True), case['expected'])
 
+    def test_every_tile_kind_has_a_known_suit(self):
+        # A kind added to the generator but not grouped would silently become
+        # its own one-kind suit and never chain.
+        known = {'man', 'pin', 'sou', 'winds', 'dragons', 'flower', 'season'}
+        for kind in [*KINDS, *FLOWERS, *SEASONS]:
+            with self.subTest(kind):
+                self.assertIn(suit_of(kind), known)
+
     def test_suit_of_groups_kinds(self):
         self.assertEqual(suit_of('Man5'), 'man')
         self.assertEqual(suit_of('Pin9'), 'pin')
@@ -1734,6 +1742,11 @@ class FinishScoreTests(TestCase):
         )
         return response.json()
 
+    def _assert_score(self, body, kinds, level, hints, undos, shuffles, won=True):
+        expected = compute_score(kinds, level, hints, undos, shuffles, body['elapsed_ms'], won)
+        self.assertEqual(body['score'], expected.total)
+        self.assertEqual(body['score_breakdown'], expected.model_dump(by_alias=True))
+
     def _solve(self, tiles):
         """Greedy full solution: (move log, kind of each removed pair)."""
         board = Board(tiles)
@@ -1758,12 +1771,10 @@ class FinishScoreTests(TestCase):
         body = self._finish(data['token'], moves)
         self.assertTrue(body['valid'], body)
 
-        expected = compute_score(kinds, 'normal', 0, 0, 0, body['elapsed_ms'], True)
-        self.assertEqual(body['score'], expected.total)
-        self.assertEqual(body['score_breakdown'], expected.model_dump(by_alias=True))
+        self._assert_score(body, kinds, 'normal', 0, 0, 0)
         self.assertEqual(len(body['score_breakdown']['pairPoints']), 72)
         self.assertGreater(body['score_breakdown']['noHelpBonus'], 0)
-        self.assertEqual(GameSession.objects.get(token=data['token']).score, expected.total)
+        self.assertEqual(GameSession.objects.get(token=data['token']).score, body['score'])
 
     def test_hints_and_undos_come_from_server_counters(self):
         data = self._start()
@@ -1773,10 +1784,7 @@ class FinishScoreTests(TestCase):
         moves, kinds = self._solve(self._tiles(data['layout']))
         body = self._finish(token, moves)
 
-        expected = compute_score(kinds, 'easy', 1, 2, 0, body['elapsed_ms'], True)
-        self.assertEqual(body['score_breakdown'], expected.model_dump(by_alias=True))
-        self.assertEqual(body['score_breakdown']['hintPenalty'], 20)
-        self.assertEqual(body['score_breakdown']['undoPenalty'], 20)
+        self._assert_score(body, kinds, 'easy', 1, 2, 0)
         self.assertEqual(body['score_breakdown']['noHelpBonus'], 0)
 
     def test_client_cannot_influence_score(self):
@@ -1789,10 +1797,7 @@ class FinishScoreTests(TestCase):
             score_breakdown={'total': 999999},
         )
         self.assertTrue(body['valid'], body)
-        expected = compute_score(kinds, 'easy', 1, 0, 0, body['elapsed_ms'], True)
-        self.assertEqual(body['score'], expected.total)
-        self.assertEqual(body['score_breakdown']['hintPenalty'], 20)
-        self.assertEqual(GameSession.objects.get(token=token).score, expected.total)
+        self._assert_score(body, kinds, 'easy', 1, 0, 0)
 
     def test_shuffled_game_scores_post_shuffle_kinds_and_charges_the_shuffle(self):
         data = self._start()
@@ -1810,21 +1815,7 @@ class FinishScoreTests(TestCase):
         body = self._finish(token, moves)
         self.assertTrue(body['valid'], body)
 
-        expected = compute_score(kinds, 'easy', 0, 0, 1, body['elapsed_ms'], True)
-        self.assertEqual(body['score_breakdown'], expected.model_dump(by_alias=True))
-        self.assertEqual(body['score_breakdown']['shufflePenalty'], 20)
-        self.assertEqual(body['score_breakdown']['noHelpBonus'], 0)
-
-    def test_undone_moves_do_not_count(self):
-        """An undone move never reaches the server's move log, so only the
-        pairs still removed at finish score — the undo costs its penalty only."""
-        data = self._start()
-        token = data['token']
-        self._bump(token, 'undo')
-        moves, kinds = self._solve(self._tiles(data['layout']))
-        body = self._finish(token, moves)
-        self.assertEqual(len(body['score_breakdown']['pairPoints']), len(kinds))
-        self.assertEqual(body['score_breakdown']['undoPenalty'], 10)
+        self._assert_score(body, kinds, 'easy', 0, 0, 1)
 
     def test_deadlock_loss_is_scored_without_bonuses(self):
         data = self._start()

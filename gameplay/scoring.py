@@ -4,7 +4,7 @@ own replay and counters); the JS copy only drives the live display. Both are
 verified against the same cases in tests/fixtures/scoring_cases.json — change
 one, change the other. The numbers are starting values, to be tuned after
 playtesting."""
-from .board import match_key
+from .board import DRAGONS, WINDS, match_key
 from .schemas import ScoreResult
 
 LEVEL_MULTIPLIER = {'easy': 1, 'normal': 2, 'hard': 3}
@@ -13,13 +13,10 @@ CHAIN_CAP = 5
 HINT_PENALTY = 20
 UNDO_PENALTY = 10
 SHUFFLE_PENALTY = 20
-# A win with no hints/undos/shuffles earns this share of the pair points.
-NO_HELP_BONUS_NUM = 1
-NO_HELP_BONUS_DEN = 2
+# A win with no hints/undos/shuffles earns 1/NO_HELP_BONUS_DIVISOR of the
+# pair points.
+NO_HELP_BONUS_DIVISOR = 2
 TIME_BONUS_BASE_SECONDS = 600
-
-_WINDS = frozenset({'Ton', 'Nan', 'Shaa', 'Pei'})
-_DRAGONS = frozenset({'Haku', 'Hatsu', 'Chun'})
 
 
 def suit_of(kind):
@@ -29,9 +26,9 @@ def suit_of(kind):
     key = match_key(kind)
     if key in ('flower', 'season'):
         return key
-    if key in _WINDS:
+    if key in WINDS:
         return 'winds'
-    if key in _DRAGONS:
+    if key in DRAGONS:
         return 'dragons'
     return key[:3].lower()
 
@@ -59,7 +56,7 @@ def compute_score(pair_kinds, level, hints, undos, shuffles, elapsed_ms, won):
     no_help_bonus = time_bonus = 0
     if won:
         if hints == 0 and undos == 0 and shuffles == 0:
-            no_help_bonus = pair_total * NO_HELP_BONUS_NUM // NO_HELP_BONUS_DEN
+            no_help_bonus = pair_total // NO_HELP_BONUS_DIVISOR
         time_bonus = max(0, TIME_BONUS_BASE_SECONDS - elapsed_ms // 1000) * mult
 
     total = max(

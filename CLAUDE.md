@@ -159,11 +159,8 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   no name is set. That same name is also the seed for the client-side
   DiceBear avatar (`static/game/avatar.js`) — there's no separate seed field.
 - `gameplay/scoring.py` ↔ `static/game/scoring.js` — the point-score formula,
-  written twice: the server's copy is authoritative (`finish_game` scores the
-  replayed move log with the session's own hint/undo/shuffle counters), the JS
-  copy is for the live display. Both are asserted against the same cases in
-  `tests/fixtures/scoring_cases.json` — change one, change the other and the
-  fixture.
+  written twice (the server's copy is authoritative); keep them in sync via
+  the shared cases in `tests/fixtures/scoring_cases.json`.
 - `static/game/board.js` — the board model for client-side interaction
   (render/clicks/undo/deadlock detection); authoritative validation is on the
   server (`gameplay/board.py`). The board shape is **not** hardcoded here —

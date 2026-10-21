@@ -7,6 +7,7 @@ from typing import Literal
 
 from ninja import Schema
 from pydantic import Field, model_validator
+from pydantic.alias_generators import to_camel
 
 
 class LevelStats(Schema):
@@ -65,16 +66,18 @@ class StartResponse(Schema):
 
 class ScoreResult(Schema):
     """Output of `gameplay/scoring.py: compute_score` — the total plus the
-    parts the client shows ("+N" per pair, end-of-game bonuses/penalties)."""
+    parts the client shows ("+N" per pair, end-of-game bonuses/penalties).
+    Python fields are snake_case; the wire (and static/game/scoring.js) is
+    camelCase, generated rather than hand-written."""
     total: int = Field(ge=0)
-    pair_points: list[int] = Field(alias='pairPoints')
-    hint_penalty: int = Field(alias='hintPenalty')
-    undo_penalty: int = Field(alias='undoPenalty')
-    shuffle_penalty: int = Field(alias='shufflePenalty')
-    no_help_bonus: int = Field(alias='noHelpBonus')
-    time_bonus: int = Field(alias='timeBonus')
+    pair_points: list[int]
+    hint_penalty: int
+    undo_penalty: int
+    shuffle_penalty: int
+    no_help_bonus: int
+    time_bonus: int
 
-    model_config = {'populate_by_name': True}
+    model_config = {'alias_generator': to_camel, 'populate_by_name': True}
 
 
 class FinishRequest(Schema):

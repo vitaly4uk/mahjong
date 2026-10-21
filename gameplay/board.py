@@ -19,6 +19,10 @@ kmahjongg-format `.layout` file (project root `layouts/`)."""
 # flower matches any flower, any season matches any season.
 FLOWERS = ('Plum', 'Orchid', 'Bamboo', 'Chrysanthemum')
 SEASONS = ('Spring', 'Summer', 'Autumn', 'Winter')
+# Honor groups of the riichi-34 (gameplay/generator.py: KINDS), used for
+# suit grouping in gameplay/scoring.py.
+WINDS = ('Ton', 'Nan', 'Shaa', 'Pei')
+DRAGONS = ('Haku', 'Hatsu', 'Chun')
 _BONUS_GROUP = {**{k: 'flower' for k in FLOWERS}, **{k: 'season' for k in SEASONS}}
 
 
