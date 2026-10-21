@@ -275,12 +275,14 @@ export function createUiDom(scene) {
     const signed = (n) => (n > 0 ? `+${n}` : String(n));
     const rows = [
       [gettext('Pairs'), pairs],
-      [gettext('Hint penalty'), -b.hintPenalty],
-      [gettext('Undo penalty'), -b.undoPenalty],
-      [gettext('Shuffle penalty'), -b.shufflePenalty],
-      [gettext('No-help bonus'), b.noHelpBonus],
-      [gettext('Time bonus'), b.timeBonus],
-    ].filter(([, value], i) => i === 0 || value !== 0);
+      ...[
+        [gettext('Hint penalty'), -b.hintPenalty],
+        [gettext('Undo penalty'), -b.undoPenalty],
+        [gettext('Shuffle penalty'), -b.shufflePenalty],
+        [gettext('No-help bonus'), b.noHelpBonus],
+        [gettext('Time bonus'), b.timeBonus],
+      ].filter(([, value]) => value !== 0),
+    ];
     statsScoreEl.innerHTML = `
       <div class="mb-1 text-center text-[13px] uppercase tracking-[.04em] text-muted">${gettext('Final score')}</div>
       <div class="score-total">⭐ ${modal.score}</div>

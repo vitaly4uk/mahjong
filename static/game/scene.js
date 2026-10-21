@@ -848,13 +848,15 @@ export class MainScene extends Phaser.Scene {
     this.updateStatus();
   }
 
+  // Returns the refreshed live score (updateScore) — every counter feeds it.
   bumpCounter(gameKey, counter) {
     this.registry.set(gameKey, this.registry.get(gameKey) + 1);
-    if (gameKey !== 'gamePairs') this.updateScore();
+    const score = this.updateScore();
     this.persistGame();
     apiBumpStat(this.sessionToken, counter)
       .then((stats) => this.registry.set('allStats', stats))
       .catch(() => {});
+    return score;
   }
 
   deselect() {
@@ -1032,8 +1034,7 @@ export class MainScene extends Phaser.Scene {
     this.selected = null;
     const posA = this.tileScreenPos(a);
     const posB = this.tileScreenPos(b);
-    this.bumpCounter('gamePairs', 'pair');
-    const { lastPoints, lastChain } = this.updateScore();
+    const { lastPoints, lastChain } = this.bumpCounter('gamePairs', 'pair');
     fx.playScorePopup(this, (posA.x + posB.x) / 2, (posA.y + posB.y) / 2, lastPoints, lastChain);
     playSound('match');
 

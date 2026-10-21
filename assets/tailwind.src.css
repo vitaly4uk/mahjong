@@ -161,20 +161,17 @@
   /* stats-modal's points block — built by ui-dom.js: renderStatsModal()
      via innerHTML; the elements below are hand-named selectors, not Tailwind
      utilities, so no @source scanning of the JS is needed for them. */
-  #stats-score dl,
-  #stats-overall dl {
+  #stats-modal dl {
     display: grid;
     grid-template-columns: auto auto;
     gap: 9px 20px;
     margin: 0 0 12px;
     font-size: 14px;
   }
-  #stats-score dt,
-  #stats-overall dt {
+  #stats-modal dt {
     color: var(--color-muted);
   }
-  #stats-score dd,
-  #stats-overall dd {
+  #stats-modal dd {
     margin: 0;
     text-align: right;
     font-weight: 600;
