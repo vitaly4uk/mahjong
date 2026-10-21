@@ -165,6 +165,9 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
 - `gameplay/scoring.py` ↔ `static/game/scoring.js` — the point-score formula,
   written twice (the server's copy is authoritative); keep them in sync via
   the shared cases in `tests/fixtures/scoring_cases.json`.
+  The in-game score is derived (never accumulated) by `scene.js: updateScore()`
+  from `board.undoStack` via `scoring.js: liveScore()`; the result modal shows
+  the server's breakdown from the finish response.
 - `static/game/board.js` — the board model for client-side interaction
   (render/clicks/undo/deadlock detection); authoritative validation is on the
   server (`gameplay/board.py`). The board shape is **not** hardcoded here —
@@ -174,7 +177,13 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
 - `static/game/stats.js` — lifetime stats now live on the server
   (`gameplay/models.py: Profile.stats`); the module keeps only presentation
   helpers and a one-time reader for the legacy `localStorage` blob, used to
-  migrate it to the server. A pure module, no Phaser/DOM.
+  migrate it to the server. A pure module, no Phaser/DOM. The stats modal
+  shows only the points-based `overall` block (`schemas.py: OverallStats`,
+  updated in `finish_game` for regular games, never daily); the per-level
+  blocks are still written but no longer displayed. A profile blob without
+  `overall` is seeded from them on read (wins/best streak only).
+  `migrations/0009_backfill_scores.py` scored old regular wins (a chain-free
+  lower bound — the move log was never stored) and folded them into `overall`.
 - `static/game/audio.js` — WebAudio synthesis of sound effects (click/pair/
   error/undo/hint/shuffle/win/loss) — oscillators and noise, no samples (zero
   files, zero licensing). The toggle lives in `#profile-modal` (`ui-dom.js`),
@@ -249,8 +258,8 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   `MAHJONG_LANG`. Styles — Tailwind (`assets/tailwind.src.css` → built
   `tailwind.css`, a single `<link>` with no `{% if debug %}`); the template
   has no `<style>` of its own — any `{% trans %}` inside CSS is impossible
-  (static assets don't go through the templating engine), so the "← current"
-  label in stats is rendered by `ui-dom.js: renderStatsModal()` via
+  (static assets don't go through the templating engine), so dynamic
+  labels (the stats rows) are rendered by `ui-dom.js: renderStatsModal()` via
   `gettext()`, not a CSS `::after`.
 - `static/game/tiles/*.svg` — 42 oblique-3D tiles (Cangjie6, **CC BY-SA
   4.0**, attribution required — see `static/game/tiles/CREDITS.md`).

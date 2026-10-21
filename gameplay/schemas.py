@@ -34,10 +34,45 @@ class LevelStats(Schema):
         return self
 
 
+class OverallStats(Schema):
+    """Points-based lifetime stats across all difficulties (what the stats
+    modal shows). Regular free play only, like the per-level blocks: a daily
+    tournament game never touches it. A lost game still adds its score."""
+    games_scored: int = Field(0, ge=0, alias='gamesScored')
+    total_score: int = Field(0, ge=0, alias='totalScore')
+    best_score: int = Field(0, ge=0, alias='bestScore')
+    games_won: int = Field(0, ge=0, alias='gamesWon')
+    current_streak: int = Field(0, ge=0, alias='currentStreak')
+    best_streak: int = Field(0, ge=0, alias='bestStreak')
+
+    model_config = {'populate_by_name': True}
+
+    @model_validator(mode='after')
+    def _clamp_best_streak(self):
+        if self.best_streak < self.current_streak:
+            self.best_streak = self.current_streak
+        return self
+
+
 class AllStats(Schema):
     easy: LevelStats = LevelStats()
     normal: LevelStats = LevelStats()
     hard: LevelStats = LevelStats()
+    # Absent in blobs written before the points stats existed — seeded below
+    # from the per-level history it replaces on display (wins and best
+    # streak carry over; scores and the current streak start from zero), so
+    # no data migration is needed. The per-level blocks stay stored as-is.
+    overall: OverallStats | None = None
+
+    @model_validator(mode='after')
+    def _seed_overall(self):
+        if self.overall is None:
+            levels = (self.easy, self.normal, self.hard)
+            self.overall = OverallStats(
+                games_won=sum(lvl.games_won for lvl in levels),
+                best_streak=max(lvl.best_streak for lvl in levels),
+            )
+        return self
 
 
 class StartRequest(Schema):

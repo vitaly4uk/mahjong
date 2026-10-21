@@ -23,6 +23,7 @@ import {
 import { createUiDom } from './ui-dom.js';
 import * as fx from './effects.js';
 import { playSound, isSoundOn } from './audio.js';
+import { liveScore } from './scoring.js';
 
 // Provided globally by Django's JavaScriptCatalog (config/urls.py:
 // javascript-catalog) — templates/game.html loads it as a classic <script>
@@ -641,6 +642,22 @@ export class MainScene extends Phaser.Scene {
     this.registry.set('gameStartMs', startMs);
     this.registry.set('gameElapsedMs', elapsedMs);
     this.registry.set('gameFinished', false);
+    this.updateScore();
+  }
+
+  // The live score is a pure function of the current board (its undoStack is
+  // the removal-ordered pair list) and the counters — never an accumulator, so
+  // undo and resume can't drift. The server's value replaces it on finish.
+  updateScore() {
+    const result = liveScore({
+      pairKinds: this.board.undoStack.map(([a]) => a.kind),
+      level: this.currentLevel,
+      hints: this.registry.get('gameHints'),
+      undos: this.registry.get('gameUndos'),
+      shuffles: this.shuffles.length,
+    });
+    this.registry.set('gameScore', result.total);
+    return result;
   }
 
   persistGame() {
@@ -833,6 +850,7 @@ export class MainScene extends Phaser.Scene {
 
   bumpCounter(gameKey, counter) {
     this.registry.set(gameKey, this.registry.get(gameKey) + 1);
+    if (gameKey !== 'gamePairs') this.updateScore();
     this.persistGame();
     apiBumpStat(this.sessionToken, counter)
       .then((stats) => this.registry.set('allStats', stats))
@@ -870,6 +888,7 @@ export class MainScene extends Phaser.Scene {
     clearActiveGame();
     this.registry.set('gameElapsedMs', result.elapsedMs);
     this.registry.set('allStats', result.stats);
+    this.registry.set('gameScore', result.score);
     if (result.won) this.loadBackground();
     playSound(result.won ? 'win' : 'lose');
     fx.playEndEffect(this, result.won, () => {
@@ -882,7 +901,9 @@ export class MainScene extends Phaser.Scene {
         this.dailyInfo = null;
         this.registry.set('modal', { type: 'daily' });
       } else {
-        this.registry.set('modal', { type: 'result', won: result.won });
+        this.registry.set('modal', {
+          type: 'result', won: result.won, score: result.score, breakdown: result.scoreBreakdown,
+        });
       }
     });
   }
@@ -951,6 +972,7 @@ export class MainScene extends Phaser.Scene {
     });
     this.shuffles.push({ afterMoves: this.movesLog.length, kinds: result.kinds });
     this.registry.set('allStats', result.stats);
+    this.updateScore();
     playSound('shuffle');
     this.persistGame();
     this.registry.set('modal', null);
@@ -1008,7 +1030,11 @@ export class MainScene extends Phaser.Scene {
     if (!this.board.removePair(a, b)) return;
     this.movesLog.push([a.idx, b.idx]);
     this.selected = null;
+    const posA = this.tileScreenPos(a);
+    const posB = this.tileScreenPos(b);
     this.bumpCounter('gamePairs', 'pair');
+    const { lastPoints, lastChain } = this.updateScore();
+    fx.playScorePopup(this, (posA.x + posB.x) / 2, (posA.y + posB.y) / 2, lastPoints, lastChain);
     playSound('match');
 
     let pending = 0;

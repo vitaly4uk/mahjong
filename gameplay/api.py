@@ -46,7 +46,14 @@ from .schemas import (
     StatsResponse,
 )
 from .scoring import compute_score
-from .stats import apply_loss, apply_win, bump_counter, merge_imported, update_level_stats
+from .stats import (
+    apply_loss,
+    apply_score,
+    apply_win,
+    bump_counter,
+    merge_imported,
+    update_level_stats,
+)
 
 DAILY_LEADERBOARD_SIZE = 20
 
@@ -100,7 +107,7 @@ def _session_profile(request, session):
     return request.profile
 
 
-def _lifetime_stats_after(profile, session, mutator):
+def _lifetime_stats_after(profile, session, mutator, overall_mutator=None):
     """Applies `mutator` to profile.stats[session.level] and persists it —
     except for a daily-tournament session, whose progress (hints/undos/
     shuffles/wins/losses) never touches lifetime per-difficulty stats. Those
@@ -111,7 +118,7 @@ def _lifetime_stats_after(profile, session, mutator):
     unmodified for a daily session."""
     if session.daily_date is not None:
         return AllStats.model_validate(profile.stats)
-    return update_level_stats(profile, session.level, mutator)
+    return update_level_stats(profile, session.level, mutator, overall_mutator)
 
 
 @router.post('/start', response=StartResponse, throttle=_start_throttle)
@@ -467,7 +474,10 @@ def finish_game(request, payload: FinishRequest):
 
     profile = _session_profile(request, session)
     mutator = (lambda s: apply_win(s, elapsed_ms)) if payload.outcome == 'win' else apply_loss
-    all_stats = _lifetime_stats_after(profile, session, mutator)
+    all_stats = _lifetime_stats_after(
+        profile, session, mutator,
+        lambda o: apply_score(o, score.total, payload.outcome == 'win'),
+    )
 
     daily_rank = None
     if session.daily_date is not None and payload.outcome == 'win':

@@ -68,3 +68,18 @@ export function computeScore({
     total, pairPoints, hintPenalty, undoPenalty, shufflePenalty, noHelpBonus, timeBonus,
   };
 }
+
+// Live (in-game) display numbers: no bonuses, penalties included. Client-only,
+// no Python twin — the server only scores a finished game. `lastChain` is the
+// chain multiplier applied to the most recent pair (1..CHAIN_CAP), recovered
+// from computeScore's own per-pair points rather than re-deriving the chain.
+export function liveScore({
+  pairKinds, level, hints, undos, shuffles,
+}) {
+  const { total, pairPoints } = computeScore({
+    pairKinds, level, hints, undos, shuffles, elapsedMs: 0, won: false,
+  });
+  const lastPoints = pairPoints.at(-1) ?? 0;
+  const lastChain = lastPoints / (PAIR_BASE * LEVEL_MULTIPLIER[level]);
+  return { total, lastPoints, lastChain };
+}

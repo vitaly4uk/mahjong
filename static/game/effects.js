@@ -16,6 +16,7 @@ import {
   FLIGHT_TO_CENTER_MS, FLIGHT_MERGE_SCALE, FLIGHT_DOWN_MS, FLIGHT_ARC_LIFT,
   DEAL_TILE_MS, DEAL_LAYER_STAGGER, DEAL_TILE_STAGGER, DEAL_START_SCALE, DEAL_OFFSCREEN_PAD,
   SHUFFLE_FLIP_MS,
+  SCORE_POPUP_RISE, SCORE_POPUP_MS, SCORE_POPUP_STATIC_MS, SCORE_POPUP_COLOR, SCORE_POPUP_FONT,
 } from './render-constants.js';
 
 // --- Dealing tiles at the start of a game ---------------------------------
@@ -294,6 +295,37 @@ function flyDownFromCenter(scene, sprite, onDone) {
       sprite.destroy();
       onDone();
     },
+  });
+}
+
+// --- Score popup ------------------------------------------------------------
+
+// "+N" at the removed pair, plus a "Chain xK" line when the pair continues a
+// same-suit chain. Under reduced motion the label just appears and vanishes.
+export function playScorePopup(scene, x, y, points, chain) {
+  const { gettext, interpolate } = window;
+  const lines = [`+${points}`];
+  if (chain >= 2) lines.push(interpolate(gettext('Chain ×%(k)s'), { k: chain }, true));
+  const label = scene.add.text(x, y, lines.join('\n'), {
+    fontFamily: 'sans-serif',
+    fontStyle: 'bold',
+    fontSize: `${Math.round(scene.d(SCORE_POPUP_FONT))}px`,
+    color: SCORE_POPUP_COLOR,
+    stroke: '#000000',
+    strokeThickness: Math.round(scene.d(4)),
+    align: 'center',
+  }).setOrigin(0.5).setDepth(FALLING_DEPTH + 1);
+  if (scene.reducedMotion) {
+    scene.time.delayedCall(SCORE_POPUP_STATIC_MS, () => label.destroy());
+    return;
+  }
+  scene.tweens.add({
+    targets: label,
+    y: y - scene.d(SCORE_POPUP_RISE),
+    alpha: 0,
+    duration: SCORE_POPUP_MS,
+    ease: 'Sine.easeOut',
+    onComplete: () => label.destroy(),
   });
 }
 

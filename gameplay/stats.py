@@ -6,7 +6,7 @@ computes these changes itself, it only displays what the server returned.
 """
 from django.db import transaction
 
-from .schemas import AllStats, LevelStats
+from .schemas import AllStats, LevelStats, OverallStats
 
 LEVELS = ('easy', 'normal', 'hard')
 
@@ -41,6 +41,19 @@ def apply_win(stats: LevelStats, time_ms: int) -> LevelStats:
 
 def apply_loss(stats: LevelStats) -> LevelStats:
     return stats.model_copy(update={'games_played': stats.games_played + 1, 'current_streak': 0})
+
+
+def apply_score(stats: OverallStats, score: int, won: bool) -> OverallStats:
+    """Folds one finished regular game into the points stats."""
+    current_streak = stats.current_streak + 1 if won else 0
+    return stats.model_copy(update={
+        'games_scored': stats.games_scored + 1,
+        'total_score': stats.total_score + score,
+        'best_score': max(stats.best_score, score),
+        'games_won': stats.games_won + (1 if won else 0),
+        'current_streak': current_streak,
+        'best_streak': max(stats.best_streak, current_streak),
+    })
 
 
 def _merge_level(server: LevelStats, imported: LevelStats) -> LevelStats:
@@ -79,19 +92,32 @@ def merge_imported(server: AllStats, imported: AllStats) -> AllStats:
     """Additive merge per level — applied once, during the one-time transfer
     of the localStorage blob to the server (gameplay/api.py:
     POST /api/game/stats/import)."""
-    return AllStats(**{
-        level: _merge_level(getattr(server, level), getattr(imported, level))
-        for level in LEVELS
+    # The legacy blob predates points: only its wins and best streak carry
+    # into the overall block (the server's own scores/current streak stay).
+    imported_wins = sum(getattr(imported, level).games_won for level in LEVELS)
+    imported_best = max(getattr(imported, level).best_streak for level in LEVELS)
+    overall = server.overall.model_copy(update={
+        'games_won': server.overall.games_won + imported_wins,
+        'best_streak': max(server.overall.best_streak, imported_best),
     })
+    return AllStats(
+        overall=overall,
+        **{
+            level: _merge_level(getattr(server, level), getattr(imported, level))
+            for level in LEVELS
+        },
+    )
 
 
-def update_level_stats(profile, level, mutator) -> AllStats:
+def update_level_stats(profile, level, mutator, overall_mutator=None) -> AllStats:
     """Reads profile.stats, applies `mutator` to the given level's
     LevelStats, persists the updated blob, and returns the full AllStats —
     the read/mutate/save sequence shared by every gameplay/api.py endpoint
     that touches lifetime stats (start/bump/finish). `mutator` is one of the
     LevelStats -> LevelStats transformers above (bump_counter partial,
-    apply_win, apply_loss, ...).
+    apply_win, apply_loss, ...). `overall_mutator`, when given, is an
+    OverallStats -> OverallStats transformer (apply_score partial) applied in
+    the same locked write.
 
     Locks the row for the duration of the read-modify-write:
     Profile.stats is a JSONField, so without this two concurrent calls (two
@@ -109,6 +135,8 @@ def update_level_stats(profile, level, mutator) -> AllStats:
         locked = type(profile).objects.select_for_update().get(pk=profile.pk)
         all_stats = AllStats.model_validate(locked.stats)
         setattr(all_stats, level, mutator(getattr(all_stats, level)))
+        if overall_mutator is not None:
+            all_stats.overall = overall_mutator(all_stats.overall)
         locked.stats = all_stats.model_dump(by_alias=True)
         locked.save(update_fields=['stats', 'updated_at'])
     profile.stats = locked.stats

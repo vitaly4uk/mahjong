@@ -1,10 +1,12 @@
 import datetime
+import importlib
 import json
 import random
 import uuid
 from datetime import timedelta
 from io import StringIO
 
+from django.apps import apps as django_apps
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
@@ -34,9 +36,9 @@ from .layouts import (
 from .middleware import NEW_PROFILE_RATE_LIMIT, PLAYER_COOKIE_NAME
 from .models import GameSession, Profile
 from .ratelimit import IpRateThrottle
-from .schemas import AllStats, LevelStats
+from .schemas import AllStats, LevelStats, OverallStats
 from .scoring import compute_score, suit_of
-from .stats import apply_loss, apply_win, merge_imported
+from .stats import apply_loss, apply_score, apply_win, merge_imported
 
 
 class LayoutParserTests(TestCase):
@@ -977,6 +979,134 @@ class StatsTransformerTests(TestCase):
         self.assertEqual(merged.normal.current_streak, 1)  # the server-side streak takes precedence
 
 
+class OverallStatsTests(TestCase):
+    """The points-based lifetime block (schemas.OverallStats)."""
+
+    def test_apply_score_tracks_totals_best_wins_and_streaks(self):
+        stats = apply_score(OverallStats(), 100, won=True)
+        stats = apply_score(stats, 300, won=True)
+        self.assertEqual(
+            (stats.games_scored, stats.total_score, stats.best_score), (2, 400, 300),
+        )
+        self.assertEqual((stats.games_won, stats.current_streak, stats.best_streak), (2, 2, 2))
+
+        # A loss still scores its points but resets the streak, keeps the record.
+        stats = apply_score(stats, 50, won=False)
+        self.assertEqual(
+            (stats.games_scored, stats.total_score, stats.best_score), (3, 450, 300),
+        )
+        self.assertEqual((stats.games_won, stats.current_streak, stats.best_streak), (2, 0, 2))
+
+    def test_missing_overall_is_seeded_from_per_level_wins_and_best_streak(self):
+        blob = AllStats().model_dump(by_alias=True)
+        del blob['overall']
+        blob['easy'].update(gamesWon=3, bestStreak=2)
+        blob['hard'].update(gamesWon=4, bestStreak=5)
+        overall = AllStats.model_validate(blob).overall
+        self.assertEqual(overall.games_won, 7)
+        self.assertEqual(overall.best_streak, 5)
+        # Scores never existed before — they start from zero.
+        self.assertEqual(
+            (overall.games_scored, overall.total_score, overall.current_streak), (0, 0, 0),
+        )
+
+    def test_existing_overall_is_not_reseeded(self):
+        stats = AllStats.model_validate({'easy': {'gamesWon': 9}, 'overall': {'gamesWon': 1}})
+        self.assertEqual(stats.overall.games_won, 1)
+
+    def test_merge_imported_adds_wins_and_best_streak_but_keeps_server_scores(self):
+        server = AllStats(overall=OverallStats(
+            games_scored=2, total_score=500, best_score=300, games_won=2,
+            current_streak=2, best_streak=2,
+        ))
+        imported = AllStats()
+        imported.normal = LevelStats.model_validate(
+            {'gamesPlayed': 4, 'gamesWon': 3, 'bestStreak': 3},
+        )
+        merged = merge_imported(server, imported).overall
+        self.assertEqual(merged.games_won, 5)
+        self.assertEqual(merged.best_streak, 3)
+        self.assertEqual(
+            (merged.games_scored, merged.total_score, merged.best_score), (2, 500, 300),
+        )
+        self.assertEqual(merged.current_streak, 2)
+
+
+class BackfillScoresMigrationTests(TestCase):
+    """gameplay/migrations/0009_backfill_scores.py, run against live rows."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.migration = importlib.import_module('gameplay.migrations.0009_backfill_scores')
+
+    def _session(self, user, **kwargs):
+        defaults = dict(
+            level='normal', layout=[{}] * 144, seed='x', user=user,
+            status=GameSession.Status.CLAIMED, won=True, elapsed_ms=100_000,
+        )
+        return GameSession.objects.create(**{**defaults, **kwargs})
+
+    def _user(self, stats=None):
+        user = User.objects.create(username='p')
+        kwargs = {} if stats is None else {'stats': stats}
+        Profile.objects.create(user=user, **kwargs)
+        return user
+
+    def test_estimate_is_the_chain_free_lower_bound_with_exact_other_terms(self):
+        clean = self._session(self._user())
+        # 72 pairs x 10 x 2 = 1440; no-help +720; time (600-100) x 2 = 1000.
+        self.assertEqual(self.migration.estimate_score(clean), 3160)
+
+        helped = GameSession(
+            level='hard', layout=[{}] * 144, shuffles=[{}], hints=1, undos=2, elapsed_ms=700_000,
+        )
+        # 72 x 10 x 3 = 2160, no bonuses, penalties (20 + 20 + 20) x 3 = 180.
+        self.assertEqual(self.migration.estimate_score(helped), 1980)
+
+    def test_estimate_never_exceeds_the_real_score(self):
+        data = self.client.post(
+            '/api/game/start', data={'level': 'normal'}, content_type='application/json',
+        ).json()
+        board = Board([
+            Tile(i, t['x'], t['y'], t['z'], t['kind']) for i, t in enumerate(data['layout'])
+        ])
+        moves = []
+        while board.remaining:
+            a, b = board.find_matching_pair()
+            moves.append([a.idx, b.idx])
+            board.remove_pair(a, b)
+        body = self.client.post(
+            '/api/game/finish', data={'token': data['token'], 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        ).json()
+        session = GameSession.objects.get(token=data['token'])
+        self.assertLessEqual(self.migration.estimate_score(session), body['score'])
+
+    def test_backfill_scores_old_wins_and_folds_them_into_overall_once(self):
+        user = self._user({'easy': {'gamesWon': 2, 'bestStreak': 2}})
+        self._session(user, level='easy', elapsed_ms=0)  # 720 + 360 + 600 = 1680
+        self._session(user, level='easy', elapsed_ms=0, hints=1)  # 720 + 600 - 20 = 1300
+        self._session(user, won=False)  # a loss: unscored
+        self._session(user, daily_date=datetime.date(2026, 1, 1))  # daily: untouched
+        self._session(user, score=5)  # already scored: untouched
+
+        self.migration.backfill(django_apps, None)
+        self.migration.backfill(django_apps, None)  # a rerun must not double count
+
+        scores = sorted(
+            GameSession.objects.filter(user=user).values_list('score', flat=True),
+            key=lambda v: (v is None, v),
+        )
+        self.assertEqual(scores, [5, 1300, 1680, None, None])
+        overall = Profile.objects.get(user=user).stats['overall']
+        self.assertEqual(
+            (overall['gamesScored'], overall['totalScore'], overall['bestScore']), (2, 2980, 1680),
+        )
+        # Wins and best streak come from the seeding of the per-level blocks.
+        self.assertEqual((overall['gamesWon'], overall['bestStreak']), (2, 2))
+
+
 class PlayerIdentityMiddlewareTests(TestCase):
     def test_start_without_cookie_creates_user_profile_and_cookie_binds_session(self):
         response = self.client.post(
@@ -1485,6 +1615,7 @@ class DailyTournamentTests(TestCase):
         token = data['token']
         profile = GameSession.objects.get(token=token).user.profile
         before = profile.stats['normal']
+        overall_before = profile.stats['overall']
 
         self.client.post(
             f'/api/game/{token}/bump', data={'counter': 'hint'}, content_type='application/json',
@@ -1499,6 +1630,7 @@ class DailyTournamentTests(TestCase):
 
         profile.refresh_from_db()
         self.assertEqual(profile.stats['normal'], before)
+        self.assertEqual(profile.stats['overall'], overall_before)
         # The response's own stats blob reflects the same untouched state.
         self.assertEqual(response.json()['stats']['normal'], before)
 
@@ -1816,6 +1948,27 @@ class FinishScoreTests(TestCase):
         self.assertTrue(body['valid'], body)
 
         self._assert_score(body, kinds, 'easy', 0, 0, 1)
+
+    def test_finish_folds_the_score_into_overall_stats(self):
+        data = self._start('hard')
+        moves, kinds = self._solve(self._tiles(data['layout']))
+        body = self._finish(data['token'], moves)
+        self.assertTrue(body['valid'], body)
+
+        overall = body['stats']['overall']
+        self.assertEqual(overall['gamesScored'], 1)
+        self.assertEqual(overall['totalScore'], body['score'])
+        self.assertEqual(overall['bestScore'], body['score'])
+        self.assertEqual((overall['gamesWon'], overall['currentStreak']), (1, 1))
+
+    def test_loss_adds_its_points_and_resets_the_streak(self):
+        data = self._start()
+        token = data['token']
+        GameSession.objects.filter(token=token).update(layout=self.DEADLOCK_AFTER_ONE_PAIR)
+        body = self._finish(token, [[0, 1]], outcome='deadlock')
+        overall = body['stats']['overall']
+        self.assertEqual((overall['gamesScored'], overall['totalScore']), (1, 10))
+        self.assertEqual((overall['gamesWon'], overall['currentStreak']), (0, 0))
 
     def test_deadlock_loss_is_scored_without_bonuses(self):
         data = self._start()
