@@ -51,7 +51,6 @@ export function playDealIn(scene) {
     sprite.x = startX;
     sprite.y = startY;
     sprite.setScale(sprite.scaleX * DEAL_START_SCALE);
-    sprite._baseScale = undefined;
     sprite.alpha = 0;
     sprite._flying = true;
 
@@ -68,7 +67,13 @@ export function playDealIn(scene) {
       delay,
       duration: DEAL_TILE_MS,
       ease: 'Back.easeOut',
-      onComplete: () => { sprite._flying = false; },
+      onComplete: () => {
+        sprite._flying = false;
+        // The tween aimed at the pre-resize position/size and relayoutTiles()
+        // skipped this sprite while it flew — snap it to the current layout
+        // (a no-op if no resize happened). A new game mid-deal destroys it.
+        if (sprite.active) scene.relayoutSprite(tile, sprite);
+      },
     });
   }
 
