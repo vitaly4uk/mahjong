@@ -140,6 +140,10 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   (all endpoints, most with a `throttle=` on the route; `middleware.py`'s
   new-profile limit calls the same throttle class's `.allow_request()`
   directly, since middleware runs before ninja's own routing).
+  `GameSession.hints`/`undos` are bumped server-side for every session (not
+  just daily ones) and, with the replayed move log, feed `GameSession.score`,
+  the point score set on every claimed game (see the `scoring.py` entry
+  below). The daily tournament still ranks by `score_ms` (time), not points.
   `GameSession.user` is nullable only for a painless migration of already
   existing rows (new code always sets it). Stats are attributed to the player
   who STARTED the session (`session.user`), not necessarily whoever makes the
@@ -390,7 +394,8 @@ node --test 'tests/*.test.js'
 (The form `node --test tests/` doesn't work — node treats the directory as a
 module.) Covered: the freedom rule, matching/undo, deadlock, move-log replay,
 transformers and the localStorage wrapper for stats (`stats.js`), sound
-on/off and lazy `AudioContext` init through an injected double (`audio.js`).
+on/off and lazy `AudioContext` init through an injected double (`audio.js`),
+the scoring formula against the shared fixture (`scoring.js`).
 The board shape (which layout, generation solvability) is no longer covered
 by client tests — it's entirely server-side (below); `board.js` now only
 knows the coordinate system, not a specific shape. `scene.js`/`effects.js`/
@@ -398,7 +403,8 @@ knows the coordinate system, not a specific shape. `scene.js`/`effects.js`/
 browser.
 
 Server-side logic (`gameplay/`: `.layout` file parser, board generation for
-each layout, the freedom rule, session validation through the API;
+each layout, the freedom rule, session validation through the API, the
+scoring formula against the same shared fixture as the JS tests;
 `config/`: the background endpoint):
 
 ```

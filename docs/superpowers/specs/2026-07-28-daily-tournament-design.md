@@ -39,8 +39,10 @@ three new fields:
 - `hints`/`undos` (`PositiveIntegerField`, default 0) — server-side penalty
   counters, incremented atomically (an `F()` expression) from the live
   `POST /{token}/bump`, the same way the rest of hint/undo counting works.
-  For regular games these are dead columns, never written to (guarded by
-  `session.daily_date is not None` in `bump_stat`).
+  _Superseded:_ these were originally written for daily sessions only
+  (guarded by `session.daily_date is not None` in `bump_stat`). They are now
+  counted for every session, because the point score
+  (`gameplay/scoring.py`) needs them too.
 - `score_ms` (`PositiveIntegerField`, nullable) — set only on a winning
   claim; stays `null` for regular games and for lost/unfinished tournament
   attempts.
