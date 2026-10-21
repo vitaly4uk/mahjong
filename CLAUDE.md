@@ -91,6 +91,12 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   `npm install` is therefore required for local development too, not just for
   the Docker build. Upgrading DiceBear 9→10 deliberately changed every
   player's avatar (same seed, different `funEmoji` output).
+  `package.json`'s `overrides` pins `@parcel/watcher` (Tailwind CLI's file
+  watcher) to `^2.6.0` — `@tailwindcss/cli@4.3.3` hard-pins `2.5.1`, which
+  pulls `micromatch`→`braces` (GHSA-vfj7-8cjw-p6xm, high, **no patched
+  `braces` release exists**); `2.6.0` swapped it for `picomatch`. Build-time
+  only (never in the prod image). Drop the override once `@tailwindcss/cli`
+  bumps its own pin; `npm audit` must stay at 0.
 
 ## Game structure
 
