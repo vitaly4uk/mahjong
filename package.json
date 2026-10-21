@@ -2,16 +2,16 @@
   "name": "mahjong",
   "private": true,
   "type": "module",
-  "description": "Node dependencies for the JS/CSS build (Dockerfile: jsbuild). devDependencies are Tailwind's CSS build (assets/tailwind.src.css — deliberately outside static/, see its own header comment: a documented WhiteNoise+Tailwind gotcha, not a one-off workaround) — the one thing here that genuinely needs npm-style module resolution (@import \"tailwindcss\"), unlike esbuild/Biome which run fine via bare npx. dependencies DO ship client-side: @dicebear/* is imported by static/game/avatar.js and gets bundled into static/game/bundle.js by esbuild (which also runs via npm ci, not bare npx, for the same node_modules access).",
+  "description": "Node dependencies for the JS/CSS build (Dockerfile: jsbuild). devDependencies are Tailwind's CSS build (assets/tailwind.src.css — deliberately outside static/, see its own header comment: a documented WhiteNoise+Tailwind gotcha, not a one-off workaround) — the one thing here that genuinely needs npm-style module resolution (@import \"tailwindcss\"), unlike esbuild/Biome which run fine via bare npx. dependencies DO ship client-side: @dicebear/core + @dicebear/styles are imported by static/game/avatar.js and get bundled into static/game/bundle.js by esbuild (which also runs via npm ci, not bare npx, for the same node_modules access).",
   "devDependencies": {
     "@tailwindcss/cli": "4.3.3",
     "tailwindcss": "4.3.3"
   },
   "dependencies": {
-    "@dicebear/collection": "^9.4.2",
-    "@dicebear/core": "^9.4.3"
+    "@dicebear/core": "^10.7.0",
+    "@dicebear/styles": "^10.6.0"
   },
   "overrides": {
-    "@dicebear/initials": "^9.4.3"
+    "@parcel/watcher": "^2.6.0"
   }
 }

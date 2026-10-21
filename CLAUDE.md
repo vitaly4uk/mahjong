@@ -86,18 +86,17 @@ For data structures always use `ninja.Schema` (or pydantic `BaseModel`), never
   `brotli` dependency in `pyproject.toml`; without it there would only be
   gzip) and serves the smallest variant based on `Accept-Encoding`.
 - **`package.json` has both `devDependencies` (Tailwind — build-time, not in
-  the prod image) and `dependencies`** (`@dicebear/core`+`@dicebear/collection`
+  the prod image) and `dependencies`** (`@dicebear/core`+`@dicebear/styles`
   — actually shipped in `bundle.js`, imported by `static/game/avatar.js`).
   `npm install` is therefore required for local development too, not just for
-  the Docker build. `@dicebear/core` is deliberately held on the `9.x` line
-  (not `^10`) — `@dicebear/collection` has no v10 release yet and peer-depends
-  on `@dicebear/core: ^9.0.0`; bumping `core` alone would break that pair.
-  `package.json`'s `overrides` pins the transitive `@dicebear/initials` to
-  `^9.4.3` — `@dicebear/collection@9.4.2` hard-pins it to the exact vulnerable
-  `9.4.2` (GHSA-gcr2-9v8m-gq45, an unescaped-option XSS; unreachable here
-  anyway since `avatar.js` only uses the `funEmoji` style and never sets
-  `rotate`), and there's no newer `collection` release yet to pick up the fix
-  on its own. Drop this override once `collection` bumps its own pin.
+  the Docker build. Upgrading DiceBear 9→10 deliberately changed every
+  player's avatar (same seed, different `funEmoji` output).
+  `package.json`'s `overrides` pins `@parcel/watcher` (Tailwind CLI's file
+  watcher) to `^2.6.0` — `@tailwindcss/cli@4.3.3` hard-pins `2.5.1`, which
+  pulls `micromatch`→`braces` (GHSA-vfj7-8cjw-p6xm, high, **no patched
+  `braces` release exists**); `2.6.0` swapped it for `picomatch`. Build-time
+  only (never in the prod image). Drop the override once `@tailwindcss/cli`
+  bumps its own pin; `npm audit` must stay at 0.
 
 ## Game structure
 
@@ -453,9 +452,9 @@ tests above:
   separate CSS tool (stylelint etc.) wasn't set up; the CSS formatter stays
   off (Biome's default), the criterion is `lint` only:
   ```
-  npx --yes @biomejs/biome@2.5.14 lint static/game tests
+  npx --yes @biomejs/biome@2.5.15 lint static/game tests
   ```
-  Autofix: `npx --yes @biomejs/biome@2.5.14 lint --write static/game tests`
+  Autofix: `npx --yes @biomejs/biome@2.5.15 lint --write static/game tests`
   (some fixes are `--unsafe` — review the diff before applying).
 
 Both linters are purely static analysis. GitHub Actions

@@ -3,11 +3,11 @@ name = "mahjong"
 version = "0.1.0"
 description = "Browser-based mahjong solitaire — Django + django-ninja server-authoritative backend, Phaser 3 frontend"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 license = "GPL-3.0-or-later"
 dependencies = [
     "brotli>=1.2.0",
-    "django>=6.1.1",
+    "django>=6.1.2",
     "django-environ>=0.14.0",
     "django-ninja>=1.7.1",
     "django-redis>=7.0.0",
@@ -19,11 +19,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "ruff>=0.16.9",
+    "ruff>=0.17.1",
 ]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py314"
 line-length = 100
 extend-exclude = ["staticfiles", "**/migrations"]
 
