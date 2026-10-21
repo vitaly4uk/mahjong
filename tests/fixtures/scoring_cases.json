@@ -1,0 +1,132 @@
+[
+  {
+    "name": "easy: one pair, multiplier 1",
+    "input": {"pairKinds": ["Man1"], "level": "easy", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 10, "pairPoints": [10], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "normal: one pair, multiplier 2",
+    "input": {"pairKinds": ["Man1"], "level": "normal", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 20, "pairPoints": [20], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "hard: one pair, multiplier 3",
+    "input": {"pairKinds": ["Man1"], "level": "hard", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 30, "pairPoints": [30], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "no pairs removed",
+    "input": {"pairKinds": [], "level": "easy", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 0, "pairPoints": [], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "chain grows and caps at 5",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5", "Man6", "Man7"], "level": "easy", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 250, "pairPoints": [10, 20, 30, 40, 50, 50, 50], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "a different suit resets the chain",
+    "input": {"pairKinds": ["Man1", "Man2", "Pin1", "Pin2", "Man3"], "level": "easy", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 70, "pairPoints": [10, 20, 10, 20, 10], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "alternating suits never chain",
+    "input": {"pairKinds": ["Man1", "Pin1", "Man2", "Pin2"], "level": "easy", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 40, "pairPoints": [10, 10, 10, 10], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "sou, winds and dragons are separate suits",
+    "input": {"pairKinds": ["Sou1", "Ton", "Nan", "Haku", "Hatsu"], "level": "easy", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 70, "pairPoints": [10, 10, 20, 10, 20], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "different flowers chain as one group",
+    "input": {"pairKinds": ["Plum", "Orchid", "Bamboo"], "level": "easy", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 60, "pairPoints": [10, 20, 30], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "different seasons chain as one group",
+    "input": {"pairKinds": ["Spring", "Winter"], "level": "easy", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 30, "pairPoints": [10, 20], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "flowers and seasons do not chain with each other",
+    "input": {"pairKinds": ["Plum", "Spring", "Summer"], "level": "easy", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 40, "pairPoints": [10, 10, 20], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "hint penalty, easy",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "easy", "hints": 2, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 110, "pairPoints": [10, 20, 30, 40, 50], "hintPenalty": 40, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "hint penalty scales with the level multiplier",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "normal", "hints": 2, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 220, "pairPoints": [20, 40, 60, 80, 100], "hintPenalty": 80, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "undo penalty",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "easy", "hints": 0, "undos": 3, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 120, "pairPoints": [10, 20, 30, 40, 50], "hintPenalty": 0, "undoPenalty": 30, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "shuffle penalty",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "easy", "hints": 0, "undos": 0, "shuffles": 1, "elapsedMs": 0, "won": false},
+    "expected": {"total": 130, "pairPoints": [10, 20, 30, 40, 50], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 20, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "total never goes below 0",
+    "input": {"pairKinds": ["Man1"], "level": "easy", "hints": 3, "undos": 0, "shuffles": 0, "elapsedMs": 0, "won": false},
+    "expected": {"total": 0, "pairPoints": [10], "hintPenalty": 60, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "win with no help gets +50% of pair points",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "easy", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 600000, "won": true},
+    "expected": {"total": 225, "pairPoints": [10, 20, 30, 40, 50], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 75, "timeBonus": 0}
+  },
+  {
+    "name": "win with a hint loses the no-help bonus",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "easy", "hints": 1, "undos": 0, "shuffles": 0, "elapsedMs": 600000, "won": true},
+    "expected": {"total": 130, "pairPoints": [10, 20, 30, 40, 50], "hintPenalty": 20, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "win with an undo loses the no-help bonus",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "easy", "hints": 0, "undos": 1, "shuffles": 0, "elapsedMs": 600000, "won": true},
+    "expected": {"total": 140, "pairPoints": [10, 20, 30, 40, 50], "hintPenalty": 0, "undoPenalty": 10, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "win with a shuffle loses the no-help bonus",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "easy", "hints": 0, "undos": 0, "shuffles": 1, "elapsedMs": 600000, "won": true},
+    "expected": {"total": 130, "pairPoints": [10, 20, 30, 40, 50], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 20, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "time bonus: 100 s on easy",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "easy", "hints": 1, "undos": 0, "shuffles": 0, "elapsedMs": 100000, "won": true},
+    "expected": {"total": 630, "pairPoints": [10, 20, 30, 40, 50], "hintPenalty": 20, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 500}
+  },
+  {
+    "name": "time bonus scales with the level multiplier",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "normal", "hints": 1, "undos": 0, "shuffles": 0, "elapsedMs": 100000, "won": true},
+    "expected": {"total": 1260, "pairPoints": [20, 40, 60, 80, 100], "hintPenalty": 40, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 1000}
+  },
+  {
+    "name": "time bonus uses whole seconds (599.999 s = 599 s)",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "easy", "hints": 1, "undos": 0, "shuffles": 0, "elapsedMs": 599999, "won": true},
+    "expected": {"total": 131, "pairPoints": [10, 20, 30, 40, 50], "hintPenalty": 20, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 1}
+  },
+  {
+    "name": "time bonus is 0 past the 600 s cutoff",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "easy", "hints": 1, "undos": 0, "shuffles": 0, "elapsedMs": 900000, "won": true},
+    "expected": {"total": 130, "pairPoints": [10, 20, 30, 40, 50], "hintPenalty": 20, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  },
+  {
+    "name": "hard win: chain, no-help bonus and time bonus together",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "hard", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 300000, "won": true},
+    "expected": {"total": 1575, "pairPoints": [30, 60, 90, 120, 150], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 225, "timeBonus": 900}
+  },
+  {
+    "name": "lost game gets no bonuses even when played without help and fast",
+    "input": {"pairKinds": ["Man1", "Man2", "Man3", "Man4", "Man5"], "level": "easy", "hints": 0, "undos": 0, "shuffles": 0, "elapsedMs": 10000, "won": false},
+    "expected": {"total": 150, "pairPoints": [10, 20, 30, 40, 50], "hintPenalty": 0, "undoPenalty": 0, "shufflePenalty": 0, "noHelpBonus": 0, "timeBonus": 0}
+  }
+]

@@ -45,6 +45,7 @@ from .schemas import (
     StartResponse,
     StatsResponse,
 )
+from .scoring import compute_score
 from .stats import apply_loss, apply_win, bump_counter, merge_imported, update_level_stats
 
 DAILY_LEADERBOARD_SIZE = 20
@@ -289,14 +290,11 @@ def bump_stat(request, token: uuid.UUID, payload: BumpRequest):
     if session.status != GameSession.Status.ACTIVE:
         raise HttpError(400, _('session already claimed'))
 
-    # Server-authoritative per-session penalty counters — feed daily
-    # tournament scoring at finish (gameplay/daily.py: HINT_PENALTY_MS/
-    # UNDO_PENALTY_MS). An F-expression keeps this atomic against concurrent
-    # bumps. Only written for daily sessions — a no-op query on every hint/
-    # undo of a regular game would otherwise be dead weight on the hottest
-    # per-move endpoint in the app.
+    # Server-authoritative per-session penalty counters — feed the point score
+    # (gameplay/scoring.py) and daily scoring (gameplay/daily.py) at finish.
+    # An F-expression keeps this atomic against concurrent bumps.
     session_field = {'hint': 'hints', 'undo': 'undos'}.get(payload.counter)
-    if session_field is not None and session.daily_date is not None:
+    if session_field is not None:
         GameSession.objects.filter(token=token).update(**{session_field: F(session_field) + 1})
 
     profile = _session_profile(request, session)
@@ -313,8 +311,10 @@ def _replay(session, moves):
     tiles already on the board. `after_moves` is the move-log length at the
     moment of that shuffle, so applying it right before processing the move
     at that same index reproduces exactly the kinds the client was looking
-    at when it made that move. Returns the resulting Board, or None on the
-    first illegal move (a corrupted/forged log)."""
+    at when it made that move. Returns `(board, removed_kinds)` — the kind of
+    each removed pair as it stood at removal (the scoring input,
+    gameplay/scoring.py) — or `(None, [])` on the first illegal move (a
+    corrupted/forged log)."""
     tiles = [
         Tile(idx, t['x'], t['y'], t['z'], t['kind'])
         for idx, t in enumerate(session.layout)
@@ -331,14 +331,16 @@ def _replay(session, moves):
             if tile is not None:
                 tile.kind = kind
 
+    removed_kinds = []
     apply_shuffle(0)
     for i, (a_idx, b_idx) in enumerate(moves):
         a = board.get_by_idx(a_idx)
         b = board.get_by_idx(b_idx)
         if a is None or b is None or not board.remove_pair(a, b):
-            return None
+            return None, []
+        removed_kinds.append(a.kind)
         apply_shuffle(i + 1)
-    return board
+    return board, removed_kinds
 
 
 @router.post('/{uuid:token}/shuffle', response=ShuffleResponse, throttle=_shuffle_throttle)
@@ -369,7 +371,7 @@ def shuffle_game(request, token: uuid.UUID, payload: ShuffleRequest):
         kinds = {int(idx_str): kind for idx_str, kind in session.shuffles[-1]['kinds'].items()}
         return {'kinds': kinds, 'stats': AllStats.model_validate(profile.stats)}
 
-    board = _replay(session, moves)
+    board, _kinds = _replay(session, moves)
     if board is None:
         raise HttpError(400, _('illegal move'))
     if not board.is_deadlocked():
@@ -412,7 +414,7 @@ def finish_game(request, payload: FinishRequest):
     if payload.outcome not in ('win', 'deadlock'):
         return {'valid': False, 'reason': _('unknown outcome')}
 
-    board = _replay(session, payload.moves)
+    board, removed_kinds = _replay(session, payload.moves)
     if board is None:
         return {'valid': False, 'reason': _('illegal move')}
 
@@ -425,6 +427,13 @@ def finish_game(request, payload: FinishRequest):
     # must reflect time up to the actual claim, after move validation.
     elapsed_ms = int(_session_elapsed(session).total_seconds() * 1000)
 
+    # Inputs come only from the replay and the session's own counters; a
+    # /bump landing after that row was read misses this score.
+    score = compute_score(
+        removed_kinds, session.level, session.hints, session.undos,
+        len(session.shuffles), elapsed_ms, payload.outcome == 'win',
+    )
+
     # An atomic conditional UPDATE closes the claim race: if two finish
     # requests both read status=ACTIVE before either managed to write
     # CLAIMED, only one UPDATE (WHERE status='active') actually takes effect
@@ -434,6 +443,7 @@ def finish_game(request, payload: FinishRequest):
         claimed_at=timezone.now(),
         elapsed_ms=elapsed_ms,
         won=payload.outcome == 'win',
+        score=score.total,
     )
     if session.daily_date is not None and payload.outcome == 'win':
         # F-expressions read hints/undos as they stand in the DB right now —
@@ -467,6 +477,7 @@ def finish_game(request, payload: FinishRequest):
     return {
         'valid': True, 'won': payload.outcome == 'win',
         'elapsed_ms': elapsed_ms, 'stats': all_stats, 'daily_rank': daily_rank,
+        'score': score.total, 'score_breakdown': score,
     }
 
 

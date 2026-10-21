@@ -66,9 +66,9 @@ class GameSession(models.Model):
     claimed_at = models.DateTimeField(null=True, blank=True)
     elapsed_ms = models.PositiveIntegerField(null=True, blank=True)
     won = models.BooleanField(null=True, blank=True)
-    # Server-authoritative penalty counters (gameplay/api.py: bump_stat), used
-    # only to compute score_ms for daily tournament sessions — never trusted
-    # from the client. Harmless unused columns on regular (non-daily) games.
+    # Server-authoritative penalty counters (gameplay/api.py: bump_stat), fed
+    # into the point score (gameplay/scoring.py) and, for daily tournament
+    # sessions, into score_ms — never trusted from the client.
     hints = models.PositiveIntegerField(default=0)
     undos = models.PositiveIntegerField(default=0)
     # None = a regular free-play game; a date = a daily-tournament attempt for
@@ -81,6 +81,10 @@ class GameSession(models.Model):
     # daily losses/deadlocks, so those never appear on the leaderboard
     # (gameplay/api.py: daily_info's `won=True` filter).
     score_ms = models.PositiveIntegerField(null=True, blank=True)
+    # Point score (gameplay/scoring.py: compute_score), set on every claimed
+    # game, win or loss. Null for unclaimed sessions and for rows claimed
+    # before scoring existed.
+    score = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         constraints = [

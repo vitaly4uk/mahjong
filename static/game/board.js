@@ -14,6 +14,9 @@ export const KINDS = [
 // any flower, any season matches any season (two groups).
 export const FLOWERS = ['Plum', 'Orchid', 'Bamboo', 'Chrysanthemum'];
 export const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
+// Honor groups of the riichi-34, used for suit grouping in scoring.js.
+export const WINDS = ['Ton', 'Nan', 'Shaa', 'Pei'];
+export const DRAGONS = ['Haku', 'Hatsu', 'Chun'];
 const BONUS_GROUP = new Map([
   ...FLOWERS.map((k) => [k, 'flower']),
   ...SEASONS.map((k) => [k, 'season']),
