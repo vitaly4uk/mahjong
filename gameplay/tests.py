@@ -38,7 +38,7 @@ from .models import GameSession, Profile
 from .ratelimit import IpRateThrottle
 from .schemas import AllStats, LevelStats, OverallStats
 from .scoring import compute_score, suit_of
-from .stats import apply_loss, apply_score, apply_win, merge_imported
+from .stats import apply_best_score, apply_loss, apply_score, apply_win, merge_imported
 
 
 class LayoutParserTests(TestCase):
@@ -1105,6 +1105,133 @@ class BackfillScoresMigrationTests(TestCase):
         )
         # Wins and best streak come from the seeding of the per-level blocks.
         self.assertEqual((overall['gamesWon'], overall['bestStreak']), (2, 2))
+
+
+class BestScoreTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_apply_best_score_records_new_board_and_only_raises(self):
+        best = apply_best_score({}, 'dragon', 'normal', 500)
+        self.assertEqual(best, {'dragon': {'normal': 500}})
+        self.assertEqual(apply_best_score(best, 'dragon', 'normal', 400), best)
+        self.assertEqual(
+            apply_best_score(best, 'dragon', 'normal', 900), {'dragon': {'normal': 900}},
+        )
+        self.assertEqual(
+            apply_best_score(best, 'dragon', 'hard', 100),
+            {'dragon': {'normal': 500, 'hard': 100}},
+        )
+        self.assertEqual(
+            apply_best_score(best, 'cat', 'normal', 50),
+            {'dragon': {'normal': 500}, 'cat': {'normal': 50}},
+        )
+
+    def test_apply_best_score_ignores_a_session_without_a_board(self):
+        self.assertEqual(apply_best_score({}, '', 'normal', 500), {})
+
+    def _play(self, board, win=True):
+        data = self.client.post(
+            '/api/game/start', data={'level': 'easy', 'board': board},
+            content_type='application/json',
+        ).json()
+        tiles = [
+            Tile(i, t['x'], t['y'], t['z'], t['kind']) for i, t in enumerate(data['layout'])
+        ]
+        b = Board(tiles)
+        moves = []
+        while b.remaining:
+            x, y = b.find_matching_pair()
+            moves.append([x.idx, y.idx])
+            b.remove_pair(x, y)
+        return self.client.post(
+            '/api/game/finish', data={'token': data['token'], 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        ).json()
+
+    def test_start_stores_the_board_on_the_session(self):
+        data = self.client.post(
+            '/api/game/start', data={'level': 'easy', 'board': 'dragon'},
+            content_type='application/json',
+        ).json()
+        self.assertEqual(GameSession.objects.get(token=data['token']).board, 'dragon')
+
+    def test_finish_writes_the_record_for_a_regular_game(self):
+        body = self._play('dragon')
+        self.assertEqual(body['stats']['bestScores'], {'dragon': {'easy': body['score']}})
+
+    def test_daily_game_never_touches_records(self):
+        today = timezone.localdate()
+        board_slug, level, _seed = daily_challenge(today)
+        data = self.client.post('/api/game/daily/start').json()
+        self.assertEqual(GameSession.objects.get(token=data['token']).board, board_slug)
+        tiles = [
+            Tile(i, t['x'], t['y'], t['z'], t['kind']) for i, t in enumerate(data['layout'])
+        ]
+        b = Board(tiles)
+        moves = []
+        while b.remaining:
+            x, y = b.find_matching_pair()
+            moves.append([x.idx, y.idx])
+            b.remove_pair(x, y)
+        body = self.client.post(
+            '/api/game/finish', data={'token': data['token'], 'moves': moves, 'outcome': 'win'},
+            content_type='application/json',
+        ).json()
+        self.assertTrue(body['valid'], body)
+        self.assertEqual(body['stats']['bestScores'], {})
+        self.assertEqual(level, GameSession.objects.get(token=data['token']).level)
+
+
+class BackfillBestScoresMigrationTests(TestCase):
+    """gameplay/migrations/0013_backfill_best_scores.py, run against live rows."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.migration = importlib.import_module('gameplay.migrations.0013_backfill_best_scores')
+
+    def _layout(self, slug):
+        return [
+            {'x': x, 'y': y, 'z': z, 'kind': 'a'}
+            for x, y, z in load_layouts()[slug].positions
+        ]
+
+    def _session(self, user, slug='dragon', **kwargs):
+        defaults = dict(
+            level='normal', layout=self._layout(slug), seed='x', user=user,
+            status=GameSession.Status.CLAIMED, won=True, score=100,
+        )
+        return GameSession.objects.create(**{**defaults, **kwargs})
+
+    def test_every_layout_matches_only_itself(self):
+        index = self.migration._positions_index()
+        self.assertEqual(len(index), len(load_layouts()))
+        for slug, layout in load_layouts().items():
+            self.assertEqual(index[frozenset(layout.positions)], slug)
+
+    def test_backfills_board_and_takes_the_max_per_board_and_level(self):
+        user = User.objects.create(username='p')
+        Profile.objects.create(user=user)
+        self._session(user, 'dragon', score=300)
+        self._session(user, 'dragon', score=700)
+        self._session(user, 'dragon', level='hard', score=50)
+        self._session(user, 'cat', score=200)
+        self._session(user, 'cat', daily_date=datetime.date(2026, 1, 1), score=9999)
+        self._session(user, 'cat', status=GameSession.Status.ACTIVE, score=None)
+        unmatched = self._session(user, 'cat', layout=[], score=9999)
+
+        self.migration.backfill(django_apps, None)
+        self.migration.backfill(django_apps, None)  # a rerun changes nothing
+
+        self.assertEqual(
+            Profile.objects.get(user=user).stats['bestScores'],
+            {'dragon': {'normal': 700, 'hard': 50}, 'cat': {'normal': 200}},
+        )
+        self.assertEqual(GameSession.objects.get(pk=unmatched.pk).board, '')
+        self.assertEqual(
+            GameSession.objects.filter(user=user, board='cat').count(), 3,
+        )
 
 
 class BackfillDailyScoresMigrationTests(TestCase):

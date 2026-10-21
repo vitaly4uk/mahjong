@@ -65,6 +65,12 @@ export function bestTime(allStats) {
   return times.length ? Math.min(...times) : null;
 }
 
+// Best score for one (board, level), or null when none is recorded yet — a
+// board added later (or never played) simply has no entry.
+export function bestScoreFor(allStats, board, level) {
+  return allStats?.bestScores?.[board]?.[level] ?? null;
+}
+
 export function fmtTime(ms) {
   const totalSeconds = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);

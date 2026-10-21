@@ -56,6 +56,19 @@ def apply_score(stats: OverallStats, score: int, won: bool) -> OverallStats:
     })
 
 
+def apply_best_score(
+    best_scores: dict[str, dict[str, int]], board: str, level: str, score: int,
+) -> dict[str, dict[str, int]]:
+    """Raises the (board, level) record if `score` beats it. A session with no
+    board (rows from before the field existed) is not recorded."""
+    if not board:
+        return best_scores
+    per_level = best_scores.get(board, {})
+    if score <= per_level.get(level, 0):
+        return best_scores
+    return {**best_scores, board: {**per_level, level: score}}
+
+
 def _merge_level(server: LevelStats, imported: LevelStats) -> LevelStats:
     # currentStreak from the import is only used if the server has had no
     # real games at this level yet — otherwise the real server-side streak
@@ -109,7 +122,9 @@ def merge_imported(server: AllStats, imported: AllStats) -> AllStats:
     )
 
 
-def update_level_stats(profile, level, mutator, overall_mutator=None) -> AllStats:
+def update_level_stats(
+    profile, level, mutator, overall_mutator=None, best_scores_mutator=None,
+) -> AllStats:
     """Reads profile.stats, applies `mutator` to the given level's
     LevelStats, persists the updated blob, and returns the full AllStats —
     the read/mutate/save sequence shared by every gameplay/api.py endpoint
@@ -117,7 +132,8 @@ def update_level_stats(profile, level, mutator, overall_mutator=None) -> AllStat
     LevelStats -> LevelStats transformers above (bump_counter partial,
     apply_win, apply_loss, ...). `overall_mutator`, when given, is an
     OverallStats -> OverallStats transformer (apply_score partial) applied in
-    the same locked write.
+    the same locked write; so is `best_scores_mutator`, a dict -> dict
+    transformer over AllStats.best_scores (apply_best_score partial).
 
     Locks the row for the duration of the read-modify-write:
     Profile.stats is a JSONField, so without this two concurrent calls (two
@@ -137,6 +153,8 @@ def update_level_stats(profile, level, mutator, overall_mutator=None) -> AllStat
         setattr(all_stats, level, mutator(getattr(all_stats, level)))
         if overall_mutator is not None:
             all_stats.overall = overall_mutator(all_stats.overall)
+        if best_scores_mutator is not None:
+            all_stats.best_scores = best_scores_mutator(all_stats.best_scores)
         locked.stats = all_stats.model_dump(by_alias=True)
         locked.save(update_fields=['stats', 'updated_at'])
     profile.stats = locked.stats
